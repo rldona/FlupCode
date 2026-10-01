@@ -1954,6 +1954,726 @@ export default {
 `,
 }
 
+/**
+ * memory: durable memory on OpenCode 2 (V2-32), the store FlupCode patched into its 1.x engine,
+ * rebuilt as a plugin with the same behaviour and the same API shape: its own SQLite file under
+ * FlupCode's data folder; the relevant memories retrieved by the same lexical score and rendered as
+ * the same `<memory>` block after the system prompt (pinned per user turn, so later steps of a turn
+ * send the same bytes); "remember that…" captured when the prompt is admitted; candidates extracted
+ * by the model after a run, at most once per interval; the `memory` tool; and list, get, create,
+ * update, remove, verify and used served over the plugin RPC (`flupcode.memory`), which the app's
+ * OpenCode 2 adapter calls. Nothing is read from 1.x's database.
+ */
+export const MEMORY_PLUGIN_V2 = {
+  file: "flupcode-memory.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Durable memory across sessions: retrieved into each turn,
+// captured from "remember that…", extracted after a run, kept by the memory tool and served to the app
+// over the plugin RPC. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { Database } from "bun:sqlite"
+import { createHash, randomBytes } from "node:crypto"
+import { existsSync, mkdirSync, statSync } from "node:fs"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+${CONFIG_HELPERS}
+
+// Kept in step with DEFAULTS in packages/core/src/memory.ts (the 1.x store).
+const DEFAULTS = {
+  enabled: true,
+  auto: true,
+  maxInjected: 8,
+  maxTokens: 1000,
+  staleAfterDays: 90,
+  extractInterval: 30,
+  maxCandidatesPerSession: 20,
+}
+const KINDS = ["fact", "convention", "procedure", "preference", "constraint", "workflow", "decision", "issue", "solution"]
+const SCOPES = ["global", "project", "agent", "session"]
+const STATUSES = ["candidate", "active", "stale", "archived"]
+
+function databasePath() {
+  if (process.env.FLUPCODE_MEMORY_DB) return process.env.FLUPCODE_MEMORY_DB
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "memory.db")
+}
+
+// ---- The pure part, ported from packages/core/src/memory/utils.ts ----
+
+const normalizeContent = (content) => content.trim().toLowerCase().replace(/\s+/g, " ")
+const fingerprint = (content) => createHash("sha256").update(normalizeContent(content)).digest("hex")
+
+const FILE_PATTERN =
+  /(?:^|[\s(${"`"}"'])((?:\.{0,2}\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@-]+)*\.(?:sh|bash|zsh|ps1|ts|tsx|js|mjs|cjs|json|jsonc|toml|yaml|yml|md|sql|py|go|rs|java|rb|php|gradle|lock|env|ini|cfg|conf|tf|nix))(?=$|[\s)${"`"}"',.;:])/gm
+const DIRECTORY_PATTERN = /(?:^|[\s(${"`"}"'])((?:\.{0,2}\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@-]+)*\/)(?=$|[\s)${"`"}"',.;:])/gm
+const COMMAND_PATTERN =
+  /\b(?:npm|pnpm|yarn|bun|make|cargo|go|python3?|pip|uv|pytest|docker|kubectl|helm|git|gh|nix|just)\s+(?:run\s+)?[a-z0-9:_-]+/g
+const URL_PATTERN = /https?:\/\/[^\s)${"`"}"',;]+/g
+
+function extractAnchors(content) {
+  const anchors = new Map()
+  const add = (kind, value) => {
+    const normalized = value.replace(/[.,;:]+$/, "")
+    if (normalized.length === 0) return
+    anchors.set(kind + ":" + normalized, { kind, value: normalized, ok: true })
+  }
+  for (const match of content.matchAll(FILE_PATTERN)) add("file", match[1])
+  for (const match of content.matchAll(DIRECTORY_PATTERN)) add("directory", match[1])
+  for (const match of content.matchAll(COMMAND_PATTERN)) add("command", match[0])
+  for (const match of content.matchAll(URL_PATTERN)) add("url", match[0])
+  return [...anchors.values()]
+}
+
+const SOURCE_RANK = { explicit_user: 6, manual: 5, agent_tool: 4, agent_discovery: 3, repository_file: 2, tool_result: 2, conversation: 1, import: 1 }
+const sourceRank = (source) => SOURCE_RANK[source] || 0
+const strongestSource = (a, b) => (sourceRank(a) >= sourceRank(b) ? a : b)
+const unionTags = (a, b) => [...new Set([...a, ...b].map((tag) => tag.trim()).filter((tag) => tag.length > 0))].sort()
+
+function mergeStatus(existing, incoming) {
+  if (existing === "archived") return existing
+  if (incoming === "active") return "active"
+  if (existing === "active") return existing
+  return incoming
+}
+
+const STOPWORDS = new Set(["the", "and", "for", "with", "that", "this", "you", "your", "our", "are", "was", "were", "will", "would", "can", "could", "should", "have", "has", "had", "from", "into", "when", "then", "than", "there", "here", "what", "which", "who", "how", "all", "any", "each", "its", "it's", "use", "using", "get", "got"])
+
+const tokenize = (text) =>
+  [...new Set(normalizeContent(text).split(/[^a-z0-9áéíóúüñ_-]+/i).filter((token) => token.length > 2 && !STOPWORDS.has(token)))]
+
+function lexicalScore(tokens, memory) {
+  if (tokens.length === 0) return 0
+  const title = normalizeContent(memory.title)
+  const content = normalizeContent(memory.content)
+  const tags = memory.tags.map(normalizeContent)
+  let score = 0
+  for (const token of tokens) {
+    if (title.includes(token)) score += 3
+    if (tags.some((tag) => tag.includes(token))) score += 3
+    if (content.includes(token)) score += 1
+  }
+  return score
+}
+
+const SCOPE_WEIGHT = { session: 2.5, project: 2, agent: 1.5, global: 1 }
+const scopeWeight = (scope) => SCOPE_WEIGHT[scope] || 0
+
+const OPPOSITE_TOOLS = [["npm", "pnpm"], ["npm", "yarn"], ["pnpm", "yarn"]]
+const NEGATIVE = /\b(never|don't|do not|must not|avoid|don't ever|should not)\b/i
+const POSITIVE = /\b(always|must|should|prefer|require[sd]?)\b/i
+
+function contradicts(a, b) {
+  if (a.id === b.id || a.scope !== b.scope) return false
+  const at = new Set(a.tags.map(normalizeContent))
+  if (!b.tags.map(normalizeContent).some((tag) => at.has(tag))) return false
+  const ac = normalizeContent(a.content)
+  const bc = normalizeContent(b.content)
+  if (OPPOSITE_TOOLS.some(([left, right]) => ac.includes(left) && bc.includes(right))) return true
+  if (OPPOSITE_TOOLS.some(([left, right]) => ac.includes(right) && bc.includes(left))) return true
+  return (NEGATIVE.test(a.content) && POSITIVE.test(b.content)) || (POSITIVE.test(a.content) && NEGATIVE.test(b.content))
+}
+
+const scopeLabel = (scope) => (scope === "global" ? "user" : scope)
+function oneLine(text, max = 240) {
+  const collapsed = text.replace(/\s+/g, " ").trim()
+  return collapsed.length > max ? collapsed.slice(0, max - 1) + "…" : collapsed
+}
+
+const renderMemoryBlock = (memories) =>
+  [
+    "<memory>",
+    "Relevant memories from previous sessions. They may be outdated; verify before relying on them.",
+    ...memories.map((memory) => "- [" + scopeLabel(memory.scope) + "] " + memory.title + ": " + oneLine(memory.content)),
+    "</memory>",
+  ].join("\n")
+
+const estimateTokens = (text) => Math.ceil(text.length / 4)
+
+const EXPLICIT_PATTERNS = [
+  /\bremember(?: that)?\s+(.+)/gi,
+  /\bdon'?t forget(?: that)?\s+(.+)/gi,
+  /\bkeep in mind(?: that)?\s+(.+)/gi,
+  /\brecuerda(?: que)?\s+(.+)/gi,
+  /\bno olvides(?: que)?\s+(.+)/gi,
+  /\bten en cuenta(?: que)?\s+(.+)/gi,
+  /\bapunta(?: que)?\s+(.+)/gi,
+]
+
+function parseExplicit(text) {
+  const clauses = []
+  for (const segment of text.split(/(?<=[.!?])\s+|\n+/))
+    for (const pattern of EXPLICIT_PATTERNS)
+      for (const match of segment.matchAll(pattern)) {
+        const clause = match[1] && match[1].trim().replace(/[.;,]\s*$/, "")
+        if (clause && clause.length >= 3) clauses.push(clause)
+      }
+  return [...new Set(clauses)]
+}
+
+function resolveExplicitScope(clause) {
+  const agent = (clause.match(/\b(?:the\s+)?([a-z0-9_-]+)\s+agent\b/i) || [])[1]
+  if (agent) return { scope: "agent", agent }
+  if (/\b(this|the)\s+(project|repo|repository|codebase|worktree|directory)\b|(^|\s)here\b|este\s+(proyecto|repo)|en\s+este\s+(proyecto|repo)/i.test(clause))
+    return { scope: "project" }
+  if (/\b(i|my|me)\b[^.]*\b(prefer|like|want|always|never|hate)\b|prefiero|siempre|nunca|no quiero|no me gusta/i.test(clause))
+    return { scope: "global" }
+  return { scope: "project" }
+}
+
+function inferKind(clause) {
+  if (/\b(never|don't|do not|must not|avoid|no olvides|nunca|no)\b/i.test(clause)) return "constraint"
+  if (/\bprefer|prefiero|like|gusta\b/i.test(clause)) return "preference"
+  if (/\b(first|then|next|finally|run|execute|deploy|install|build)\b/i.test(clause)) return "procedure"
+  if (/\b(decided|decision|because|chose|migrat)\b/i.test(clause)) return "decision"
+  if (/\b(convention|always|style|format|lint)\b/i.test(clause)) return "convention"
+  return "fact"
+}
+
+function titleFromClause(clause) {
+  const first = clause.replace(/^that\s+/i, "").split(/[.!?]\s/)[0].trim()
+  const title = first.length > 80 ? first.slice(0, 77) + "…" : first
+  return title.charAt(0).toUpperCase() + title.slice(1)
+}
+
+const explicitCandidates = (text) =>
+  parseExplicit(text).map((clause) => {
+    const resolved = resolveExplicitScope(clause)
+    return { ...resolved, kind: inferKind(clause), title: titleFromClause(clause), content: clause }
+  })
+
+// ---- Extraction, ported from packages/core/src/memory/extract.ts ----
+
+const INSTRUCTIONS = [
+  "Extract durable knowledge that a future coding session should not have to rediscover.",
+  "Include:",
+  "- project conventions, architecture, and decisions",
+  "- deployment, release, test, and build procedures with exact commands",
+  "- user preferences and persistent instructions",
+  "- constraints, known issues, and solutions that worked",
+  "- stable repository facts and important paths",
+  "Exclude:",
+  "- temporary output, logs, stack traces, or one-off errors",
+  "- generated code, diffs, or normal question/answer chatter",
+  "- anything already obvious from a single file you have not verified",
+  "- secrets, credentials, or personal data",
+  "Respond with ONLY a JSON array. Each item:",
+  '{"title": string, "content": string, "kind": "fact|convention|procedure|preference|constraint|workflow|decision|issue|solution", "scope": "global|project|agent|session", "tags": string[], "confidence": number}',
+  "Return at most 5 items. Prefer an empty array [] over low-value items.",
+].join("\n")
+
+const buildPrompt = (transcript) =>
+  ["Here is recent work from a coding session:", "", "<transcript>", transcript, "</transcript>", "", INSTRUCTIONS].join("\n")
+
+function parseCandidates(text) {
+  const start = text.indexOf("[")
+  const end = text.lastIndexOf("]")
+  if (start === -1 || end === -1 || end < start) return []
+  let decoded
+  try {
+    decoded = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(decoded)) return []
+  return decoded.flatMap((item) => {
+    if (!isPlainObject(item)) return []
+    const title = typeof item.title === "string" ? item.title.trim() : ""
+    const content = typeof item.content === "string" ? item.content.trim() : ""
+    if (title.length < 3 || content.length < 8 || content.length > 2000) return []
+    if (/^\s*(error|traceback|stack trace)/i.test(content)) return []
+    return [
+      {
+        title: title.slice(0, 200),
+        content,
+        kind: KINDS.includes(item.kind) ? item.kind : "fact",
+        scope: SCOPES.includes(item.scope) ? item.scope : "project",
+        tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === "string").slice(0, 8) : [],
+        confidence: typeof item.confidence === "number" && Number.isFinite(item.confidence) ? Math.max(0, Math.min(1, item.confidence)) : 0.6,
+      },
+    ]
+  })
+}
+
+// The last 40 messages a request carried, as the 1.x extractor serialises them.
+function serializeRecent(messages) {
+  const lines = []
+  for (const message of messages.slice(-40)) {
+    const content = typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content || []
+    for (const part of content) {
+      if (message.role === "user" && part.type === "text" && part.text.trim()) lines.push("User: " + part.text)
+      if (message.role === "assistant" && part.type === "text" && part.text.trim()) lines.push("Assistant: " + part.text)
+      if (message.role === "assistant" && part.type === "tool-call") lines.push("Assistant tool call: " + part.name)
+    }
+  }
+  const joined = lines.join("\n")
+  return joined.length > 6000 ? joined.slice(-6000) : joined
+}
+
+// ---- The store ----
+
+const CONFIDENCE = { explicit_user: 0.95, manual: 0.9, agent_tool: 0.8, repository_file: 0.8, agent_discovery: 0.6, import: 0.5, tool_result: 0.5, conversation: 0.4 }
+const confidenceFor = (source) => CONFIDENCE[source] || 0.4
+const statusFor = (source) => (source === "explicit_user" || source === "manual" ? "active" : "candidate")
+
+let db
+function store() {
+  if (db) return db
+  const file = databasePath()
+  mkdirSync(path.dirname(file), { recursive: true })
+  db = new Database(file, { create: true })
+  db.exec("PRAGMA journal_mode = WAL")
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS memory (id TEXT PRIMARY KEY, scope TEXT NOT NULL, scope_id TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, tags TEXT NOT NULL, source TEXT NOT NULL, source_ref TEXT, status TEXT NOT NULL, confidence REAL NOT NULL, importance INTEGER NOT NULL, created_by TEXT NOT NULL, directory TEXT, fingerprint TEXT NOT NULL, validated_at INTEGER, validation TEXT, superseded_by TEXT, time_last_used INTEGER, use_count INTEGER NOT NULL DEFAULT 0, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL)",
+  )
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS memory_scope_fingerprint_idx ON memory (scope, scope_id, fingerprint)")
+  db.exec("CREATE INDEX IF NOT EXISTS memory_scope_status_idx ON memory (scope, scope_id, status)")
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS memory_use (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, memory_id TEXT NOT NULL REFERENCES memory(id) ON DELETE CASCADE, agent TEXT, message_id TEXT, score REAL NOT NULL, time_created INTEGER NOT NULL)",
+  )
+  db.exec("CREATE INDEX IF NOT EXISTS memory_use_session_time_idx ON memory_use (session_id, time_created)")
+  db.exec("PRAGMA foreign_keys = ON")
+  return db
+}
+
+// The 1.x API's shape: camelCase, times in epoch milliseconds.
+function fromRow(row) {
+  return {
+    id: row.id,
+    scope: row.scope,
+    scopeID: row.scope_id,
+    kind: row.kind,
+    title: row.title,
+    content: row.content,
+    tags: JSON.parse(row.tags),
+    source: row.source,
+    ...(row.source_ref ? { sourceRef: JSON.parse(row.source_ref) } : {}),
+    status: row.status,
+    confidence: row.confidence,
+    importance: row.importance,
+    createdBy: row.created_by,
+    ...(row.directory ? { directory: row.directory } : {}),
+    ...(row.validated_at !== null ? { validatedAt: row.validated_at } : {}),
+    ...(row.validation ? { validation: JSON.parse(row.validation) } : {}),
+    ...(row.superseded_by ? { supersededBy: row.superseded_by } : {}),
+    timeCreated: row.time_created,
+    timeUpdated: row.time_updated,
+    ...(row.time_last_used !== null ? { timeLastUsed: row.time_last_used } : {}),
+    useCount: row.use_count,
+  }
+}
+
+const findRow = (id) => store().query("SELECT * FROM memory WHERE id = ?").get(id)
+const findFingerprint = (scope, scopeID, fp) =>
+  store().query("SELECT * FROM memory WHERE scope = ? AND scope_id = ? AND fingerprint = ?").get(scope, scopeID, fp)
+
+const COLUMNS = { title: "title", content: "content", kind: "kind", tags: "tags", source: "source", sourceRef: "source_ref", status: "status", confidence: "confidence", importance: "importance", supersededBy: "superseded_by", fingerprint: "fingerprint", validation: "validation", validatedAt: "validated_at" }
+
+function writeRow(id, patch) {
+  const entries = Object.entries(patch).filter(([key]) => COLUMNS[key])
+  const values = entries.map(([key, value]) => (key === "tags" || key === "sourceRef" || key === "validation" ? (value == null ? null : JSON.stringify(value)) : value))
+  store()
+    .query("UPDATE memory SET " + [...entries.map(([key]) => COLUMNS[key] + " = ?"), "time_updated = ?"].join(", ") + " WHERE id = ?")
+    .run(...values, Date.now(), id)
+}
+
+const newID = () => "mem_" + Date.now().toString(16).padStart(12, "0") + randomBytes(7).toString("hex")
+
+function create(input, location) {
+  const scopeID =
+    input.scopeID ||
+    (input.scope === "global"
+      ? "global"
+      : input.scope === "session"
+        ? input.sessionID || "session:" + location.projectID
+        : input.scope === "agent"
+          ? location.projectID + ":" + (input.agent || "default")
+          : location.projectID)
+  const fp = fingerprint(input.content)
+  const existing = findFingerprint(input.scope, scopeID, fp)
+  if (existing) {
+    writeRow(existing.id, {
+      tags: unionTags(JSON.parse(existing.tags), input.tags || []),
+      importance: Math.max(existing.importance, input.importance ?? 3),
+      confidence: Math.max(existing.confidence, input.confidence ?? confidenceFor(input.source)),
+      status: mergeStatus(existing.status, input.status || statusFor(input.source)),
+      source: strongestSource(existing.source, input.source),
+      ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
+    })
+    return fromRow(findRow(existing.id))
+  }
+  const id = newID()
+  const now = Date.now()
+  store()
+    .query(
+      "INSERT INTO memory (id, scope, scope_id, kind, title, content, tags, source, source_ref, status, confidence, importance, created_by, directory, fingerprint, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(
+      id,
+      input.scope,
+      scopeID,
+      input.kind,
+      input.title,
+      input.content,
+      JSON.stringify(input.tags || []),
+      input.source,
+      input.sourceRef ? JSON.stringify(input.sourceRef) : null,
+      input.status || statusFor(input.source),
+      input.confidence ?? confidenceFor(input.source),
+      input.importance ?? 3,
+      input.createdBy || "unknown",
+      input.directory || null,
+      fp,
+      now,
+      now,
+    )
+  return fromRow(findRow(id))
+}
+
+function update(id, patch) {
+  const current = findRow(id)
+  if (!current) return undefined
+  const content = patch.content ?? current.content
+  const fp = fingerprint(content)
+  const collision = fp === current.fingerprint ? undefined : findFingerprint(current.scope, current.scope_id, fp)
+  // Editing a memory into one that exists merges the two, as on 1.x.
+  if (collision && collision.id !== id) {
+    writeRow(collision.id, {
+      tags: unionTags(JSON.parse(collision.tags), patch.tags || JSON.parse(current.tags)),
+      importance: Math.max(collision.importance, patch.importance ?? current.importance),
+      confidence: Math.max(collision.confidence, patch.confidence ?? current.confidence),
+      status: mergeStatus(collision.status, patch.status || current.status),
+    })
+    store().query("DELETE FROM memory WHERE id = ?").run(id)
+    return fromRow(findRow(collision.id))
+  }
+  writeRow(id, { ...patch, ...(patch.content !== undefined ? { fingerprint: fp } : {}) })
+  return fromRow(findRow(id))
+}
+
+function list(query) {
+  const where = []
+  const values = []
+  const add = (clause, ...value) => {
+    where.push(clause)
+    values.push(...value)
+  }
+  const scopes = query.scope ? [query.scope] : query.scopes || []
+  if (scopes.length) add("scope IN (" + scopes.map(() => "?").join(", ") + ")", ...scopes)
+  const statuses = query.status ? [query.status] : query.statuses || []
+  if (statuses.length) add("status IN (" + statuses.map(() => "?").join(", ") + ")", ...statuses)
+  if (query.projectID) add("scope_id = ?", query.projectID)
+  if (query.sessionID) add("scope_id = ?", query.sessionID)
+  if (query.agent) add("scope_id LIKE ?", "%:" + query.agent)
+  const rows = store()
+    .query("SELECT * FROM memory" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY time_updated DESC LIMIT ?")
+    .all(...values, Number(query.limit) > 0 ? Number(query.limit) : 500)
+  const memories = rows.map(fromRow)
+  const needle = query.text ? normalizeContent(query.text) : ""
+  if (!needle) return memories
+  return memories.filter((memory) => normalizeContent(memory.title + " " + memory.content + " " + memory.tags.join(" ")).includes(needle))
+}
+
+function used(sessionID) {
+  const ids = [...new Set(store().query("SELECT memory_id FROM memory_use WHERE session_id = ? ORDER BY time_created DESC").all(sessionID).map((row) => row.memory_id))]
+  return ids.flatMap((id) => {
+    const row = findRow(id)
+    return row ? [fromRow(row)] : []
+  })
+}
+
+function recordUse(sessionID, memoryIDs, agent) {
+  const ids = [...new Set(memoryIDs)]
+  if (ids.length === 0) return
+  const now = Date.now()
+  const insert = store().query("INSERT INTO memory_use (session_id, memory_id, agent, message_id, score, time_created) VALUES (?, ?, ?, NULL, 0, ?)")
+  const touch = store().query("UPDATE memory SET use_count = use_count + 1, time_last_used = ? WHERE id = ?")
+  store().transaction(() => {
+    for (const id of ids) {
+      insert.run(sessionID, id, agent || null, now)
+      touch.run(now, id)
+    }
+  })()
+}
+
+function verify(id, location) {
+  const row = findRow(id)
+  if (!row) return undefined
+  const base = row.directory || location.directory
+  const now = Date.now()
+  const anchors = extractAnchors(row.title + "\n" + row.content).map((anchor) => {
+    if (anchor.kind === "url") return { ...anchor, checkedAt: now }
+    if (anchor.kind === "command") return { ...anchor, ok: Bun.which(anchor.value.split(/\s+/)[0] || anchor.value) !== null, checkedAt: now }
+    const target = path.isAbsolute(anchor.value) ? anchor.value : path.join(base || "", anchor.value)
+    const ok = anchor.kind === "directory" ? existsSync(target) && statSync(target).isDirectory() : existsSync(target)
+    return { ...anchor, ok, checkedAt: now }
+  })
+  const failed = anchors.some((anchor) => !anchor.ok)
+  writeRow(id, { validation: { anchors }, validatedAt: now, status: failed ? "stale" : row.status === "stale" ? "active" : row.status })
+  return fromRow(findRow(id))
+}
+
+function retrieve(settings, input, location) {
+  if (!settings.enabled) return []
+  const rows = store()
+    .query(
+      "SELECT * FROM memory WHERE status IN ('active', 'candidate') AND superseded_by IS NULL AND (scope = 'global' OR (scope = 'project' AND scope_id = ?) OR (scope = 'agent' AND scope_id = ?) OR (scope = 'session' AND scope_id = ?))",
+    )
+    .all(location.projectID, location.projectID + ":" + (input.agent || "default"), input.sessionID)
+  const now = Date.now()
+  const tokens = tokenize(input.query)
+  const ranked = rows
+    .map(fromRow)
+    .map((memory) => {
+      const lexical = lexicalScore(tokens, memory)
+      if (lexical === 0 && !(memory.scope === "global" && memory.importance >= 4)) return { memory, score: -Infinity }
+      const ageDays = Math.max(0, (now - (memory.timeLastUsed ?? memory.timeUpdated)) / 86400000)
+      const recency = ageDays < 7 ? 0.6 : ageDays < 30 ? 0.3 : 0
+      return { memory, score: lexical + scopeWeight(memory.scope) + memory.importance * 0.4 + memory.confidence * 1.5 + recency }
+    })
+    .filter((entry) => Number.isFinite(entry.score))
+    .sort((a, b) => b.score - a.score)
+  const selected = []
+  let budget = 0
+  for (const entry of ranked) {
+    if (selected.length >= settings.maxInjected) break
+    if (selected.some((chosen) => contradicts(chosen.memory, entry.memory))) continue
+    const cost = estimateTokens(renderMemoryBlock([entry.memory]))
+    if (selected.length > 0 && budget + cost > settings.maxTokens) continue
+    budget += cost
+    selected.push(entry)
+  }
+  return selected
+}
+
+// The memory block of the reader's config, global then the project's, as the 1.x engine read it.
+async function settingsFor(directory) {
+  const global = await loadConfig().catch(() => ({}))
+  let project = {}
+  for (const name of ["opencode.json", "opencode.jsonc"]) {
+    const parsed = directory ? await readJsonc(path.join(directory, name)) : undefined
+    if (isPlainObject(parsed)) project = mergeConfig(project, parsed)
+  }
+  const config = mergeConfig(global, project)
+  const memory = isPlainObject(config.memory) ? config.memory : {}
+  const model = typeof memory.model === "string" ? memory.model : typeof config.small_model === "string" ? config.small_model : undefined
+  return {
+    enabled: memory.enabled ?? DEFAULTS.enabled,
+    auto: memory.auto ?? DEFAULTS.auto,
+    ...(model ? { model } : {}),
+    maxInjected: memory.max_injected ?? DEFAULTS.maxInjected,
+    maxTokens: memory.max_tokens ?? DEFAULTS.maxTokens,
+    extractInterval: memory.extract_interval ?? DEFAULTS.extractInterval,
+    maxCandidatesPerSession: memory.max_candidates_per_session ?? DEFAULTS.maxCandidatesPerSession,
+  }
+}
+
+const textOf = (message) =>
+  (typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content || [])
+    .filter((part) => part && part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n")
+
+const ANY = {}
+const OBJECT = { type: "object" }
+
+export default {
+  id: "flupcode-memory",
+  setup: async (ctx) => {
+    const location = { directory: ctx.location && ctx.location.directory, projectID: (ctx.location && ctx.location.project && ctx.location.project.id) || "global" }
+    // The block each user turn was given, so every step of a turn sends the same bytes.
+    const blocks = new Map()
+    // The newest messages each session's request carried, for the extractor.
+    const recent = new Map()
+    const lastRun = new Map()
+
+    await ctx.session.hook("prompt", async (input) => {
+      try {
+        const settings = await settingsFor(location.directory)
+        const text = input.prompt && typeof input.prompt.text === "string" ? input.prompt.text : ""
+        if (!settings.enabled || !text.trim()) return
+        for (const candidate of explicitCandidates(text))
+          create(
+            {
+              scope: candidate.scope,
+              kind: candidate.kind,
+              title: candidate.title,
+              content: candidate.content,
+              source: "explicit_user",
+              status: "active",
+              confidence: 0.95,
+              importance: 4,
+              createdBy: "user",
+              sessionID: input.sessionID,
+              ...(candidate.agent ? { agent: candidate.agent } : {}),
+              sourceRef: { sessionID: input.sessionID },
+            },
+            location,
+          )
+      } catch {
+        // A memory that cannot be kept never stops the prompt.
+      }
+    })
+
+    await ctx.session.hook("context", async (input) => {
+      try {
+        recent.set(input.sessionID, input.messages)
+        if (recent.size > 200) recent.delete(recent.keys().next().value)
+        const lastUser = [...input.messages].reverse().find((message) => message && message.role === "user")
+        if (!lastUser) return
+        const key = input.sessionID + "|" + (lastUser.id || textOf(lastUser))
+        if (!blocks.has(key)) {
+          const settings = await settingsFor(location.directory)
+          const matches = retrieve(settings, { sessionID: input.sessionID, agent: input.agent, query: textOf(lastUser) }, location)
+          if (matches.length > 0) recordUse(input.sessionID, matches.map((match) => match.memory.id), input.agent)
+          blocks.set(key, matches.length > 0 ? renderMemoryBlock(matches.map((match) => match.memory)) : "")
+          if (blocks.size > 2000) blocks.delete(blocks.keys().next().value)
+        }
+        const block = blocks.get(key)
+        if (block) input.system.push({ type: "text", text: block })
+      } catch {
+        // Retrieval that fails sends the turn without memories.
+      }
+    })
+
+    // Candidates from the model after a run, at most once per interval per session.
+    const controller = new AbortController()
+    void (async () => {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        if (event.type !== "session.execution.succeeded") continue
+        if (event.location && event.location.directory && event.location.directory !== location.directory) continue
+        const sessionID = event.data && event.data.sessionID
+        const messages = recent.get(sessionID)
+        if (!sessionID || !messages) continue
+        const settings = await settingsFor(location.directory)
+        const transcript = serializeRecent(messages)
+        const previous = lastRun.get(sessionID)
+        if (!settings.enabled || !settings.auto || transcript.trim().length < 40) continue
+        if (previous !== undefined && Date.now() - previous < settings.extractInterval * 60000) continue
+        lastRun.set(sessionID, Date.now())
+        const [providerID, ...rest] = (settings.model || "").split("/")
+        const model = providerID && rest.length ? { providerID, id: rest.join("/") } : undefined
+        const answer = await ctx.generate.text({ prompt: buildPrompt(transcript), ...(model ? { model } : {}) }).catch(() => undefined)
+        const candidates = parseCandidates((answer && answer.text) || "").slice(0, settings.maxCandidatesPerSession)
+        for (const candidate of candidates)
+          create(
+            { ...candidate, source: "agent_discovery", status: "candidate", createdBy: "extractor", directory: location.directory },
+            location,
+          )
+      }
+    })().catch(() => {})
+
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: "memory",
+        description:
+          "Persist durable knowledge about this project, repository, user, or agent across sessions. Use it when you discover or are told stable facts, conventions, procedures, constraints, or preferences that would otherwise be rediscovered. Do not store temporary output, logs, or one-off errors.",
+        input: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["add", "update", "forget", "list"], description: "add a durable memory, update one, forget one, or list what is currently remembered" },
+            id: { type: "string", description: "Memory id for update or forget" },
+            title: { type: "string", description: "Short one-line label for an added memory" },
+            content: { type: "string", description: "The remembered fact, rule, or procedure" },
+            kind: { type: "string", enum: KINDS },
+            scope: { type: "string", enum: SCOPES, description: "Where the memory applies; defaults to the current project" },
+            tags: { type: "array", items: { type: "string" } },
+            query: { type: "string", description: "Filter for the list action" },
+          },
+          required: ["action"],
+        },
+        options: { codemode: false },
+        execute: async (input, context) => {
+          const say = (memories) =>
+            ({ content: JSON.stringify(memories.map((memory) => ({ id: memory.id, scope: memory.scope, kind: memory.kind, title: memory.title, content: memory.content, status: memory.status }))) })
+          if (input.action === "list") return say(list({ text: input.query, limit: 20 }))
+          if (input.action === "forget") {
+            if (!input.id) return { content: "id is required to forget a memory" }
+            store().query("DELETE FROM memory WHERE id = ?").run(input.id)
+            return say([])
+          }
+          if (input.action === "update") {
+            if (!input.id) return { content: "id is required to update a memory" }
+            const updated = update(input.id, {
+              ...(input.title !== undefined ? { title: input.title } : {}),
+              ...(input.content !== undefined ? { content: input.content } : {}),
+              ...(input.kind !== undefined ? { kind: input.kind } : {}),
+              ...(input.tags !== undefined ? { tags: input.tags } : {}),
+            })
+            return say(updated ? [updated] : [])
+          }
+          if (!input.title || !input.content) return { content: "title and content are required to add a memory" }
+          return say([
+            create(
+              {
+                scope: SCOPES.includes(input.scope) ? input.scope : "project",
+                kind: KINDS.includes(input.kind) ? input.kind : "fact",
+                title: input.title,
+                content: input.content,
+                tags: Array.isArray(input.tags) ? input.tags : [],
+                source: "agent_tool",
+                status: "candidate",
+                createdBy: context.agent,
+                sessionID: context.sessionID,
+                agent: context.agent,
+                sourceRef: { sessionID: context.sessionID, toolCallID: context.id },
+              },
+              location,
+            ),
+          ])
+        },
+      })
+    })
+
+    // The app's memory screens, over the plugin RPC: the 1.x routes' inputs and answers.
+    const method = { input: OBJECT, output: ANY }
+    const registration = await ctx.rpc.register(
+      { id: "flupcode.memory", methods: { list: method, get: method, create: method, update: method, remove: method, verify: method, used: method }, events: {} },
+      {
+        list: async (input) => list(input || {}),
+        get: async (input) => {
+          const row = findRow(input.id)
+          return row ? fromRow(row) : null
+        },
+        create: async (input) =>
+          create(
+            {
+              scope: SCOPES.includes(input.scope) ? input.scope : "project",
+              kind: KINDS.includes(input.kind) ? input.kind : "fact",
+              title: String(input.title || ""),
+              content: String(input.content || ""),
+              tags: Array.isArray(input.tags) ? input.tags : [],
+              source: input.source || "manual",
+              ...(STATUSES.includes(input.status) ? { status: input.status } : {}),
+              ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
+              ...(typeof input.importance === "number" ? { importance: input.importance } : {}),
+              createdBy: "user",
+              ...(input.sessionID ? { sessionID: input.sessionID } : {}),
+              ...(input.agent ? { agent: input.agent } : {}),
+            },
+            location,
+          ),
+        update: async (input) => {
+          const { id, ...patch } = input
+          return update(id, patch) || null
+        },
+        remove: async (input) => {
+          store().query("DELETE FROM memory WHERE id = ?").run(input.id)
+          return true
+        },
+        verify: async (input) => verify(input.id, location) || null,
+        used: async (input) => used(input.sessionID),
+      },
+    )
+    return () => {
+      controller.abort()
+      return registration.dispose()
+    }
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -1969,4 +2689,5 @@ export const PLUGINS_V2 = [
   CACHE_SELECTION_PLUGIN_V2,
   WEB_ACTIONS_PLUGIN_V2,
   DELIVERY_PLUGIN_V2,
+  MEMORY_PLUGIN_V2,
 ]

@@ -3,6 +3,7 @@ import type { EngineClient } from "../client"
 import { openExternalUrl } from "../external-links"
 import { subscribeEvents } from "../event-stream"
 import { engineFetch } from "../transport"
+import type { MemoryInfo } from "../engine-types"
 import { EngineError, unsupported } from "./error"
 import {
   toFormAnswer,
@@ -406,10 +407,22 @@ export function createV2Domains(
     },
   }
 
+  const memoryCall = async <T,>(method: string, input: object, directory?: string) =>
+    (
+      await call(
+        client.rpc.call({
+          rpcID: "flupcode.memory",
+          method,
+          // The plugin takes the 1.x routes' JSON as it is.
+          input: input as never,
+          ...(directory ? { location: { directory } } : {}),
+        }),
+      )
+    ).output as T
+
   /**
    * The rest of `EngineClient` (V2-11 groundwork). Most of it is the same `/api` route under its 2.x
-   * name. What 2.x no longer has reads as the app's empty state: memory (a 1.x store with no 2.x
-   * counterpart), the tool id list and the Console org. 1.x's per-folder event stream is gone too;
+   * name. What 2.x no longer has reads as the app's empty state: the tool id list and the Console org. 1.x's per-folder event stream is gone too;
    * every event, transcript included, is on `/api/event` (V2-21), so the folder stream waits quietly
    * for its signal instead of answering HTML and being retried.
    */
@@ -494,14 +507,22 @@ export function createV2Domains(
         })),
       }),
     },
+    // FlupCode's memory plugin for 2.x serves the 1.x routes' inputs and answers over the plugin RPC
+    // (V2-32). Without it (a 2.x engine FlupCode did not install its plugins into) the lists read empty.
     memory: {
-      list: async () => ({ data: [] }),
-      get: async () => unsupported("memory"),
-      create: async () => unsupported("memory"),
-      update: async () => unsupported("memory"),
-      remove: async () => unsupported("memory"),
-      verify: async () => unsupported("memory"),
-      used: async () => ({ data: [] }),
+      list: async (input) => {
+        const { location: where, ...query } = input ?? {}
+        return { data: await memoryCall<MemoryInfo[]>("list", query, where?.directory).catch(() => []) }
+      },
+      get: async (input) => ({ data: await memoryCall<MemoryInfo>("get", input) }),
+      create: async (input) => ({ data: await memoryCall<MemoryInfo>("create", input) }),
+      update: async (input) => ({ data: await memoryCall<MemoryInfo>("update", input) }),
+      remove: async (input) => {
+        await memoryCall("remove", input)
+        return nothing()
+      },
+      verify: async (input) => ({ data: await memoryCall<MemoryInfo>("verify", input) }),
+      used: async (input) => ({ data: await memoryCall<MemoryInfo[]>("used", input).catch(() => []) }),
     },
     file: {
       find: async (input: { query: string; limit?: number }) => ({

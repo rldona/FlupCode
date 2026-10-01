@@ -2823,14 +2823,27 @@ export function engineConfigDir(env: NodeJS.ProcessEnv = process.env, home = os.
  * menu is only empty and the Context screen only says nothing was captured.
  *
  * Both lines read the same folder and each refuses the other's shape, so one line's set replaces the
- * other's: every plugin has a version for each line under the same file name (V2-30).
+ * other's: every 1.x plugin has a 2.x version under the same file name (V2-30), and a plugin only one
+ * line has is removed for the other.
  */
 export async function installEnginePlugins(configDir = engineConfigDir(), line: "v1" | "v2" = "v1") {
   const dir = path.join(configDir, "plugins")
   const paths: string[] = []
   let changed = false
   let error: string | undefined
-  for (const plugin of line === "v2" ? PLUGINS_V2 : PLUGINS) {
+  const plugins = line === "v2" ? PLUGINS_V2 : PLUGINS
+  // A plugin only one line has (2.x's memory, which 1.x keeps in the engine) must not stay behind for
+  // the other line, which would refuse it at every start.
+  const other = (line === "v2" ? PLUGINS : PLUGINS_V2).filter(
+    (plugin) => !plugins.some((ours) => ours.file === plugin.file),
+  )
+  for (const plugin of other) {
+    const target = path.join(dir, plugin.file)
+    if ((await readFile(target, "utf8").catch(() => undefined)) === undefined) continue
+    await rm(target, { force: true }).catch(() => {})
+    changed = true
+  }
+  for (const plugin of plugins) {
     const target = path.join(dir, plugin.file)
     try {
       const current = await readFile(target, "utf8").catch(() => undefined)

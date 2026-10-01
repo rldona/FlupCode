@@ -812,8 +812,8 @@ export function createV1Client(baseUrl: string) {
           )
         ).data,
       }),
-      get: (input: { id: string }) => unwrap(client.v2.memory.get({ id: input.id })),
-      create: (input: {
+      get: async (input: { id: string }) => ({ data: (await unwrap(client.v2.memory.get({ id: input.id }))).data }),
+      create: async (input: {
         scope?: MemoryInfo["scope"]
         kind?: MemoryInfo["kind"]
         title: string
@@ -825,8 +825,8 @@ export function createV1Client(baseUrl: string) {
         source?: MemoryInfo["source"]
         sessionID?: string
         agent?: string
-      }) => unwrap(client.v2.memory.create({ memoryCreatePayload: input })),
-      update: (input: {
+      }) => ({ data: (await unwrap(client.v2.memory.create({ memoryCreatePayload: input }))).data }),
+      update: async (input: {
         id: string
         title?: string
         content?: string
@@ -835,23 +835,28 @@ export function createV1Client(baseUrl: string) {
         status?: MemoryInfo["status"]
         confidence?: number
         importance?: number
-      }) =>
-        unwrap(
-          client.v2.memory.update({
-            id: input.id,
-            memoryUpdatePayload: {
-              ...(input.title !== undefined ? { title: input.title } : {}),
-              ...(input.content !== undefined ? { content: input.content } : {}),
-              ...(input.kind !== undefined ? { kind: input.kind } : {}),
-              ...(input.tags !== undefined ? { tags: input.tags } : {}),
-              ...(input.status !== undefined ? { status: input.status } : {}),
-              ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
-              ...(input.importance !== undefined ? { importance: input.importance } : {}),
-            },
-          }),
-        ),
+      }) => ({
+        data: (
+          await unwrap(
+            client.v2.memory.update({
+              id: input.id,
+              memoryUpdatePayload: {
+                ...(input.title !== undefined ? { title: input.title } : {}),
+                ...(input.content !== undefined ? { content: input.content } : {}),
+                ...(input.kind !== undefined ? { kind: input.kind } : {}),
+                ...(input.tags !== undefined ? { tags: input.tags } : {}),
+                ...(input.status !== undefined ? { status: input.status } : {}),
+                ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+                ...(input.importance !== undefined ? { importance: input.importance } : {}),
+              },
+            }),
+          )
+        ).data,
+      }),
       remove: (input: { id: string }) => unwrap(client.v2.memory.remove({ id: input.id })),
-      verify: (input: { id: string }) => unwrap(client.v2.memory.verify({ id: input.id })),
+      verify: async (input: { id: string }) => ({
+        data: (await unwrap(client.v2.memory.verify({ id: input.id }))).data,
+      }),
       used: async (input: { sessionID: string }) => ({
         data: (await unwrap(client.v2.memory.used({ sessionID: input.sessionID }))).data,
       }),

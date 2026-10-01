@@ -82,13 +82,15 @@ describe("installEnginePlugins for OpenCode 2", () => {
 
     const { paths, changed } = await installEnginePlugins(config, "v2")
     expect(changed).toBe(true)
-    // Every 1.x plugin has its 2.x version under the same name, so a switch leaves nothing behind.
-    expect(paths.map((file) => path.basename(file)).sort()).toEqual(v1)
+    // Every 1.x plugin has its 2.x version under the same name; memory is 2.x's alone (1.x keeps it in
+    // the engine), and goes again when 1.x returns.
+    expect(paths.map((file) => path.basename(file)).sort()).toEqual([...v1, "flupcode-memory.js"].sort())
     for (const file of v1)
       expect(await readFile(path.join(config, "plugins", file), "utf8")).toContain("export default {")
 
     expect((await installEnginePlugins(config, "v2")).changed).toBe(false)
     await installEnginePlugins(config, "v1")
+    expect((await readdir(path.join(config, "plugins"))).sort()).toEqual(v1)
     for (const file of v1)
       expect(await readFile(path.join(config, "plugins", file), "utf8")).not.toContain("for OpenCode 2")
   })
@@ -650,5 +652,163 @@ describe("OpenCode 2 web actions and delivery", () => {
     }
     expect(delivered.content[0]!.text).toContain("Hello world")
     expect(delivered.content[1]).toEqual({ type: "file", uri: composed, mime: "image/png" })
+  })
+})
+
+describe("OpenCode 2 memory", () => {
+  type Handlers = Record<string, (input: unknown) => Promise<unknown>>
+
+  async function memory(events: unknown[] = [], answer = "[]") {
+    process.env.FLUPCODE_MEMORY_DB = path.join(await temp(), "memory.db")
+    const plugin_ = await plugin("flupcode-memory.js")
+    const recorded = context("/work/demo", events)
+    let handlers: Handlers = {}
+    let definition: { id: string; methods: Record<string, unknown> } | undefined
+    const prompts: string[] = []
+    Object.assign(recorded.ctx, {
+      location: { directory: "/work/demo", project: { id: "prj_1" } },
+      rpc: {
+        register: async (registered: typeof definition, given: Handlers) => {
+          definition = registered
+          handlers = given
+          return { dispose: async () => {}, events: { emit: async () => {} } }
+        },
+      },
+      generate: {
+        text: async (input: { prompt: string }) => {
+          prompts.push(input.prompt)
+          return { text: answer }
+        },
+      },
+    })
+    await plugin_.setup(recorded.ctx)
+    return { recorded, rpc: () => handlers, definition: () => definition, prompts }
+  }
+
+  afterEach(() => {
+    delete process.env.FLUPCODE_MEMORY_DB
+  })
+
+  test("a 'remember that' prompt is kept, and a turn about it gets it as the same block on every step", async () => {
+    const subject = await memory()
+    await subject.recorded.hooks.get("session.prompt")!({
+      sessionID: "ses_1",
+      messageID: "msg_u",
+      prompt: { text: "Remember that we deploy with bun run deploy." },
+    } as never)
+    const request = () => ({
+      sessionID: "ses_1",
+      agent: "build",
+      system: [{ type: "text", text: "You are an agent." }],
+      messages: [{ id: "msg_u2", role: "user", content: [{ type: "text", text: "how do we deploy this?" }] }],
+    })
+    const first = request()
+    await subject.recorded.hooks.get("session.context")!(first as never)
+    const second = request()
+    await subject.recorded.hooks.get("session.context")!(second as never)
+    expect(first.system[1]!.text).toBe(
+      [
+        "<memory>",
+        "Relevant memories from previous sessions. They may be outdated; verify before relying on them.",
+        "- [project] We deploy with bun run deploy: we deploy with bun run deploy",
+        "</memory>",
+      ].join("\n"),
+    )
+    expect(second.system).toEqual(first.system)
+    // Recorded once for the turn, as the app's "used in this session" reads it.
+    const used = (await subject.rpc().used!({ sessionID: "ses_1" })) as Array<{ title: string; useCount: number }>
+    expect(used.map((item) => [item.title, item.useCount])).toEqual([["We deploy with bun run deploy", 1]])
+  })
+
+  test("the app's screens go through the RPC with the 1.x shapes", async () => {
+    const subject = await memory()
+    expect(subject.definition()!.id).toBe("flupcode.memory")
+    expect(Object.keys(subject.definition()!.methods).sort()).toEqual([
+      "create",
+      "get",
+      "list",
+      "remove",
+      "update",
+      "used",
+      "verify",
+    ])
+    const created = (await subject.rpc().create!({ title: "Lint", content: "Run bun run lint before pushing" })) as {
+      id: string
+      scope: string
+      scopeID: string
+      status: string
+      source: string
+      timeCreated: number
+    }
+    expect(created).toMatchObject({ scope: "project", scopeID: "prj_1", status: "active", source: "manual" })
+    expect(typeof created.timeCreated).toBe("number")
+    // The same content again is the same memory, not a second one.
+    await subject.rpc().create!({ title: "Lint again", content: "run bun run lint   before pushing" })
+    expect(((await subject.rpc().list!({})) as unknown[]).length).toBe(1)
+    expect(await subject.rpc().update!({ id: created.id, importance: 5 })).toMatchObject({ importance: 5 })
+    expect(((await subject.rpc().list!({ text: "lint" })) as unknown[]).length).toBe(1)
+    expect(await subject.rpc().verify!({ id: created.id })).toMatchObject({
+      validation: { anchors: [expect.objectContaining({ kind: "command", value: "bun run lint" })] },
+    })
+    await subject.rpc().remove!({ id: created.id })
+    expect(await subject.rpc().get!({ id: created.id })).toBeNull()
+  })
+
+  test("the memory tool adds and lists as the agent", async () => {
+    const subject = await memory()
+    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<{ content: string }> }> =
+      []
+    subject.recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => tool.name)).toEqual(["memory"])
+    const context_ = { sessionID: "ses_1", agent: "build", id: "call_1" }
+    await added[0]!.execute({ action: "add", title: "Port", content: "The dev server listens on 4444" }, context_)
+    const listed = JSON.parse((await added[0]!.execute({ action: "list", query: "4444" }, context_)).content)
+    expect(listed).toEqual([expect.objectContaining({ title: "Port", status: "candidate", scope: "project" })])
+  })
+
+  test("after a run the model is asked for candidates from the session's recent turns", async () => {
+    let release = () => {}
+    const turnRecorded = new Promise<void>((resolve) => (release = resolve))
+    const ended = {
+      type: "session.execution.succeeded",
+      location: { directory: "/work/demo" },
+      data: { sessionID: "ses_1" },
+    }
+    const subject = await memory(
+      [],
+      '[{"title":"Release","content":"Releases are cut from the power branch","kind":"procedure","scope":"project","tags":["release"],"confidence":0.7}]',
+    )
+    // The run ends only after its turn was seen, as on the engine.
+    subject.recorded.ctx.event.subscribe = () => ({
+      async *[Symbol.asyncIterator]() {
+        await turnRecorded
+        yield ended
+        yield ended
+      },
+    })
+    const plugin_ = await plugin("flupcode-memory.js")
+    await plugin_.setup(subject.recorded.ctx)
+    await subject.recorded.hooks.get("session.context")!({
+      sessionID: "ses_1",
+      system: [],
+      messages: [
+        { id: "msg_u", role: "user", content: [{ type: "text", text: "How are releases cut in this repository?" }] },
+        {
+          id: "msg_a",
+          role: "assistant",
+          content: [{ type: "text", text: "From the power branch, after CI passes." }],
+        },
+      ],
+    } as never)
+    release()
+    await settle()
+    // Once per interval, however many runs end.
+    expect(subject.prompts).toHaveLength(1)
+    expect(subject.prompts[0]).toContain("User: How are releases cut in this repository?")
+    expect(subject.prompts[0]).toContain("Assistant: From the power branch, after CI passes.")
+    const kept = (await subject.rpc().list!({})) as Array<{ title: string; source: string; status: string }>
+    expect(kept).toEqual([
+      expect.objectContaining({ title: "Release", source: "agent_discovery", status: "candidate" }),
+    ])
   })
 })
