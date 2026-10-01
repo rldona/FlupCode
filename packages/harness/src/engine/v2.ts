@@ -53,9 +53,6 @@ export function createV2Domains(
       )
       return { data: page.data.map(toSession), cursor: nonNull(page.cursor) }
     },
-    history: async () => unsupported("the session replay history"),
-    setArchived: async () => unsupported("archiving a session"),
-    removeMessage: async () => unsupported("deleting a message"),
     create: async (input) =>
       toSession(
         await call(
@@ -251,8 +248,6 @@ export function createV2Domains(
       await call(client.session.move({ sessionID: input.sessionID, directory: input.directory }))
       return nothing()
     },
-    share: async () => unsupported("sharing a session"),
-    unshare: async () => unsupported("sharing a session"),
     children: async (input) => ({
       data: (await call(client.session.list({ parentID: input.sessionID, limit: 200 }))).data.map(toSession),
     }),

@@ -50,8 +50,7 @@ test.beforeAll(async () => {
   engine = createServer((request, response) => {
     engineHits.push(request.url ?? "")
     response.setHeader("content-type", "application/json")
-    if (request.url?.startsWith("/api/health") || request.url?.startsWith("/global/health"))
-      return response.end(JSON.stringify({ healthy: true, version: "e2e" }))
+    if (request.url?.startsWith("/api/info")) return response.end(JSON.stringify({ version: "e2e" }))
     if (request.url?.startsWith("/api/session?") || request.url === "/api/session")
       return response.end(JSON.stringify({ data: [e2eSession], cursor: {} }))
     if (request.url?.startsWith("/vcs?")) return response.end(JSON.stringify({ branch: "main" }))

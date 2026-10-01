@@ -44,7 +44,7 @@ async function open(page: Page, over: Record<string, unknown> = {}) {
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/event")

@@ -277,7 +277,6 @@ async function replayOnce(input: {
           ...(model ? { model: { providerID: model.providerID, id: model.modelID, variant: model.variant } } : {}),
         })
         await input.engine.waitForIdle(session.id, {
-          directory,
           timeoutMs: options.timeoutMs ?? 30 * 60_000,
           ...(options.pollMs !== undefined ? { pollMs: options.pollMs } : {}),
           ...(options.settleMs !== undefined ? { settleMs: options.settleMs } : {}),
@@ -288,7 +287,7 @@ async function replayOnce(input: {
       (cause: unknown) => messageOf(cause),
     )
     const wallMs = Date.now() - started - idled
-    const messages = await input.engine.messages(session.id, directory).catch(() => [])
+    const messages = await input.engine.messages(session.id).catch(() => [])
     const usage = await measure(options, session.id, messages)
     const turnErrors = messages.filter((message) => message.info?.role === "assistant" && message.info.error).length
     const verify = input.fixture.verify
@@ -311,7 +310,7 @@ async function replayOnce(input: {
     }
   } finally {
     // Throwaway state: the session and the worktree go whatever happened, so replays do not pile up.
-    if (!(session instanceof Error)) await input.engine.deleteSession(session.id, directory).catch(() => undefined)
+    if (!(session instanceof Error)) await input.engine.deleteSession(session.id).catch(() => undefined)
     if (worktree) await input.engine.removeWorktree({ directory: worktree.directory, project }).catch(() => undefined)
   }
 }

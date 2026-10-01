@@ -3,11 +3,11 @@ import { dirname, join } from "node:path"
 import { expect } from "bun:test"
 
 /**
- * Compares what a flow produced with the fixture recorded for that engine line.
+ * Compares what a flow produced with the fixture recorded for it.
  *
- * Fixtures live in `fixtures/<v1|v2>/<name>.json`, so the diff between the two folders is the
- * contract change FlupCode has to absorb (V2-06). A missing fixture is written, except in CI, where
- * it fails: a contract nobody recorded is not a contract. `UPDATE_FIXTURES=1` rewrites them all.
+ * Fixtures live in `fixtures/v2/<name>.json`, so a pin bump that changes the contract shows up as a
+ * diff of that folder. A missing fixture is written, except in CI, where it fails: a contract nobody
+ * recorded is not a contract. `UPDATE_FIXTURES=1` rewrites them all.
  */
 export function matchFixture(kind: string, name: string, value: unknown) {
   const file = join(import.meta.dir, "..", "fixtures", kind, `${name}.json`)

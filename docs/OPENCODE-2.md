@@ -33,8 +33,8 @@ It stays where it was, untouched, and is only brought over when you ask:
 The import copies the 1.x database (it is only read) and keeps what OpenCode 2 held before, so undoing
 it puts that back.
 
-## Staying on OpenCode 1.x for now
+## OpenCode 1.x is no longer supported
 
-Set `FLUPCODE_ENGINE=v1` and FlupCode starts the `opencode` on your PATH as before. An engine you start
-yourself is used whichever version it is. OpenCode 1.x is **deprecated**: Settings and
-`flupcode remote` say so, and support for it is removed in a coming release.
+FlupCode only runs OpenCode 2 (V2-71). The desktop app, `flupcode remote` and the web app tell you
+when the engine they find is 1.x, and ask you to stop it. Your 1.x history stays where it is until
+you import it, as above.

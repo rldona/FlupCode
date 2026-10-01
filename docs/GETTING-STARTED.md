@@ -70,17 +70,11 @@ bun run dev:harness   # the web app at http://localhost:4444
 
 For the engine, keep the desktop app open, or run `bun packages/flupcode-cli/src/index.ts serve`.
 
-## OpenCode 1.x (deprecated)
+## OpenCode 1.x
 
-`FLUPCODE_ENGINE=v1` makes the desktop app and `flupcode remote` start the `opencode` on your PATH as
-before. To use a 1.x engine from the web app directly, start it without a password and with the
-page's origin allowed:
-
-```bash
-env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
-```
-
-Support for 1.x is removed in a coming release.
+FlupCode no longer runs OpenCode 1.x. If one is running on port 4096, stop it: the desktop app and
+`flupcode serve` start OpenCode 2 there. See [Your OpenCode 1.x history](#your-opencode-1x-history) to
+bring your sessions over.
 
 ## Troubleshooting
 
@@ -94,6 +88,7 @@ FlupCode tells two failures apart on purpose:
 | ------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | "Server offline"                            | Neither the desktop app nor `flupcode serve` is running, or the port is wrong   | Start one of them; check the address in Settings                        |
 | "This engine is OpenCode 2…" in the web app | An OpenCode 2 started some other way: it wants a password the page cannot send  | Stop it and use `flupcode serve` or the desktop app                     |
+| "This engine is OpenCode 1.x…"              | An OpenCode 1.x engine on the port, which FlupCode no longer drives             | Stop it and use `flupcode serve` or the desktop app                     |
 | `403` from `127.0.0.1:4096`                 | The page is not FlupCode's web app                                              | Add its origin to `FLUPCODE_WEB_ORIGINS`                                |
 | Nothing connects on **Safari**              | WebKit blocks `https://` pages from reaching `http://localhost` (mixed content) | Use the **desktop app**, which is not subject to the mixed-content rule |
 | Chrome shows a Local Network Access prompt  | Chromium gates requests from public pages to loopback                           | Allow it; FlupCode answers that preflight                               |

@@ -724,14 +724,13 @@ export class TaskRunner {
         ...(files.length > 0 ? { files } : {}),
       })
       await this.engine.waitForIdle(session.id, {
-        directory,
         stopped,
         ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
       })
       // The session went quiet: that is the boundary FH-002 captures. It carries the run's id, so a
       // task's session never becomes an episode of its own.
       this.episodes?.captureSession({ sessionID: session.id, runID: run.id, directory })
-      const answer = await this.engine.lastAnswer(session.id, directory)
+      const answer = await this.engine.lastAnswer(session.id)
       this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
         output: answer?.text,
         tokens: answer?.tokens,

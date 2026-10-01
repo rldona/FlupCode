@@ -11,7 +11,6 @@ import { errorDetail } from "../error-text"
 import { openImagePreview } from "../image-preview"
 import { diffLines, escapeHtml, highlight, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
 import { actionLink, outputLines, parseActionSummary, parseTodos, taskSessionID, type ActionSummary, type Todo } from "../tool-render"
-import { recoverablePrompt } from "../unsend"
 import type { RunOutcome } from "../run-outcome"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
@@ -55,8 +54,6 @@ type SessionViewProps = {
     cancel?: () => void
   }>
   onEditUser: (messageID: string, text: string) => void
-  /** Takes a just-sent prompt back while its turn did nothing irreversible (UN-1). */
-  onRecoverUser?: (messageID: string) => void
   /** Forks a new session from a prompt; omitted in the split panes and for chats. */
   onForkUser?: (messageID: string) => void
   /** Resends the prompt whose turn failed, with the same model; only the last turn offers it. */
@@ -1351,34 +1348,6 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                           </svg>
                         </button>
                         <Show when={!props.chat}>
-                          <Show
-                            when={
-                              props.onRecoverUser &&
-                              recoverablePrompt(
-                                props.messages as Parameters<typeof recoverablePrompt>[0],
-                                message.id,
-                              )
-                            }
-                          >
-                            <button
-                              class="fc-message-action"
-                              type="button"
-                              title={t("Recover prompt")}
-                              aria-label={t("Recover prompt")}
-                              onClick={() => props.onRecoverUser?.(message.id)}
-                            >
-                              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                                <path
-                                  d="M9 14 4 9l5-5M4 9h9a7 7 0 0 1 0 14h-3"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  stroke-width="2"
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                />
-                              </svg>
-                            </button>
-                          </Show>
                           {/* Rewinding needs an idle session: the engine refuses mid-turn (UN). */}
                           <button
                             class="fc-message-action"

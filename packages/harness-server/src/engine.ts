@@ -1,37 +1,5 @@
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import { detectEngine } from "@flupcode/remote/engine-kind"
-import { basename } from "node:path"
-import { pathToFileURL } from "node:url"
+import type { V2Engine } from "./engine-v2"
 import type { BrowserAllowRule } from "./types"
-
-type Result<T> = { data?: T; error?: unknown }
-
-/**
- * The message inside whatever the engine returned as an error.
- *
- * A non-2xx body is a NamedError-shaped POJO (`{ name, data: { message } }`), not `{ message }`, so
- * reading `.message` alone turned every refusal into the same opaque "Engine request failed" —
- * including a plain 401 with an empty body, which is how this server met an engine it could not
- * sign in to. The nested shapes are tried in order and the raw body is the last resort.
- */
-const errorMessage = (error: unknown): string | undefined => {
-  if (typeof error === "string" && error) return error
-  if (typeof error !== "object" || error === null) return undefined
-  const record = error as { data?: { message?: unknown }; message?: unknown; error?: unknown }
-  if (typeof record.message === "string" && record.message) return record.message
-  if (typeof record.data?.message === "string" && record.data.message) return record.data.message
-  if (typeof record.error === "string" && record.error) return record.error
-  return undefined
-}
-
-export const unwrap = async <T>(call: Promise<Result<T>>) => {
-  const result = await call
-  if (result.error !== undefined && result.error !== null) {
-    throw new Error(errorMessage(result.error) ?? "Engine request failed")
-  }
-  if (result.data === undefined) throw new Error("Engine returned no data")
-  return result.data
-}
 
 /**
  * The `authorization` header the engine requires, when it was started password-protected.
@@ -153,31 +121,6 @@ export class ToolLimitReached extends Error {
   }
 }
 
-/**
- * A tool call, in either shape the engine reports one.
- *
- * The legacy `/session/:id/message` — the one every run's turn goes through — names the tool in
- * `tool` and times it in `state.time.start`. The v2 types in the SDK say `name` and `time.ran`.
- * Coding against the types alone reads `undefined` for both against a real engine, which is what
- * happened here.
- */
-type RunningToolPart = {
-  tool?: string
-  name?: string
-  state?: { status?: string; input?: Record<string, unknown>; time?: { start?: number; end?: number } }
-  time?: { created?: number; ran?: number; completed?: number }
-}
-
-export const toolNameOf = (part: RunningToolPart) => part.tool ?? part.name
-export const toolStartOf = (part: RunningToolPart) => part.state?.time?.start ?? part.time?.ran ?? part.time?.created
-
-export const isRunningTool = (part: unknown): part is RunningToolPart => {
-  const tool = part as RunningToolPart | undefined
-  if (!tool || tool.state?.status !== "running") return false
-  if (tool.state?.time?.end !== undefined || tool.time?.completed !== undefined) return false
-  return typeof toolNameOf(tool) === "string"
-}
-
 /** The argument worth showing beside a tool's name — the one that says what it is working on. */
 const ARGUMENTS = ["command", "pattern", "filePath", "file", "path", "query", "url", "description"]
 
@@ -212,9 +155,8 @@ export class McpNotConnectedError extends Error {
 }
 
 export class Engine {
-  private readonly client: ReturnType<typeof createOpencodeClient>
   private readonly authorization: string | undefined
-  private line: Promise<import("./engine-v2").V2Engine | undefined> | undefined
+  private backend: Promise<V2Engine> | undefined
 
   /** `authorization` defaults to the engine credentials of this process; a test hands its own. */
   constructor(
@@ -222,70 +164,26 @@ export class Engine {
     authorization = engineAuthorization(),
   ) {
     this.authorization = authorization
-    this.client = createOpencodeClient({
-      baseUrl: url,
-      ...(this.authorization ? { headers: { authorization: this.authorization } } : {}),
-    })
+  }
+
+  /** The OpenCode 2 client, loaded on first use: `engine-v2.ts` imports this module's helpers. */
+  private v2() {
+    this.backend ??= import("./engine-v2").then((module) => new module.V2Engine(this.url, this.authorization))
+    return this.backend
   }
 
   /**
-   * The OpenCode 2 backend when the engine is 2.x (V2-26), asked once; `undefined` keeps the 1.x
-   * code below. An engine that cannot be reached yet is asked again next time instead of being
-   * taken for 1.x for good, because this server starts before the engine does.
+   * A session of its own. The agent and the model are not given here because the prompt carries
+   * them. `permission` holds the rules the session runs under (H-47): a `deny` stops the call without
+   * asking anybody.
    */
-  private async v2() {
-    this.line ??= detectEngine(
-      this.url,
-      fetch,
-      this.authorization ? { headers: { authorization: this.authorization } } : {},
-    ).then(async (detected) => {
-      if (detected.kind === "none") this.line = undefined
-      if (detected.kind !== "v2") return undefined
-      const { V2Engine } = await import("./engine-v2")
-      return new V2Engine(this.url, this.authorization)
-    })
-    return this.line
-  }
-
-  /**
-   * A session of its own, created through the legacy runtime like everything else here.
-   *
-   * `parentID` is why: the v2 create takes the field and does nothing with it — a run whose tasks
-   * passed it still had no children, checked against the engine — while the legacy one is what the
-   * app itself uses to put a session under another. The agent and the model are not given here
-   * because the prompt carries them.
-   */
-  async createSession(input: {
-    directory?: string
-    parentID?: string
-    title?: string
-    /**
-     * Rules the session runs under (H-47).
-     *
-     * Passed to the legacy `session.create`, which is where they belong: the legacy runtime merges
-     * `agent.permission` with the session's own and evaluates them on every tool call, so a `deny`
-     * here stops the call without asking anybody. Verified in `opencode/src/session/tools.ts` and
-     * `permission/index.ts` before being relied on.
-     */
-    permission?: PermissionRule[]
-  }) {
-    const v2 = await this.v2()
-    if (v2) return v2.createSession(input)
-    return (await unwrap(
-      this.client.session.create({
-        ...(input.parentID ? { parentID: input.parentID } : {}),
-        ...(input.directory ? { directory: input.directory } : {}),
-        ...(input.title ? { title: input.title } : {}),
-        ...(input.permission ? { permission: input.permission } : {}),
-      }),
-    )) as { id: string }
+  async createSession(input: { directory?: string; parentID?: string; title?: string; permission?: PermissionRule[] }) {
+    return (await this.v2()).createSession(input)
   }
 
   /** Remove a throwaway session and its messages, so helper sessions do not pile up in the list. */
-  async deleteSession(sessionID: string, directory?: string) {
-    const v2 = await this.v2()
-    if (v2) return v2.deleteSession(sessionID)
-    return unwrap(this.client.session.delete({ sessionID, ...(directory ? { directory } : {}) }))
+  async deleteSession(sessionID: string) {
+    return (await this.v2()).deleteSession(sessionID)
   }
 
   /**
@@ -297,111 +195,66 @@ export class Engine {
    * again later instead of forgetting a session it never saw.
    */
   async describeSession(sessionID: string) {
-    const v2 = await this.v2()
-    if (v2) return v2.describeSession(sessionID)
-    const result = await this.client.session.get({ sessionID })
-    const status = result.response?.status ?? 0
-    if (status >= 400 && status < 500 && status !== 401 && status !== 403) return undefined
-    const session = await unwrap(Promise.resolve(result))
-    return {
-      directory: session.directory,
-      title: session.title,
-      ...(session.parentID ? { parentID: session.parentID } : {}),
-      createdAt: session.time.created,
-    }
+    return (await this.v2()).describeSession(sessionID)
   }
 
-  /** A session's whole legacy transcript, oldest first: every message with its parts. */
-  async messages(sessionID: string, directory?: string) {
-    const v2 = await this.v2()
-    if (v2) return v2.messages(sessionID)
-    return (await unwrap(
-      this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
-    )) as TranscriptMessage[]
+  /** A session's whole transcript, oldest first: every message with its parts. */
+  async messages(sessionID: string) {
+    return (await this.v2()).messages(sessionID)
   }
 
   async rename(sessionID: string, title: string) {
-    const v2 = await this.v2()
-    if (v2) return v2.rename(sessionID, title)
-    return unwrap(this.client.session.update({ sessionID, title }))
+    return (await this.v2()).rename(sessionID, title)
   }
 
   /**
    * A worktree of its own for a task (H-29).
    *
-   * The engine does the git work — `git worktree add` on a new `opencode/<name>` branch under its
-   * data directory — so the branch, the sandbox bookkeeping and the eventual cleanup all stay its.
-   * A task writes here and the primary checkout is left alone until somebody merges.
+   * The engine does the git work, so the branch, the sandbox bookkeeping and the eventual cleanup all
+   * stay its. A task writes here and the primary checkout is left alone until somebody merges.
    */
   async createWorktree(input: {
     directory?: string
     name?: string
   }): Promise<{ name: string; branch?: string; directory: string }> {
-    const v2 = await this.v2()
-    if (v2) return v2.createWorktree(input)
-    return (await unwrap(
-      this.client.worktree.create({
-        ...(input.directory ? { directory: input.directory } : {}),
-        worktreeCreateInput: { ...(input.name ? { name: input.name } : {}) },
-      }),
-    )) as { name: string; branch?: string; directory: string }
+    return (await this.v2()).createWorktree(input)
   }
 
   /** Removes a worktree and the branch it was on. The engine's own bookkeeping too. */
   async removeWorktree(input: { directory: string; project?: string }) {
-    const v2 = await this.v2()
-    if (v2) return v2.removeWorktree(input)
-    return unwrap(
-      this.client.worktree.remove({
-        ...(input.project ? { directory: input.project } : {}),
-        worktreeRemoveInput: { directory: input.directory },
-      }),
-    )
+    return (await this.v2()).removeWorktree(input)
   }
 
   /**
    * Bring up every MCP server of a project before a run creates its session.
    *
    * A session created while a server is still connecting starts without that server's tools, and the
-   * run then works against a project smaller than the one that was configured. `mcp.connect` answers
-   * `true` even when the server stays unauthenticated, so the status is read again afterwards and a
+   * run then works against a project smaller than the one that was configured. Connecting can answer
+   * success while the server stays unauthenticated, so the status is read again afterwards and a
    * non-disabled server that is still not connected fails the run by name.
    *
-   * An engine that does not expose `/mcp` (an older one, or a shape this code does not know) must not
-   * break the run: every connectivity error is swallowed and the run proceeds as it did before this
-   * existed. The one thing never swallowed is this method's own refusal, thrown after the second read.
+   * An engine whose MCP routes fail must not break the run: every connectivity error is swallowed and
+   * the run proceeds as it did before this existed. The one thing never swallowed is this method's
+   * own refusal, thrown after the second read.
    */
   async ensureMcp(directory: string) {
     const v2 = await this.v2()
-    // The same read, connect and read again on either line; only the routes differ.
-    const statuses = async () =>
-      v2
-        ? await v2.mcpServers(directory)
-        : Object.entries(
-            (await unwrap(this.client.mcp.status({ directory }))) as Record<string, { status?: string }>,
-          ).map(([name, server]) => ({ name, status: server.status }))
-    const connect = (name: string) =>
-      v2 ? v2.connectMcp(name, directory) : unwrap(this.client.mcp.connect({ name, directory }))
     try {
-      const pending = (await statuses()).filter(
+      const pending = (await v2.mcpServers(directory)).filter(
         (server) => server.status !== "connected" && server.status !== "disabled",
       )
-      for (const server of pending) await connect(server.name).catch(() => undefined)
-      const stranded = (await statuses()).find(
+      for (const server of pending) await v2.connectMcp(server.name, directory).catch(() => undefined)
+      const stranded = (await v2.mcpServers(directory)).find(
         (server) => server.status !== "connected" && server.status !== "disabled",
       )
       if (stranded) throw new McpNotConnectedError(stranded.name, stranded.status ?? "unknown", directory)
     } catch (cause) {
       if (cause instanceof McpNotConnectedError) throw cause
-      // An engine without /mcp, or a read that failed: the run continues without this guarantee.
+      // A read that failed: the run continues without this guarantee.
     }
   }
 
-  /**
-   * Ask, through the legacy runtime — the one every Code and Chat turn goes to since H-01, where
-   * subagents, MCP, retries and titles live, and where a question or permission raised by this work
-   * can be answered from the app at all. It returns before the turn does.
-   */
+  /** Ask in a session. It returns once the engine admitted the prompt, before the turn ends. */
   async prompt(input: {
     sessionID: string
     text: string
@@ -411,72 +264,30 @@ export class Engine {
     /**
      * Files to hand the turn as parts (H-31), read by the engine's own Read tool.
      *
-     * A path is not text: a `file` part with a `file://` URL is how the engine puts a file's contents
-     * in front of the model, and a path typed into the message would not be.
+     * A path is not text: a file attachment is how the engine puts a file's contents in front of the
+     * model, and a path typed into the message would not be.
      */
     files?: Array<{ path: string; filename?: string }>
   }) {
-    const v2 = await this.v2()
-    if (v2) return v2.prompt(input)
-    return unwrap(
-      this.client.session.promptAsync({
-        sessionID: input.sessionID,
-        ...(input.directory ? { directory: input.directory } : {}),
-        ...(input.agent ? { agent: input.agent } : {}),
-        ...(input.model
-          ? {
-              model: { providerID: input.model.providerID, modelID: input.model.id },
-              ...(input.model.variant ? { variant: input.model.variant } : {}),
-            }
-          : {}),
-        parts: [
-          { type: "text", text: input.text },
-          ...(input.files ?? []).map((file) => ({
-            type: "file" as const,
-            mime: "text/plain",
-            url: pathToFileURL(file.path).toString(),
-            filename: file.filename ?? basename(file.path),
-          })),
-        ],
-      }),
-    )
+    return (await this.v2()).prompt(input)
   }
 
-  /**
-   * Whether the engine is still working on this session. A legacy turn never appears in
-   * `/api/session/active` — measured against a local engine — so the folder's own status map answers
-   * for it, and the v2 list is only the fallback when there is no folder to ask.
-   */
-  async isBusy(sessionID: string, directory?: string) {
-    const v2 = await this.v2()
-    if (v2) return v2.isBusy(sessionID)
-    if (directory) {
-      const status = (await unwrap(this.client.session.status({ directory })).catch(() => undefined)) as
-        | Record<string, { type?: string } | undefined>
-        | undefined
-      if (status) {
-        const state = status[sessionID]?.type
-        return state === "busy" || state === "retry"
-      }
-    }
-    const active = await unwrap(this.client.v2.session.active()).catch(() => undefined)
-    const running = active?.data as Record<string, unknown> | undefined
-    return running ? sessionID in running : false
+  /** Whether the engine is still working on this session. */
+  async isBusy(sessionID: string) {
+    return (await this.v2()).isBusy(sessionID)
   }
 
   /**
    * Wait for the turn to end.
    *
-   * Not with `session.wait`: the engine answers 503 for it, and a run whose work had finished was
-   * marked failed because of it. And "not busy yet" reads exactly like "already finished", so the
-   * session is given a moment to appear busy first — without it, a turn slower to start than the
-   * first check would be called a success before doing anything. One that finishes inside that
-   * window never appears, and the wait ends on its first check.
+   * "Not busy yet" reads exactly like "already finished", so the session is given a moment to appear
+   * busy first: without it, a turn slower to start than the first check would be called a success
+   * before doing anything. One that finishes inside that window never appears, and the wait ends on
+   * its first check.
    */
   async waitForIdle(
     sessionID: string,
     options: {
-      directory?: string
       stopped?: () => boolean
       timeoutMs?: number
       toolLimitMs?: number
@@ -494,7 +305,7 @@ export class Engine {
     const settleUntil = Date.now() + (options.settleMs ?? 3000)
     while (Date.now() < settleUntil) {
       if (stopped()) return
-      if (await this.isBusy(sessionID, options.directory)) break
+      if (await this.isBusy(sessionID)) break
       await new Promise((resolve) => setTimeout(resolve, Math.min(250, pollMs)))
     }
     // Only when a limit was declared: asking for the transcript every few seconds costs a request
@@ -502,14 +313,14 @@ export class Engine {
     let nextCheck = options.toolLimitMs ? Date.now() + checkEveryMs : Infinity
     while (Date.now() < deadline) {
       if (stopped()) return
-      if (!(await this.isBusy(sessionID, options.directory))) return
+      if (!(await this.isBusy(sessionID))) return
       if (Date.now() >= nextCheck) {
         nextCheck = Date.now() + checkEveryMs
-        const overrun = await this.overrunning(sessionID, options.directory, options.toolLimitMs!)
+        const overrun = await this.overrunning(sessionID, options.toolLimitMs!)
         if (overrun) {
-          // Stopped, not left to the thirty-minute cap. The turn is aborted first so the engine
+          // Stopped, not left to the thirty-minute cap. The turn is interrupted first so the engine
           // stops working before the task is written down as stopped.
-          await this.interrupt(sessionID, options.directory).catch(() => undefined)
+          await this.interrupt(sessionID).catch(() => undefined)
           throw overrun
         }
       }
@@ -521,8 +332,8 @@ export class Engine {
   }
 
   /** The running tool call, if it has been running longer than this run allows. */
-  private async overrunning(sessionID: string, directory: string | undefined, limitMs: number) {
-    const doing = await this.activity(sessionID, directory).catch(() => undefined)
+  private async overrunning(sessionID: string, limitMs: number) {
+    const doing = await this.activity(sessionID).catch(() => undefined)
     // No start time means the engine did not say when it began. Stopping a task on a guess is worse
     // than letting the thirty-minute cap have it.
     if (!doing?.since) return undefined
@@ -530,42 +341,20 @@ export class Engine {
     return waited > limitMs ? new ToolLimitReached(doing.tool, waited, limitMs) : undefined
   }
 
-  /** Stop the turn where it runs: a legacy one is aborted per folder, not interrupted by id. */
-  /**
-   * One question asked in the session (a web action's approval, V2-31; the plan's hand-off, V2-33), on
-   * 2.x only: 1.x's plugins ask through the engine's own prompts, so there is nothing to ask from here.
-   */
-  async askChoice(input: Parameters<import("./engine-v2").V2Engine["askChoice"]>[0]) {
-    const v2 = await this.v2()
-    if (!v2) return undefined
-    return v2.askChoice(input)
+  /** One question asked in the session (a web action's approval, V2-31; the plan's hand-off, V2-33). */
+  async askChoice(input: Parameters<V2Engine["askChoice"]>[0]) {
+    return (await this.v2()).askChoice(input)
   }
 
-  /** Switches a 2.x session's agent; 1.x's plan hand-off switches it in the engine itself. */
+  /** Switches a session's agent: 2.x keeps it as session state. */
   async switchAgent(sessionID: string, agent: string) {
-    const v2 = await this.v2()
-    if (v2) await v2.switchAgent(sessionID, agent)
+    await (await this.v2()).switchAgent(sessionID, agent)
   }
 
-  async interrupt(sessionID: string, directory?: string) {
-    const v2 = await this.v2()
-    if (v2) return v2.interrupt(sessionID)
-    if (directory) {
-      const aborted = await unwrap(this.client.session.abort({ sessionID, directory })).then(
-        () => true,
-        () => false,
-      )
-      if (aborted) return
-    }
-    await unwrap(this.client.v2.session.interrupt({ sessionID })).catch(() => undefined)
+  async interrupt(sessionID: string) {
+    return (await this.v2()).interrupt(sessionID)
   }
 
-  /**
-   * What the session answered last, and what the turn cost.
-   *
-   * Read from the legacy message table, because that is where a legacy turn writes: `/api/session/:id/message`
-   * stays empty for one. Tokens and cost come from the assistant message the engine wrote them on.
-   */
   /**
    * What a running task is doing right now (H-12).
    *
@@ -577,20 +366,8 @@ export class Engine {
    * Never stored: it changes by the second, and writing it to the event log would drown everything
    * else in there. It is asked for while somebody is looking.
    */
-  async activity(sessionID: string, directory?: string): Promise<Activity | undefined> {
-    const v2 = await this.v2()
-    if (v2) return v2.activity(sessionID)
-    const messages = (await unwrap(
-      this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
-    ).catch(() => undefined)) as Array<{ info?: { role?: string }; parts?: unknown[] }> | undefined
-    const assistant = [...(messages ?? [])].reverse().find((message) => message.info?.role === "assistant")
-    if (!assistant) return undefined
-    // The last one that has started and not finished. Tools run one at a time in a turn, but taking
-    // the last is right either way: it is the one the turn is currently inside.
-    const running = [...(assistant.parts ?? [])].reverse().find((part) => isRunningTool(part))
-    if (!running) return undefined
-    const tool = running as RunningToolPart
-    return { tool: toolNameOf(tool)!, detail: detailOf(tool.state?.input), since: toolStartOf(tool) }
+  async activity(sessionID: string): Promise<Activity | undefined> {
+    return (await this.v2()).activity(sessionID)
   }
 
   /**
@@ -616,8 +393,8 @@ export class Engine {
         input.diff,
       ].join("\n"),
     })
-    await this.waitForIdle(session.id, { directory: input.directory, timeoutMs: 120_000 })
-    const answer = await this.lastAnswer(session.id, input.directory)
+    await this.waitForIdle(session.id, { timeoutMs: 120_000 })
+    const answer = await this.lastAnswer(session.id)
     return (answer?.text ?? "").trim()
   }
 
@@ -645,29 +422,12 @@ export class Engine {
         input.answer,
       ].join("\n"),
     })
-    await this.waitForIdle(session.id, { directory: input.directory, timeoutMs: 120_000 })
-    return (await this.lastAnswer(session.id, input.directory))?.text?.trim() ?? ""
+    await this.waitForIdle(session.id, { timeoutMs: 120_000 })
+    return (await this.lastAnswer(session.id))?.text?.trim() ?? ""
   }
 
-  async lastAnswer(sessionID: string, directory?: string) {
-    const v2 = await this.v2()
-    if (v2) return v2.lastAnswer(sessionID)
-    const messages = (await unwrap(
-      this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
-    ).catch(() => undefined)) as
-      | Array<{
-          info?: { role?: string; tokens?: { input?: number; output?: number }; cost?: number }
-          parts?: Array<{ type?: string; text?: string }>
-        }>
-      | undefined
-    const assistant = [...(messages ?? [])].reverse().find((message) => message.info?.role === "assistant")
-    if (!assistant) return undefined
-    const text = (assistant.parts ?? [])
-      .filter((part) => part.type === "text" && part.text)
-      .map((part) => part.text)
-      .join("\n")
-      .trim()
-    const tokens = (assistant.info?.tokens?.input ?? 0) + (assistant.info?.tokens?.output ?? 0)
-    return { text: text || undefined, tokens: tokens || undefined, cost: assistant.info?.cost }
+  /** What the session answered last, and what the turn cost. */
+  async lastAnswer(sessionID: string) {
+    return (await this.v2()).lastAnswer(sessionID)
   }
 }

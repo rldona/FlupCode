@@ -36,7 +36,7 @@ test("a reconnection picks up the permission that was asked while the stream was
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_stream/message")
@@ -89,7 +89,7 @@ test("a reconnection resyncs once the new stream is open, not before it", async 
     })
     await page.route("http://127.0.0.1:9/**", (route) => {
       const url = new URL(route.request().url())
-      if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+      if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
       if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
       if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
       if (url.pathname === "/api/session/ses_stream/message")
@@ -122,7 +122,7 @@ test("a prompt shows as the stream announces it, not only after a reload", async
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active")
       return route.fulfill({ json: { data: { ses_stream: { type: "running" } } } })
@@ -177,7 +177,7 @@ test("the desktop pill admits the app is no longer following the engine", async 
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     // The engine keeps answering the health check: only the stream is gone.
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/event") {
@@ -203,7 +203,7 @@ test("a folder whose stream died is admitted, even while the global one is healt
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/session/status") return route.fulfill({ json: {} })
@@ -233,7 +233,7 @@ test("the browser draws no engine status pill", async ({ page }) => {
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/event") return new Promise(() => {})

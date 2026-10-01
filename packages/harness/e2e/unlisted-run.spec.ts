@@ -39,7 +39,7 @@ test("a run in a folder the list does not carry still stops spinning when the en
   await page.route("http://127.0.0.1:9/**", (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [listed], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/session/status") {

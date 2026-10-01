@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { take } from "./checkpoint"
 import { changedBetween, filesPerTask } from "./touched"
-import { detailOf, isRunningTool, toolNameOf, toolStartOf } from "./engine"
+import { detailOf } from "./engine"
 
 let directory = ""
 
@@ -126,47 +126,5 @@ describe("detailOf", () => {
     expect(detailOf(undefined)).toBeUndefined()
     expect(detailOf({})).toBeUndefined()
     expect(detailOf({ command: "   " })).toBeUndefined()
-  })
-})
-
-describe("reading a running tool call", () => {
-  // The two shapes the engine reports one in. Coding against the SDK types alone reads `undefined`
-  // for the name and the time against a real engine, which is exactly what happened.
-  const legacy = {
-    type: "tool",
-    tool: "bash",
-    state: { status: "running", input: { command: "sleep 25" }, time: { start: 1_000 } },
-  }
-  const v2 = {
-    type: "tool",
-    name: "glob",
-    state: { status: "running", input: { pattern: "project.yaml" } },
-    time: { created: 900, ran: 1_000 },
-  }
-
-  test("names the tool whichever field it arrived in", () => {
-    expect(toolNameOf(legacy)).toBe("bash")
-    expect(toolNameOf(v2)).toBe("glob")
-  })
-
-  test("times it whichever field it arrived in", () => {
-    expect(toolStartOf(legacy)).toBe(1_000)
-    expect(toolStartOf(v2)).toBe(1_000)
-  })
-
-  test("a call that has finished is not running, in either shape", () => {
-    expect(isRunningTool({ ...legacy, state: { ...legacy.state, time: { start: 1_000, end: 2_000 } } })).toBe(false)
-    expect(isRunningTool({ ...v2, time: { created: 900, ran: 1_000, completed: 2_000 } })).toBe(false)
-  })
-
-  test("running is running", () => {
-    expect(isRunningTool(legacy)).toBe(true)
-    expect(isRunningTool(v2)).toBe(true)
-  })
-
-  test("what is not a tool call is not one", () => {
-    expect(isRunningTool({ type: "text", text: "hello" })).toBe(false)
-    expect(isRunningTool({ type: "tool", state: { status: "completed" } })).toBe(false)
-    expect(isRunningTool(undefined)).toBe(false)
   })
 })

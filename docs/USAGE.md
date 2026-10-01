@@ -68,8 +68,7 @@ bun run dev:harness-desktop  # Electron window
 ```
 
 The desktop main process starts OpenCode 2 automatically if no engine is reachable: the pinned
-binary, fetched once, or `FLUPCODE_OPENCODE`. `FLUPCODE_ENGINE=v1` makes it look for the engine from
-this checkout, then `opencode` on the `PATH`, as before (1.x is deprecated). Set `FLUPCODE_NO_SERVER=1` to disable the automatic
+binary, fetched once, or `FLUPCODE_OPENCODE`. Set `FLUPCODE_NO_SERVER=1` to disable the automatic
 start, `FLUPCODE_SERVER_URL` to point at an engine already running elsewhere (default
 `http://127.0.0.1:4096`), or `FLUPCODE_DEV_URL` to point at another renderer.
 

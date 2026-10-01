@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { compare, renderMarkdown, runReplay, stat } from "./runner"
 import type { ReplayAggregate } from "./runner"
 
-/** A stub engine and harness on one port: the routes the runner calls, and a log of what it did. */
+/** A stub OpenCode 2 engine and harness on one port: the routes the runner calls, and a log of what it did. */
 function fakeEngine() {
   const seen = {
     sessions: 0,
@@ -22,6 +22,8 @@ function fakeEngine() {
     patches: [] as unknown[],
     config: { enabled: true, context: { enabled: false, apply: false } } as Record<string, unknown>,
   }
+  // 2.x keeps a session's folder, model and agent as session state, set before the prompt.
+  const sessions = new Map<string, { directory: string | null; model?: unknown; agent?: string }>()
   const json = (value: unknown, status = 200) =>
     new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } })
   const server = Bun.serve({
@@ -30,48 +32,65 @@ function fakeEngine() {
     fetch: async (request) => {
       const url = new URL(request.url)
       const path = url.pathname
-      if (path === "/session" && request.method === "POST") {
+      if (path === "/api/session" && request.method === "POST") {
+        const body = (await request.json()) as { location?: { directory?: string } }
         seen.sessions += 1
-        return json({ id: `ses_${seen.sessions}`, directory: url.searchParams.get("directory") })
+        const id = `ses_${seen.sessions}`
+        sessions.set(id, { directory: body.location?.directory ?? null })
+        return json({ data: { id, location: { directory: body.location?.directory } } })
       }
-      if (path === "/session/status") return json({})
-      const prompt = path.match(/^\/session\/([^/]+)\/prompt_async$/)
+      if (path === "/api/session/active") return json({ data: {} })
+      const state = path.match(/^\/api\/session\/([^/]+)\/(model|agent)$/)
+      if (state && request.method === "POST") {
+        const body = (await request.json()) as { model?: unknown; agent?: string }
+        const session = sessions.get(state[1]!)
+        if (session && state[2] === "model") session.model = body.model
+        if (session && state[2] === "agent") session.agent = body.agent
+        return new Response(null, { status: 204 })
+      }
+      const prompt = path.match(/^\/api\/session\/([^/]+)\/prompt$/)
       if (prompt) {
-        const body = (await request.json()) as { parts: Array<{ text: string }>; model?: unknown; agent?: string }
+        const body = (await request.json()) as { text: string }
+        const session = sessions.get(prompt[1]!)
         seen.prompts.push({
           via: request.headers.get("x-via") ?? undefined,
           sessionID: prompt[1]!,
-          text: body.parts[0]!.text,
-          model: body.model,
-          agent: body.agent,
-          directory: url.searchParams.get("directory"),
+          text: body.text,
+          model: session?.model,
+          agent: session?.agent,
+          directory: session?.directory ?? null,
         })
-        return new Response(null, { status: 204 })
+        return json({ data: { id: `msg_${seen.prompts.length}` } })
       }
-      if (path.match(/^\/session\/[^/]+\/message$/))
-        return json([
-          { info: { role: "user" }, parts: [{ type: "text", text: "go" }] },
-          {
-            info: {
-              role: "assistant",
+      // Newest first, as 2.x pages them.
+      if (path.match(/^\/api\/session\/[^/]+\/message$/))
+        return json({
+          data: [
+            {
+              type: "assistant",
+              agent: "build",
+              model: { providerID: "stub", id: "stub-model" },
               cost: 0.01,
               tokens: { input: 100, output: 20, reasoning: 0, cache: { read: 50, write: 0 } },
+              content: [],
             },
-            parts: [],
-          },
-        ])
-      const session = path.match(/^\/session\/([^/]+)$/)
+            { type: "user", text: "go" },
+          ],
+          cursor: {},
+        })
+      const session = path.match(/^\/api\/session\/([^/]+)$/)
       if (session && request.method === "DELETE") {
         seen.deleted.push(session[1]!)
-        return json(true)
+        return new Response(null, { status: 204 })
       }
-      if (path === "/experimental/worktree" && request.method === "POST") {
+      if (path === "/api/location") return json({ project: { id: "prj_1" } })
+      if (path === "/api/worktree" && request.method === "POST") {
         seen.worktrees.created += 1
-        return json({ name: "w", directory: mkdtempSync(join(tmpdir(), "replay-worktree-")) })
+        return json({ directory: mkdtempSync(join(tmpdir(), "replay-worktree-")) })
       }
-      if (path === "/experimental/worktree" && request.method === "DELETE") {
+      if (path === "/api/worktree" && request.method === "DELETE") {
         seen.worktrees.removed += 1
-        return json(true)
+        return new Response(null, { status: 204 })
       }
       if (path === "/harness/adaptive/metrics") {
         // Every other session has its `session_metrics`; the rest fall back to the engine's numbers.
@@ -150,8 +169,8 @@ describe("replay runner", () => {
     )
     expect(fake.seen.prompts.every((prompt) => prompt.directory?.includes("replay-worktree-"))).toBe(true)
     // The model is pinned on every prompt, and the variant's override wins.
-    expect(fake.seen.prompts[0]!.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" })
-    expect(fake.seen.prompts.at(-1)!.model).toEqual({ providerID: "anthropic", modelID: "claude-haiku-4-5" })
+    expect(fake.seen.prompts[0]!.model).toEqual({ providerID: "anthropic", id: "claude-sonnet-4-5" })
+    expect(fake.seen.prompts.at(-1)!.model).toEqual({ providerID: "anthropic", id: "claude-haiku-4-5" })
     // Nothing is left behind, and the adaptive patch is applied and then restored.
     expect(fake.seen.deleted).toHaveLength(6)
     expect(fake.seen.worktrees).toEqual({ created: 6, removed: 6 })

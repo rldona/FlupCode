@@ -29,7 +29,7 @@ test("an idle app does not re-ask the engine on the health clock", async ({ page
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     calls.push(url.pathname)
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     // An empty catalog is retried on the same poll, by design; a loaded one must not be.
@@ -64,9 +64,9 @@ test("an idle app does not re-ask the engine on the health clock", async ({ page
   await page.waitForTimeout(25_000)
 
   // The poll itself is the only traffic an idle app owes the engine.
-  const health = calls.filter((path) => path.endsWith("/health"))
+  const health = calls.filter((path) => path.endsWith("/api/info"))
   expect(health.length).toBeGreaterThan(0)
-  expect(calls.filter((path) => !path.endsWith("/health"))).toEqual([])
+  expect(calls.filter((path) => !path.endsWith("/api/info"))).toEqual([])
 
   // And the streams it already holds are still the same ones.
   expect(streams).toBe(streamsAfterLoad)

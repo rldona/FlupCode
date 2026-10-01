@@ -999,7 +999,7 @@ export const createHarnessHandler = (
               return { taskID: task.id, waitingMs: now - live.since, tool: live.tool, detail: live.tail }
             }
             if (!task.sessionID) return undefined
-            const doing = await scheduler.engine.activity(task.sessionID, run.directory).catch(() => undefined)
+            const doing = await scheduler.engine.activity(task.sessionID).catch(() => undefined)
             return {
               taskID: task.id,
               // Since the task started, when the engine will not say — still better than nothing.

@@ -3,11 +3,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative } from "node:path"
 
 /**
- * The engine boundary (V2-12): `engine.ts` is harness-server's only door to the engine's SDK, so the
- * runner, the scheduler and the adaptive layer move to OpenCode 2 when that one class does. Its
- * OpenCode 2 backend, `engine-v2.ts`, is likewise the only door to `@opencode/client` (V2-26).
+ * The engine boundary (V2-12, V2-26): `engine-v2.ts` is harness-server's only door to the engine, through
+ * `@opencode/client`, so the runner, the scheduler and the adaptive layer follow a pin bump when that
+ * one class does. Nothing reaches the 1.x SDK any more (ADR-0027).
  */
-test("only engine.ts imports the SDK, and only engine-v2.ts OpenCode 2's client", () => {
+test("only engine-v2.ts imports OpenCode 2's client, and nothing the 1.x SDK", () => {
   const root = import.meta.dir
   const files = (function walk(dir: string): string[] {
     return readdirSync(dir).flatMap((name) => {
@@ -18,6 +18,6 @@ test("only engine.ts imports the SDK, and only engine-v2.ts OpenCode 2's client"
   })(root)
   const importers = (pattern: RegExp) =>
     files.filter((file) => pattern.test(readFileSync(file, "utf8"))).map((file) => relative(root, file))
-  expect(importers(/from "@opencode-ai\/sdk/)).toEqual(["engine.ts"])
+  expect(importers(/from "@opencode-ai\//)).toEqual([])
   expect(importers(/from "@opencode\/client/)).toEqual(["engine-v2.ts"])
 })

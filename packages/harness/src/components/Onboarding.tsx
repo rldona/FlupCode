@@ -1,7 +1,6 @@
 import { Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { touchDevice } from "../remote"
-import type { EngineProfile } from "../client"
 import type { LocalNetworkState } from "../local-network"
 import logo from "../assets/flupcode-logo.png"
 
@@ -12,15 +11,10 @@ type OnboardingProps = {
   serverBlocked: boolean
   /** The engine answers `401`/`403`: it was started with a password a browser page cannot send. */
   serverAuthRequired: boolean
-  /** An OpenCode 2 engine, which always asks for a password: only the desktop app can sign in. */
-  serverLockedV2?: boolean
-  /** The version of an OpenCode 2.x engine answering here, which FlupCode cannot drive yet (V2-00). */
   /** The browser's Local Network Access permission, when this page needs one (H-45). */
   localNetwork: LocalNetworkState
   allowingLocalNetwork: boolean
   onAllowLocalNetwork: () => void
-  /** Whether the engine is FlupCode's build or the stock OpenCode CLI. */
-  engineProfile: EngineProfile | undefined
   serverInput: string
   onServerInput: (value: string) => void
   onConnect: () => void
@@ -36,13 +30,9 @@ const GETTING_STARTED = "https://github.com/rldona/FlupCode/blob/power/docs/GETT
 export const Onboarding: Component<OnboardingProps> = (props) => {
   const [name, setName] = createSignal("")
   const [copied, setCopied] = createSignal(false)
-  const origin = () => (typeof window === "undefined" ? "http://localhost:4444" : window.location.origin)
   // OpenCode 2 always asks for a password a page cannot send; `flupcode serve` runs it and signs this
-  // page in (2.1). The 1.x command stays for an engine started with a password the page cannot send.
+  // page in (2.1).
   const command = () => "flupcode serve"
-  // `env -u`: a shell that exports OPENCODE_SERVER_PASSWORD would make a 1.x engine ask for credentials
-  // no browser page can send. The variable is only dropped for this one command.
-  const legacyCommand = () => `env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors ${origin()}`
   // On touch devices the engine rarely runs locally, so controlling a computer comes first.
   const remoteFirst = () => props.remoteClient && touchDevice
 
@@ -80,17 +70,6 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
                 : t("Server offline")}
       </div>
 
-      <Show when={props.serverHealthy === true && props.engineProfile === "stock"}>
-        <p class="fc-onboarding-text">
-          {t(
-            "This engine is the stock OpenCode CLI, so FlupCode's extras (permission modes, memory) are unavailable.",
-          )}{" "}
-          <a class="fc-link" href={GETTING_STARTED} target="_blank" rel="noreferrer">
-            {t("How to run FlupCode's engine")}
-          </a>
-        </p>
-      </Show>
-
       <Show when={props.serverBlocked}>
         <p class="fc-onboarding-text">
           {props.localNetwork === "unsupported"
@@ -118,28 +97,12 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
         </Show>
       </Show>
 
-      <Show when={props.serverLockedV2}>
+      <Show when={props.serverAuthRequired}>
         <p class="fc-onboarding-text">
           {t(
             "This engine is OpenCode 2, which always runs behind a password, and a browser page has no way to send one. Open FlupCode's desktop app instead: it starts the engine and signs in for you.",
           )}
         </p>
-      </Show>
-
-      <Show when={props.serverAuthRequired && !props.serverLockedV2}>
-        <p class="fc-onboarding-text">
-          {t(
-            "This engine was started with OPENCODE_SERVER_PASSWORD, so it refuses every call from a browser page — a page has no way to send credentials. Restart it without that variable, or open FlupCode's desktop app, which signs in for you:",
-          )}
-        </p>
-        <div class="fc-onboarding-command">
-          <pre class="fc-onboarding-code">
-            <code>{legacyCommand()}</code>
-          </pre>
-          <button class="fc-button" type="button" onClick={() => copy(legacyCommand())}>
-            {copied() ? t("Copied") : t("Copy command")}
-          </button>
-        </div>
       </Show>
 
       <Show when={props.serverHealthy !== true && !props.serverAuthRequired}>

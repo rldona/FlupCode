@@ -1088,12 +1088,26 @@ event names.
 - **Preparation, reversible, before the removal:**
   1. Done in the ADR-0027 PR: the ADR, the pin check, the boundary list, the bump workflow, the fork
      sync off its schedule.
-  2. The transcript's markdown renderer and its styles become FlupCode's own (`Markdown.tsx`,
-     `styles/session-ui.css`), dropping `@opencode-ai/session-ui` and `@opencode-ai/ui`.
-  3. `engine-types.ts` defines the shared engine types from `@opencode/client` or by FlupCode,
-     instead of the 1.x SDK.
-  After these, the list holds only what goes with V1: `engine/v1.ts`, `harness-server/src/engine.ts`,
-  the 1.x web-actions plugin in `engine-plugins.ts`, and the two `package.json` entries for the SDK.
+  2. Done in the markdown PR: the transcript's renderer and its styles are FlupCode's own
+     (`packages/harness/src/markdown/`), dropping `@opencode-ai/session-ui` and `@opencode-ai/ui`.
+  3. Done in the plugin-tests PR: the 1.x plugins' behavioural tests are ported to the 2.x plugins
+     (two 2.x bugs found and fixed), so deleting the 1.x set loses no coverage.
+- **Step 1, done in the remove-V1 PR:** FlupCode only drives OpenCode 2.
+  - Harness: the 1.x adapter is gone. `EngineClient` is written out in `engine/contract.ts`, and
+    the data shapes the app was built on are frozen as FlupCode's own in `engine/sdk-types.ts`. A
+    1.x engine reads as unsupported in the banner. Delivery is always the engine's (V2-41), in
+    the split panes too. Replay, archiving, sharing and taking a prompt back are removed, not
+    hidden.
+  - harness-server: `Engine` always uses the 2.x backend.
+  - CLI and desktop: they start the pinned binary only, refuse a 1.x engine, and drop
+    `FLUPCODE_ENGINE=v1` and the fallback to the engine they used to start.
+  - remote: installs only the 2.x plugins.
+  - engine-contract: runs only the 2.x suites. The 1.x import is tested on a recorded 1.x database
+    (`fixtures/v1/history.db`).
+  - `docs/opencode-boundary.txt` is empty.
+  - Left for a follow-up: the todo list UI, the legacy question and permission registries, and the
+    1.x provider sign-in, which the adapter already answers as empty or unsupported.
+- **Step 2:** remove the vendored upstream packages and reshape the repo (below).
 - **Change:** the V1 adapter, V1 plugin shell, vendored `packages/opencode`, legacy `sdk/js` usage
   and engine patches. With them: every upstream package, the upstream workflows, `dev`,
   `upstream-sync.yml`, the upstream inventory and its CI job, and the root workspace, `catalog:`

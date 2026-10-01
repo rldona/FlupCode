@@ -86,7 +86,7 @@ function context(directory = "/work/demo", events: unknown[] = []) {
 
 async function plugin(file: string, config?: string) {
   config ??= await temp()
-  const { paths } = await installEnginePlugins(config, "v2")
+  const { paths } = await installEnginePlugins(config)
   const target = paths.find((entry) => entry.endsWith(file))
   expect(target).toBeDefined()
   return (await import(pathToFileURL(target!).href)).default as {
@@ -132,60 +132,6 @@ function tools(recorded: ReturnType<typeof context>) {
   recorded.transforms.tool?.({ add: (tool: Tool) => void (added[tool.name] = tool) } as never)
   return added
 }
-
-describe("installEnginePlugins for OpenCode 2", () => {
-  test("writes the 2.x set over the 1.x one, file for file, and back again", async () => {
-    const config = await temp()
-    await installEnginePlugins(config, "v1")
-    const v1 = (await readdir(path.join(config, "plugins"))).sort()
-
-    const { paths, changed } = await installEnginePlugins(config, "v2")
-    expect(changed).toBe(true)
-    // Every 1.x plugin has its 2.x version under the same name; memory is 2.x's alone (1.x keeps it in
-    // the engine), and goes again when 1.x returns.
-    expect(paths.map((file) => path.basename(file)).sort()).toEqual(
-      [...v1, "flupcode-agents.js", "flupcode-memory.js"].sort(),
-    )
-    for (const file of v1)
-      expect(await readFile(path.join(config, "plugins", file), "utf8")).toContain("export default {")
-
-    expect((await installEnginePlugins(config, "v2")).changed).toBe(false)
-    await installEnginePlugins(config, "v1")
-    expect((await readdir(path.join(config, "plugins"))).sort()).toEqual(v1)
-    for (const file of v1)
-      expect(await readFile(path.join(config, "plugins", file), "utf8")).not.toContain("for OpenCode 2")
-  })
-
-  test("follows OpenCode for the folder: OPENCODE_CONFIG_DIR, then XDG_CONFIG_HOME, then ~/.config", () => {
-    expect(engineConfigDir({ OPENCODE_CONFIG_DIR: "/custom" }, "/home/u")).toBe("/custom")
-    expect(engineConfigDir({ XDG_CONFIG_HOME: "/xdg" }, "/home/u")).toBe(path.join("/xdg", "opencode"))
-    expect(engineConfigDir({}, "/home/u")).toBe(path.join("/home/u", ".config", "opencode"))
-  })
-
-  test("writes each plugin's source once, replaces older copies, and leaves up-to-date ones alone", async () => {
-    const config = await temp()
-    await mkdir(path.join(config, "plugins"))
-    await writeFile(path.join(config, "plugins", "reasoning-variants.ts"), "old")
-    await writeFile(path.join(config, "plugins", PLUGINS_V2[1]!.file), "old")
-
-    const first = await installEnginePlugins(config, "v2")
-    expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(PLUGINS_V2.length)
-    for (const plugin of PLUGINS_V2)
-      expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
-    expect(existsSync(path.join(config, "plugins", "reasoning-variants.ts"))).toBe(false)
-
-    expect((await installEnginePlugins(config, "v2")).changed).toBe(false)
-  })
-
-  test("never throws when the folder cannot be written", async () => {
-    const config = await temp()
-    await writeFile(path.join(config, "plugins"), "a file where the folder should be")
-    const result = await installEnginePlugins(config, "v2")
-    expect(result.changed).toBe(false)
-    expect(result.error).toBeDefined()
-  })
-})
 
 describe("OpenCode 2 plugins", () => {
   test("tool-uses times a call and keeps a shell's evidence, under the 1.x tool names", async () => {

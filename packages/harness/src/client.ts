@@ -1,5 +1,5 @@
-import { createV1Client } from "./engine/v1"
 import { createV2Domains } from "./engine/v2"
+import type { EngineClient } from "./engine/contract"
 import { subscribeEvents } from "./event-stream"
 import { anonymousFetch, engineFetch, harnessBrowserToken } from "./transport"
 import type {
@@ -71,8 +71,8 @@ export function resolveServerUrl() {
 declare const __FLUPCODE_ENGINE_VERSION__: string | undefined
 
 /**
- * The engine version this build's client was generated against, injected by Vite from
- * `@opencode-ai/sdk`. Undefined outside a Vite build (tests), where nothing is compared.
+ * The OpenCode 2 version this build is pinned to (ADR-0027), injected by Vite from the
+ * `@opencode/client` pin. Undefined outside a Vite build (tests), where nothing is compared.
  */
 export const engineTargetVersion =
   typeof __FLUPCODE_ENGINE_VERSION__ === "string" ? __FLUPCODE_ENGINE_VERSION__ : undefined
@@ -104,66 +104,28 @@ export async function probeServer(baseUrl: string): Promise<ServerStatus> {
   return listening ? "blocked" : "offline"
 }
 
-/**
- * Whether the connected engine is FlupCode's build (with its patches), the stock OpenCode CLI, or
- * OpenCode 2, which runs FlupCode's 2.x plugins instead of patches.
- */
-export type EngineProfile = "flupcode" | "stock" | "v2" | "unknown"
-
-/**
- * FlupCode's engine exposes the memory API at `/api/memory`; the stock OpenCode CLI does not, and
- * its UI catch-all answers HTML for that path. Content type, not the status code, tells them apart
- * because that catch-all also returns 200.
- */
-export async function probeEngineProfile(baseUrl: string): Promise<EngineProfile> {
-  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/api/memory`, {
-    signal: AbortSignal.timeout(2000),
-  }).catch(() => undefined)
-  if (!response) return "unknown"
-  void response.body?.cancel()
-  return (response.headers.get("content-type") ?? "").includes("application/json") ? "flupcode" : "stock"
-}
-
 
 
 export { EngineError, isSessionGone } from "./engine/error"
-export { invalidateLegacyHistory } from "./engine/v1"
+export type { EngineClient, HistoryImportStatus, InboxPrompt } from "./engine/contract"
 export { subscribeEvents }
 
-export type EngineLine = "v1" | "v2"
-
-const engineLines = new Map<string, EngineLine>()
-const v2Clients = new Map<string, EngineClient>()
-const lineKey = (baseUrl: string) => baseUrl.replace(/\/+$/, "")
+const clients = new Map<string, EngineClient>()
 
 /**
- * What the health check found answering at `baseUrl` (V2-11). Every `createClient` afterwards picks
- * that line's adapter; an address nothing has been learnt about is taken for 1.x, as it always was.
- */
-export function rememberEngineLine(baseUrl: string, line: EngineLine) {
-  engineLines.set(lineKey(baseUrl), line)
-}
-
-export function engineLineOf(baseUrl: string) {
-  return engineLines.get(lineKey(baseUrl)) ?? "v1"
-}
-
-/**
- * The engine client the app talks through: the 1.x adapter, or the OpenCode 2 one once the health
- * check has found 2.x at this address. The 2.x client is kept per address because it remembers
- * sign-ins in flight (the integration an OAuth attempt belongs to), which a fresh one would lose.
+ * The engine client the app talks through: the OpenCode 2 adapter. It is kept per address because it
+ * remembers sign-ins in flight (the integration an OAuth attempt belongs to), which a fresh one would
+ * lose.
  */
 export function createClient(baseUrl = resolveServerUrl()): EngineClient {
-  if (engineLineOf(baseUrl) === "v1") return createV1Client(baseUrl)
-  const known = v2Clients.get(lineKey(baseUrl))
+  const key = baseUrl.replace(/\/+$/, "")
+  const known = clients.get(key)
   if (known) return known
   // 2.x no longer writes its own config files, so they are saved through the harness server.
   const client = createV2Domains(baseUrl, { configStore: createHarnessClient().engineConfig })
-  v2Clients.set(lineKey(baseUrl), client)
+  clients.set(key, client)
   return client
 }
-
-export type EngineClient = ReturnType<typeof createV1Client>
 
 export function resolveHarnessServerUrl() {
   const configured = import.meta.env.VITE_FLUPCODE_HARNESS_SERVER_URL

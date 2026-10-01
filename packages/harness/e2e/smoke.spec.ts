@@ -249,7 +249,7 @@ test("split view opens a second session from the sidebar menu and closes back to
   // A minimal engine: healthy, two sessions, empty transcripts and requests.
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: sessions, cursor: {} } })
     if (/^\/api\/session\/[^/]+\/(message|permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
@@ -290,7 +290,7 @@ test("a long session shows its newest messages past the engine's first page", as
   // The engine pages messages: at most `limit`, then the rest through `cursor`.
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session")
       return route.fulfill({
         json: {
@@ -334,7 +334,7 @@ test("the stop button stays while a run goes on between its steps", async ({ pag
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session")
       return route.fulfill({
         json: {
@@ -481,7 +481,7 @@ test("a transcript link asks before opening in the reader's browser", async ({ p
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session")
       return route.fulfill({
         json: {
@@ -574,7 +574,7 @@ test("a prompt keeps its attached image in the transcript", async ({ page }) => 
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session")
       return route.fulfill({
         json: {
@@ -631,7 +631,7 @@ test("a prompt image zooms in place and opens in a preview", async ({ page }) =>
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session")
       return route.fulfill({
         json: {

@@ -48,7 +48,7 @@ async function openSession(page: Page, options: Options = {}) {
   }, options.panels ?? [])
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/vcs/diff") return route.fulfill({ json: options.diff ?? [] })
@@ -76,11 +76,11 @@ test("a toast reaches the reader instead of being built and thrown away", async 
   await openSession(page)
   await expect(page.getByText("Answering")).toBeVisible()
 
-  // Sharing asks the engine for a link, which this mock does not answer, so the app reports the
-  // failure. What is being checked is that it reaches the reader: the toaster used to be unmounted,
-  // and every message this app raised went nowhere.
+  // Forking asks the engine for a new session, which this mock does not answer, so the app reports
+  // the failure. What is being checked is that it reaches the reader: the toaster used to be
+  // unmounted, and every message this app raised went nowhere.
   await page.getByRole("button", { name: "Menu", exact: true }).first().click()
-  await page.getByText("Share", { exact: true }).click()
+  await page.getByText("Fork", { exact: true }).click()
   await expect(page.locator(".fc-toast-error")).toBeVisible()
 })
 

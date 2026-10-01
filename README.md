@@ -172,8 +172,8 @@ and only for FlupCode's own pages: app.flupcode.com and `localhost:4444`, plus a
 Controlling a computer from your phone needs none of this. The computer runs the desktop app (or
 `flupcode remote`) and the phone pairs once; see [docs/USAGE.md](docs/USAGE.md#remote-control).
 
-OpenCode 1.x is deprecated: `FLUPCODE_ENGINE=v1` keeps it for now. See
-[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md#opencode-1x-deprecated).
+OpenCode 1.x is no longer supported. Your 1.x history can be imported; see
+[docs/OPENCODE-2.md](docs/OPENCODE-2.md).
 
 ## Documentation
 

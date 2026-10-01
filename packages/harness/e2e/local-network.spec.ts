@@ -24,14 +24,18 @@ const boot = async (page: import("@playwright/test").Page, health: () => "blocke
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
+    // The page's own health check cannot tell "blocked" from "not there": the `no-cors` probe is
+    // what says the engine is listening, so it answers while the ordinary calls wait. The probe is
+    // the request a no-cors fetch makes, and that one carries no `origin` header.
     if (url.pathname === "/global/health") {
-      // The page's own health check cannot tell "blocked" from "not there": the `no-cors` probe is
-      // what says the engine is listening, so it answers while the ordinary calls wait. The probe is
-      // the request a no-cors fetch makes, and that one carries no `origin` header.
       if (!route.request().headers()["origin"]) return route.fulfill({ status: 200, body: "" })
       if (health() === "blocked") return route.abort()
+      return route.fulfill({ status: 404, json: {} })
+    }
+    if (url.pathname === "/api/info") {
+      if (health() === "blocked") return route.abort()
       counted()
-      return route.fulfill({ json: { healthy: true, version: "e2e" } })
+      return route.fulfill({ json: { version: "e2e" } })
     }
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
