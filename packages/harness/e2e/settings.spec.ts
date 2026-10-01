@@ -24,6 +24,11 @@ const commandFiles = [
   },
 ]
 
+const location = {
+  directory: "/work/demo",
+  project: { id: "p", directory: "/work/demo", canonical: "/work/demo" },
+}
+
 type Calls = {
   posts: Array<{ path: string; body: unknown }>
   patches: Array<{ path: string; body: unknown }>
@@ -53,6 +58,23 @@ async function openApp(page: Page) {
       calls.deletes.push(url.searchParams.get("path") ?? "")
       return route.fulfill({ json: { data: { removed: true } } })
     }
+    // OpenCode 2 writes no config files, so the harness server reads and patches them (V2-24).
+    if (url.pathname === "/harness/engine-config" && request.method() === "PATCH") {
+      calls.patches.push({ path: url.pathname, body: request.postDataJSON() })
+      return route.fulfill({ json: { data: { path: "/home/opencode.json", changed: true } } })
+    }
+    if (url.pathname === "/harness/engine-config")
+      return route.fulfill({
+        json: {
+          data: {
+            path: "/home/opencode.json",
+            config:
+              url.searchParams.get("scope") === "global"
+                ? { mcp: { docs: { type: "remote", url: "https://docs.example" } } }
+                : { permission: { edit: "allow", bash: { "rm -rf *": "deny" } } },
+          },
+        },
+      })
     if (url.pathname === "/harness/events") return new Promise(() => {})
     return route.fulfill({ json: { data: [] } })
   })
@@ -63,27 +85,12 @@ async function openApp(page: Page) {
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_set/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (url.pathname === "/mcp" && request.method() === "GET")
-      return route.fulfill({ json: { docs: { status: "connected" } } })
-    if (url.pathname === "/config" && request.method() === "GET")
+    if (url.pathname === "/api/location") return route.fulfill({ json: location })
+    if (url.pathname === "/api/mcp")
       return route.fulfill({
-        json: {
-          mcp: { docs: { type: "remote", url: "https://docs.example" } },
-          permission: { edit: "allow", bash: { "rm -rf *": "deny" } },
-        },
+        json: { location: { directory: "/work/demo" }, data: [{ name: "docs", status: { status: "connected" } }] },
       })
-    if (url.pathname === "/config" && request.method() === "PATCH") {
-      calls.patches.push({ path: url.pathname, body: request.postDataJSON() })
-      return route.fulfill({ json: {} })
-    }
-    if (url.pathname === "/global/config" && request.method() === "GET")
-      return route.fulfill({ json: { mcp: { docs: { type: "remote", url: "https://docs.example" } } } })
-    if (url.pathname === "/global/config" && request.method() === "PATCH") {
-      calls.patches.push({ path: url.pathname, body: request.postDataJSON() })
-      return route.fulfill({ json: {} })
-    }
-    if (url.pathname === "/mcp" && request.method() === "POST") return route.fulfill({ json: { status: {} } })
-    if (/^\/mcp\/[^/]+\/(connect|disconnect)$/.test(url.pathname)) return route.fulfill({ json: {} })
+    if (url.pathname === "/api/location/reload") return route.fulfill({ status: 204 })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
@@ -152,10 +159,13 @@ test("an MCP server can be given an environment and headers, not just a command"
   await dialog.locator(".fc-mcp-form .fc-button-primary").click()
 
   await expect
-    .poll(() => calls.patches.find((call) => call.path === "/global/config")?.body)
+    .poll(() => calls.patches.find((call) => call.path === "/harness/engine-config")?.body)
     .toMatchObject({
-      mcp: {
-        local1: { type: "local", command: ["npx", "-y", "server"], environment: { API_KEY: "abc", DEBUG: "true" } },
+      scope: "global",
+      patch: {
+        mcp: {
+          local1: { type: "local", command: ["npx", "-y", "server"], environment: { API_KEY: "abc", DEBUG: "true" } },
+        },
       },
     })
 })
@@ -173,8 +183,12 @@ test("a pattern rule is edited in place, and survives the save", async ({ page }
   await dialog.getByRole("button", { name: "Save" }).click()
 
   await expect
-    .poll(() => calls.patches.find((call) => call.path === "/config")?.body)
-    .toMatchObject({ permission: { edit: "deny", bash: { "rm -rf *": "ask" } } })
+    .poll(() => calls.patches.find((call) => call.path === "/harness/engine-config")?.body)
+    .toMatchObject({
+      scope: "project",
+      directory: "/work/demo",
+      patch: { permission: { edit: "deny", bash: { "rm -rf *": "ask" } } },
+    })
 })
 
 // H-34: a server that failed says why, what it exposes is shown, and so is who may use it.
@@ -205,6 +219,23 @@ test("an MCP server shows its failure, its resources and the agents that allow i
           ],
         },
       })
+    if (url.pathname === "/harness/engine-config")
+      return route.fulfill({
+        json: {
+          data: {
+            path: "/home/opencode.json",
+            config:
+              url.searchParams.get("scope") === "global"
+                ? {
+                    mcp: {
+                      docs: { type: "remote", url: "https://docs.example" },
+                      broken: { type: "local", command: ["x"] },
+                    },
+                  }
+                : {},
+          },
+        },
+      })
     if (url.pathname === "/harness/events") return new Promise(() => {})
     return route.fulfill({ json: { data: [] } })
   })
@@ -214,23 +245,27 @@ test("an MCP server shows its failure, its resources and the agents that allow i
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/mcp")
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (url.pathname === "/api/location") return route.fulfill({ json: location })
+    if (url.pathname === "/api/mcp")
       return route.fulfill({
         json: {
-          docs: { status: "connected" },
-          broken: { status: "failed", error: "spawn ENOENT" },
+          location: { directory: "/work/demo" },
+          data: [
+            { name: "docs", status: { status: "connected" } },
+            { name: "broken", status: { status: "failed", error: "spawn ENOENT" } },
+          ],
         },
       })
-    if (url.pathname === "/experimental/resource")
+    if (url.pathname === "/api/mcp/resource")
       return route.fulfill({
         json: {
-          "docs://readme": { name: "readme", uri: "docs://readme", mimeType: "text/markdown", client: "docs" },
+          location: { directory: "/work/demo" },
+          data: {
+            resources: [{ server: "docs", name: "readme", uri: "docs://readme", mimeType: "text/markdown" }],
+            templates: [],
+          },
         },
-      })
-    if (url.pathname === "/config")
-      return route.fulfill({
-        json: { mcp: { docs: { type: "remote", url: "https://docs.example" }, broken: { type: "local", command: ["x"] } } },
       })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })

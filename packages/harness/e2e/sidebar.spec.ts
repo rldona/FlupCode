@@ -40,13 +40,20 @@ const routines = [
   },
 ]
 
-async function open(page: Page, options: { routines?: unknown[]; sessions?: unknown[]; selected?: string } = {}) {
-  await page.addInitScript((selected?: string) => {
-    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
-    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
-    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
-    if (selected) window.localStorage.setItem("flupcode.selectedSession", JSON.stringify(selected))
-  }, options.selected)
+async function open(
+  page: Page,
+  options: { routines?: unknown[]; sessions?: unknown[]; selected?: string; noFolder?: string[] } = {},
+) {
+  await page.addInitScript(
+    (input: { selected?: string; noFolder?: string[] }) => {
+      window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+      window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+      window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+      if (input.selected) window.localStorage.setItem("flupcode.selectedSession", JSON.stringify(input.selected))
+      if (input.noFolder) window.localStorage.setItem("flupcode.noFolderSessions", JSON.stringify(input.noFolder))
+    },
+    { selected: options.selected, noFolder: options.noFolder },
+  )
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const url = new URL(route.request().url())
     // A server with the H-18 routes lists them; the client only asks for what it declares.
@@ -191,13 +198,15 @@ test("opening a session below does not collapse the project above it", async ({ 
 test("opening a project session keeps the no-folder list open", async ({ page }) => {
   const many = [
     ...Array.from({ length: 6 }, (_, index) => sessionAt(`ses_a${index}`, `Alpha ${index}`, "/work/alpha")),
-    // No location at all: the engine groups these under "No folder", last.
-    ...Array.from({ length: 6 }, (_, index) => ({
-      ...sessionAt(`ses_nf${index}`, `Loose ${index}`, "/work/none"),
-      location: undefined,
-    })),
+    // Every OpenCode 2 session has a location; the app files the ones started with no folder under
+    // "No folder", last.
+    ...Array.from({ length: 6 }, (_, index) => sessionAt(`ses_nf${index}`, `Loose ${index}`, "/work/none")),
   ]
-  await open(page, { sessions: many, selected: "ses_nf0" })
+  await open(page, {
+    sessions: many,
+    selected: "ses_nf0",
+    noFolder: Array.from({ length: 6 }, (_, index) => `ses_nf${index}`),
+  })
 
   const loose = page.locator(".fc-session-row").filter({ hasText: /^Loose / })
   await expect(loose).toHaveCount(6)

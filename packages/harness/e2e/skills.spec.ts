@@ -66,6 +66,23 @@ async function open(page: Page, options: Options = {}) {
     }
     if (url.pathname === "/harness/skills")
       return route.fulfill({ json: { data: options.files ?? [loaded, unnamed] } })
+    // OpenCode 2 writes no config files, so the folder's config is read and patched here (V2-24).
+    if (url.pathname === "/harness/engine-config" && route.request().method() === "PATCH") {
+      patches.push(route.request().postDataJSON() as Record<string, unknown>)
+      return route.fulfill({ json: { data: { path: "/work/demo/opencode.json", changed: true } } })
+    }
+    if (url.pathname === "/harness/engine-config")
+      return route.fulfill({
+        json: {
+          data: {
+            path: "/work/demo/opencode.json",
+            config:
+              url.searchParams.get("scope") === "project"
+                ? { skills: { paths: options.sourcePaths ?? ["/opt/skills"], urls: options.sourceUrls ?? [] } }
+                : {},
+          },
+        },
+      })
     if (url.pathname === "/harness/events") return new Promise(() => {})
     return route.fulfill({ json: { data: [] } })
   })
@@ -83,16 +100,13 @@ async function open(page: Page, options: Options = {}) {
           ],
         },
       })
-    if (url.pathname === "/config" && route.request().method() === "GET")
+    if (url.pathname === "/api/location")
       return route.fulfill({
-        json: { skills: { paths: options.sourcePaths ?? ["/opt/skills"], urls: options.sourceUrls ?? [] } },
+        json: { directory: "/work/demo", project: { id: "p", directory: "/work/demo", canonical: "/work/demo" } },
       })
-    if (url.pathname === "/config" && route.request().method() === "PATCH") {
-      patches.push(JSON.parse(route.request().postData() ?? "{}") as Record<string, unknown>)
-      return route.fulfill({ json: {} })
-    }
+    if (url.pathname === "/api/location/reload") return route.fulfill({ status: 204 })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
@@ -206,19 +220,26 @@ test("a folder or a URL can be added as an extra skill source, and removed", asy
 
   await page.getByPlaceholder("/home/me/my-skills").fill("/home/me/skills")
   await page.getByRole("button", { name: "Add folder" }).click()
+  // Into the folder's config, as 1.x's `PATCH /config` wrote it.
   await expect
     .poll(() => api.patches())
-    .toEqual([{ skills: { paths: ["/opt/skills", "/home/me/skills"], urls: [] } }])
+    .toEqual([
+      {
+        scope: "project",
+        directory: "/work/demo",
+        patch: { skills: { paths: ["/opt/skills", "/home/me/skills"], urls: [] } },
+      },
+    ])
 
   await page.getByPlaceholder("https://example.com/.well-known/skills/").fill("https://example.com/skills")
   await page.getByRole("button", { name: "Add URL" }).click()
   await expect
-    .poll(() => api.patches().at(-1))
+    .poll(() => api.patches().at(-1)?.patch)
     .toEqual({ skills: { paths: ["/opt/skills", "/home/me/skills"], urls: ["https://example.com/skills"] } })
 
   // Removing the original folder writes the list without it, and the URL stays.
   await page.locator(".fc-skill-row", { hasText: "/opt/skills" }).getByRole("button", { name: "Remove" }).click()
   await expect
-    .poll(() => api.patches().at(-1))
+    .poll(() => api.patches().at(-1)?.patch)
     .toEqual({ skills: { paths: ["/home/me/skills"], urls: ["https://example.com/skills"] } })
 })

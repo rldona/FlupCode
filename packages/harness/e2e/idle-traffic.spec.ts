@@ -34,19 +34,35 @@ test("an idle app does not re-ask the engine on the health clock", async ({ page
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     // An empty catalog is retried on the same poll, by design; a loaded one must not be.
     if (url.pathname === "/api/model")
-      return route.fulfill({ json: { data: [{ id: "e2e-model", providerID: "e2e", name: "E2E Model" }] } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "e2e-model",
+              modelID: "e2e-model",
+              providerID: "e2e",
+              name: "E2E Model",
+              variants: [],
+              time: { released: now },
+              cost: [],
+              status: "active",
+              enabled: true,
+              limit: { context: 200_000, output: 8_000 },
+            },
+          ],
+        },
+      })
+    // The 1.x history import is asked about once, and no more once it is done.
+    if (url.pathname === "/api/experimental/migration/v1") return route.fulfill({ json: { status: "completed" } })
+    if (url.pathname === "/api/session/ses_idle/inbox") return route.fulfill({ json: [] })
     if (url.pathname === "/api/session/ses_idle/message")
       return route.fulfill({
         json: { data: [{ id: "msg_u", type: "user", text: "Say hello", time: { created: now } }], cursor: {} },
       })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
     // A healthy stream: held open, and quiet because nothing is running.
-    if (url.pathname === "/api/event" || url.pathname === "/event") {
+    if (url.pathname === "/api/event") {
       streams++
       return new Promise(() => {})
     }

@@ -13,9 +13,9 @@ import {
   toBase64Url,
 } from "../../remote/src"
 
-const RELAY_PORT = 18_787
-const relayUrl = `ws://127.0.0.1:${RELAY_PORT}`
-
+// A free port, not a fixed one, so suites running side by side never share a relay.
+let relayPort = 0
+let relayUrl = ""
 let relay: ChildProcess
 let engine: Server
 let engineUrl = ""
@@ -33,7 +33,7 @@ const e2eSession = {
 async function waitForRelay() {
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline) {
-    const healthy = await fetch(`http://127.0.0.1:${RELAY_PORT}/health`)
+    const healthy = await fetch(`http://127.0.0.1:${relayPort}/health`)
       .then((response) => response.ok)
       .catch(() => false)
     if (healthy) return
@@ -42,9 +42,19 @@ async function waitForRelay() {
   throw new Error("relay did not start")
 }
 
+async function freePort() {
+  const probe = createServer()
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve))
+  const port = (probe.address() as AddressInfo).port
+  await new Promise((resolve) => probe.close(resolve))
+  return port
+}
+
 test.beforeAll(async () => {
+  relayPort = await freePort()
+  relayUrl = `ws://127.0.0.1:${relayPort}`
   relay = spawn("bun", [fileURLToPath(new URL("../../relay/src/index.ts", import.meta.url))], {
-    env: { ...process.env, PORT: String(RELAY_PORT), HOST: "127.0.0.1" },
+    env: { ...process.env, PORT: String(relayPort), HOST: "127.0.0.1" },
     stdio: "ignore",
   })
   engine = createServer((request, response) => {
@@ -53,22 +63,38 @@ test.beforeAll(async () => {
     if (request.url?.startsWith("/api/info")) return response.end(JSON.stringify({ version: "e2e" }))
     if (request.url?.startsWith("/api/session?") || request.url === "/api/session")
       return response.end(JSON.stringify({ data: [e2eSession], cursor: {} }))
-    if (request.url?.startsWith("/vcs?")) return response.end(JSON.stringify({ branch: "main" }))
+    if (request.url?.startsWith("/api/vcs?"))
+      return response.end(
+        JSON.stringify({
+          location: { directory: e2eSession.location.directory },
+          data: { branch: { current: "main" } },
+        }),
+      )
     if (request.url?.startsWith("/api/model"))
       return response.end(
         JSON.stringify({
           data: [
             {
               id: "e2e-model",
+              modelID: "e2e-model",
               providerID: "e2e",
               name: "E2E Model",
               variants: [{ id: "low" }, { id: "high" }, { id: "xhigh" }],
+              time: { released: Date.now() },
+              cost: [],
+              status: "active",
+              enabled: true,
+              limit: { context: 200_000, output: 8_000 },
             },
           ],
         }),
       )
-    if (request.url?.startsWith("/permission?"))
-      return response.end(JSON.stringify([{ id: "per_1", sessionID: e2eSession.id }]))
+    if (request.url?.startsWith("/api/permission/request"))
+      return response.end(
+        JSON.stringify({
+          data: [{ id: "per_1", sessionID: e2eSession.id, action: "shell", resources: ["rm -rf dist"] }],
+        }),
+      )
     // Two prompts so the transcript grows a conversation navigator and flips to its narrow column.
     if (new RegExp(`^/(api/)?session/${e2eSession.id}/message`).test(request.url ?? ""))
       return response.end(
@@ -137,7 +163,7 @@ test("pairs from a link and reaches the engine through the relay", async ({ page
   await expect(panel).toBeVisible()
   await panel.getByRole("button", { name: "Close" }).first().click()
   await expect(panel).toHaveCount(0)
-  await expect.poll(() => engineHits.some((url) => url.includes("health"))).toBe(true)
+  await expect.poll(() => engineHits.some((url) => url.startsWith("/api/info"))).toBe(true)
   const hosts = await page.evaluate(() => JSON.parse(localStorage.getItem("flupcode.remoteHosts") ?? "[]"))
   expect(hosts).toMatchObject([{ name: "e2e-host", deviceId: "e2e-device" }])
 

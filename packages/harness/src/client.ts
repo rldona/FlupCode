@@ -1,6 +1,7 @@
 import { createV2Domains } from "./engine/v2"
 import type { EngineClient } from "./engine/contract"
 import { subscribeEvents } from "./event-stream"
+import { readStorage, STORAGE_KEYS } from "./storage"
 import { anonymousFetch, engineFetch, harnessBrowserToken } from "./transport"
 import type {
   ActionCatalog,
@@ -121,8 +122,12 @@ export function createClient(baseUrl = resolveServerUrl()): EngineClient {
   const key = baseUrl.replace(/\/+$/, "")
   const known = clients.get(key)
   if (known) return known
-  // 2.x no longer writes its own config files, so they are saved through the harness server.
-  const client = createV2Domains(baseUrl, { configStore: createHarnessClient().engineConfig })
+  // 2.x no longer writes its own config files, so they are saved through the harness server: the one
+  // the reader configured, as every other harness call in the app uses.
+  const client = createV2Domains(baseUrl, {
+    configStore: createHarnessClient(readStorage(STORAGE_KEYS.harnessServerUrl, resolveHarnessServerUrl()))
+      .engineConfig,
+  })
   clients.set(key, client)
   return client
 }

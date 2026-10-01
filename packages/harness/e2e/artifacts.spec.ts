@@ -20,11 +20,8 @@ async function engine(page: Page, messages: unknown[]) {
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: messages, cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [] } })
-    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
 }
@@ -103,7 +100,12 @@ test("a file the session wrote opens in VS Code, in the system, or is copied", a
       type: "assistant",
       time: { created: now, completed: now },
       content: [
-        { type: "tool", id: "p1", name: "write", state: { status: "completed", input: { filePath: "/work/demo/out.html" } } },
+        {
+          type: "tool",
+          id: "p1",
+          name: "write",
+          state: { status: "completed", input: { filePath: "/work/demo/out.html" }, content: [] },
+        },
       ],
     },
   ])
