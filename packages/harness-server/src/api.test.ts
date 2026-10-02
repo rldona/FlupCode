@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { UNTRUSTED_NOTICE, createBrowserPolicy } from "./browser-policy"
+import { createBrowserMcpGate } from "./browser-mcp"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
 import { allowedHarnessHost, allowedHarnessOrigin } from "./cors"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
@@ -2282,6 +2283,7 @@ describe("the plugin token's scope (TI-10)", () => {
         policy: createBrowserPolicy(repository),
       },
       planExit: async () => ({ approved: false }),
+      browserMcp: createBrowserMcpGate({ policy: createBrowserPolicy(repository), ask: async () => undefined }),
     })
     const call = (token: string, method: string, path: string, body?: unknown) =>
       handler(
@@ -2302,6 +2304,10 @@ describe("the plugin token's scope (TI-10)", () => {
     expect((await call("plugin-token", "GET", "/harness/actions")).status).toBe(200)
     expect((await call("plugin-token", "POST", "/harness/plan-exit", { sessionID: "ses_1" })).status).toBe(200)
     expect((await call("plugin-token", "GET", `/harness/artifacts/${shot.id}/raw`)).status).toBe(200)
+    // The browser presets' approvals (BU-02): asked and reported by the plugin.
+    const tabs = { sessionID: "ses_1", server: "playwright", kind: "playwright", tool: "browser_tabs", input: { action: "list" } }
+    expect(await (await call("plugin-token", "POST", "/harness/browser-mcp/decide", tabs)).json()).toMatchObject({ data: { allowed: true } })
+    expect((await call("plugin-token", "POST", "/harness/browser-mcp/observe", { ...tabs, ok: true, text: "" })).status).toBe(200)
 
     for (const [method, path, body] of [
       ["POST", "/harness/git/commit", { directory: "/tmp", message: "x", paths: ["a"] }],
@@ -2315,10 +2321,28 @@ describe("the plugin token's scope (TI-10)", () => {
       ["POST", "/harness/actions/validate", { id: "x", profile: {} }],
       ["POST", "/harness/actions/run", { action: "x", sessionID: "s", project: "p", dryRun: true }],
       ["POST", "/harness/actions/run", { action: "x", sessionID: "s", project: "p", preview: true }],
+      ["GET", "/harness/browser-policy/grants", undefined],
+      ["GET", "/harness/browser-policy/audit", undefined],
     ] as const) {
       const refused = await call("plugin-token", method, path, body)
       expect([method, path, refused.status]).toEqual([method, path, 403])
     }
+    repository.close()
+  })
+
+  test("the browser presets' approval routes take the plugin token only, and a well-formed call", async () => {
+    const { repository, call } = scoped()
+    const click = { sessionID: "ses_1", server: "playwright", kind: "playwright", tool: "browser_click", input: { ref: "e1" } }
+    for (const route of ["decide", "observe"]) {
+      expect((await call("ui-token", "POST", `/harness/browser-mcp/${route}`, click)).status).toBe(403)
+      expect((await call("nobody", "POST", `/harness/browser-mcp/${route}`, click)).status).toBe(403)
+      expect((await call("plugin-token", "POST", `/harness/browser-mcp/${route}`, { ...click, kind: "selenium" })).status).toBe(400)
+    }
+    expect((await call("plugin-token", "POST", "/harness/browser-mcp/other", click)).status).toBe(404)
+    // No page is known yet: refused with the reason, and nobody was asked.
+    expect(await (await call("plugin-token", "POST", "/harness/browser-mcp/decide", click)).json()).toEqual({
+      data: { allowed: false, reason: "FlupCode does not know which page this would act on yet. List the browser's tabs first." },
+    })
     repository.close()
   })
 

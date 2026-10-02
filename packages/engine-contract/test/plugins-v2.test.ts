@@ -276,6 +276,12 @@ const evidence: Record<string, () => Promise<void> | void> = {
     // The plan agent denies edits, and the session's `*: allow` does not override it.
     expect(readFileSync(join(engine.project, "plan-target.txt"), "utf8")).toBe("untouched\n")
   },
+  "flupcode-browser-mcp.js": () => {
+    // No browser server is configured here: every tool this suite ran went by without asking. The
+    // approvals themselves are proved in harness-server's `browser-mcp.engine.test.ts` (BU-02).
+    expect(harness.hits("POST /harness/browser-mcp/decide")).toEqual([])
+    expect(harness.hits("POST /harness/browser-mcp/observe")).toEqual([])
+  },
   "flupcode-cache-selection.js": () => {
     expect(harness.hits("GET /harness/adaptive/selection").length).toBeGreaterThan(0)
   },

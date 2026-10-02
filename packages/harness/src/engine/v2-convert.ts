@@ -263,6 +263,7 @@ function browserApproval(form: V2Form): QuestionV2Request["browser"] {
     tier,
     action: typeof metadata.action === "string" ? metadata.action : "",
     options: options.map((option) => ({ value: String(option.value), label: option.label })),
+    ...(metadata.browser === "yours" ? { yours: true } : {}),
   }
 }
 

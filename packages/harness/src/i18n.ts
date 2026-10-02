@@ -663,6 +663,25 @@ const ES: Record<string, string> = {
   Spent: "Gastado",
   Providers: "Proveedores",
   "Agent browser": "Navegador del agente",
+  // The reader's own browser through an MCP preset (BU-02)
+  "Your browser": "Tu navegador",
+  "Add preset": "Añadir preajuste",
+  Added: "Añadido",
+  "Your browser, through the Playwright extension": "Tu navegador, a través de la extensión de Playwright",
+  "The agent reaches only the tabs you hand over from the extension, not the rest of your browser.":
+    "El agente solo alcanza las pestañas que le cedes desde la extensión, no el resto de tu navegador.",
+  "Install the Playwright Extension in Chrome or Edge.": "Instala la extensión de Playwright en Chrome o Edge.",
+  "Add the preset here and make sure it shows connected.": "Añade aquí el preajuste y comprueba que aparece conectado.",
+  "When the agent first uses the browser, the extension asks which tab to hand over. Pick one.":
+    "La primera vez que el agente use el navegador, la extensión te pregunta qué pestaña ceder. Elige una.",
+  "Each first action on a site asks you in the session before it runs.":
+    "La primera acción en cada sitio te pide permiso en la sesión antes de ejecutarse.",
+  "Your Chrome, through Chrome DevTools MCP": "Tu Chrome, a través de Chrome DevTools MCP",
+  "The agent reaches your whole Chrome profile: every open tab, and every site you are signed in to.":
+    "El agente alcanza todo tu perfil de Chrome: cada pestaña abierta y cada sitio en el que tienes la sesión iniciada.",
+  "Use Chrome 144 or later, already open.": "Usa Chrome 144 o posterior, ya abierto.",
+  "Turn on remote debugging in Chrome, and allow the connection when Chrome asks.":
+    "Activa la depuración remota en Chrome y permite la conexión cuando Chrome te lo pregunte.",
   "Take over": "Tomar el control",
   Release: "Soltar",
   "No browser session": "Sin sesión de navegador",

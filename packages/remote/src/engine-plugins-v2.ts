@@ -3127,6 +3127,222 @@ export default {
 `,
 }
 
+/**
+ * browser-mcp: FlupCode's approvals for the user's own browser through an MCP server (BU-02).
+ * Playwright MCP (`--extension`) and Chrome DevTools MCP (`--autoConnect`) act as soon as they are
+ * called, and the engine's own rules only know a tool's name. So the engine's permission hook hands
+ * each call to one of them to harness-server (`/harness/browser-mcp/decide`), which maps the tool to
+ * a tier, works out the page it acts on and asks the browser policy (BU-01), asking the reader when
+ * nothing decides it yet. Each answer the server returns goes back (`/observe`), because that is
+ * where the current page's address comes from. A server is recognised by the tools it offers, not by
+ * the name it was given, so one added by hand is governed too. Without the harness, its calls are
+ * refused.
+ *
+ * The permission hook never calls into the engine (no tool, no listing): a tool called from there
+ * is evaluated again and the hook runs for it, without end. The catalog is learnt in the before-hook,
+ * and an evaluation of a call that is still being decided is refused at once.
+ */
+export const BROWSER_MCP_PLUGIN_V2 = {
+  file: "flupcode-browser-mcp.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Asks harness-server before each call to a browser MCP server
+// (Playwright MCP, Chrome DevTools MCP), so FlupCode's browser approvals apply to the user's own
+// browser. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// The decision may wait for the reader; the harness gives up first, after ten minutes.
+const DECIDE_TIMEOUT_MS = 11 * 60 * 1000
+const OBSERVE_TIMEOUT_MS = 5000
+const LIST_TIMEOUT_MS = 5000
+// What an answer carries is only read for the page's address; a snapshot can be long.
+const TEXT_LIMIT = 100000
+
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+// The plugins' own bearer (TI-10); the browser's approvals are in its scope.
+async function readToken() {
+  const fromEnv = process.env.FLUPCODE_PLUGIN_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "plugin-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+// Which browser a server drives, from the tools it offers.
+function kindOf(names) {
+  if (names.has("browser_navigate") && names.has("browser_snapshot")) return "playwright"
+  if (names.has("navigate_page") && names.has("list_pages")) return "chrome-devtools"
+  return undefined
+}
+
+function textOf(result) {
+  const content = result && Array.isArray(result.content) ? result.content : []
+  return content
+    .filter((part) => part && part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n")
+    .slice(0, TEXT_LIMIT)
+}
+
+export default {
+  id: "flupcode-browser-mcp",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    // Read again until there is one: on a first start the engine can load before harness-server
+    // has written it. A local file, not a call into the engine.
+    let token = base === undefined ? undefined : await readToken()
+    const currentToken = async () => {
+      if (!token && base !== undefined) token = await readToken()
+      return token
+    }
+
+    // The engine's tool ids (server_tool) of the browser servers, and the ids known not to be one.
+    // An id seen for the first time lists the tools again, so a server that just connected is known
+    // before its first call runs. Only the before-hook lists: the permission hook reads what is known
+    // and never calls into the engine, so nothing it does can bring it back to itself.
+    const browser = new Map()
+    let others = new Set()
+    // One listing at a time, shared by concurrent calls, and given up after a while: a listing that
+    // never answers leaves the call unknown instead of holding the turn.
+    let listing
+    const listTools = () => {
+      if (!listing)
+        listing = Promise.race([ctx.tool.list().catch(() => []), new Promise((resolve) => setTimeout(() => resolve([]), LIST_TIMEOUT_MS))])
+          .then((listed) => (Array.isArray(listed) ? listed : []))
+          .finally(() => {
+            listing = undefined
+          })
+      return listing
+    }
+    const learn = async (id) => {
+      if (browser.has(id)) return browser.get(id)
+      if (others.has(id)) return undefined
+      const listed = await listTools()
+      const servers = new Map()
+      for (const tool of listed) {
+        const server = tool && tool.options && tool.options.namespace
+        if (typeof server !== "string" || !server) continue
+        if (!servers.has(server)) servers.set(server, [])
+        servers.get(server).push(tool)
+      }
+      if (listed.length > 0) {
+        browser.clear()
+        others = new Set(listed.map((tool) => tool.id))
+      }
+      for (const [server, tools] of servers) {
+        const kind = kindOf(new Set(tools.map((tool) => tool.name)))
+        if (!kind) continue
+        for (const tool of tools) {
+          browser.set(tool.id, { server, kind, tool: tool.name })
+          others.delete(tool.id)
+        }
+      }
+      return browser.get(id)
+    }
+
+    // A call's arguments reach the before-hook, not the permission hook: kept by call until asked.
+    const pending = new Map()
+    const refused = new Map()
+    // The calls whose decision is being asked. The engine evaluating one of them again before it is
+    // answered is a loop, not a second call: refused at once, without asking.
+    const deciding = new Set()
+    const key = (sessionID, callID, tool) => sessionID + "|" + callID + "|" + tool
+
+    const post = (route, body, timeoutMs) =>
+      fetch(base + "/harness/browser-mcp/" + route, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+        .then((response) => (response.ok ? response.json() : undefined))
+        .catch(() => undefined)
+
+    await ctx.tool.hook("execute.before", async (input) => {
+      if (!(await learn(input.tool))) return
+      const at = key(input.sessionID, input.id, input.tool)
+      pending.set(at, [...(pending.get(at) || []), input.input || {}])
+    })
+
+    await ctx.permission.hook("evaluate", async (input) => {
+      const call = browser.get(input.action)
+      if (!call) return
+      const at = key(input.sessionID, input.source && input.source.id, input.action)
+      const refuse = (message) => {
+        input.effect = "deny"
+        input.message = message
+        refused.set(at, (refused.get(at) || 0) + 1)
+      }
+      // Not counted as a refused call: the one being decided is still answered on its own.
+      if (deciding.has(at)) {
+        input.effect = "deny"
+        input.message = "FlupCode refused a browser call that was asked again while it was being decided."
+        return
+      }
+      const queued = pending.get(at) || []
+      const args = queued.shift() || {}
+      if (queued.length === 0) pending.delete(at)
+      if (input.effect === "deny") return
+      if (!base || !(await currentToken()))
+        return refuse("FlupCode cannot ask for approval to use the browser, so the call was refused.")
+      deciding.add(at)
+      const answer = await post(
+        "decide",
+        { sessionID: input.sessionID, server: call.server, kind: call.kind, tool: call.tool, input: args },
+        DECIDE_TIMEOUT_MS,
+      ).finally(() => deciding.delete(at))
+      const verdict = answer && answer.data
+      // A yes leaves the engine's own rule as it was: FlupCode only ever narrows it.
+      if (verdict && verdict.allowed === true) return
+      refuse((verdict && verdict.reason) || "FlupCode could not ask for approval to use the browser, so the call was refused.")
+    })
+
+    await ctx.tool.hook("execute.after", async (input) => {
+      const call = browser.get(input.tool)
+      if (!call || !base || !(await currentToken())) return
+      const at = key(input.sessionID, input.id, input.tool)
+      const count = refused.get(at) || 0
+      // A refused call never reached the browser: there is nothing to report.
+      if (count > 0) {
+        if (count === 1) refused.delete(at)
+        else refused.set(at, count - 1)
+        return
+      }
+      await post(
+        "observe",
+        {
+          sessionID: input.sessionID,
+          server: call.server,
+          kind: call.kind,
+          tool: call.tool,
+          input: input.input || {},
+          ok: input.status === "completed",
+          text: textOf(input.result),
+        },
+        OBSERVE_TIMEOUT_MS,
+      )
+    })
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -3144,4 +3360,5 @@ export const PLUGINS_V2 = [
   DELIVERY_PLUGIN_V2,
   MEMORY_PLUGIN_V2,
   AGENTS_PLUGIN_V2,
+  BROWSER_MCP_PLUGIN_V2,
 ]

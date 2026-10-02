@@ -3204,3 +3204,241 @@ describe("OpenCode 2 tool-trim", () => {
     expect([...tokenless.calls.calls, ...remote.calls.calls]).toHaveLength(0)
   })
 })
+
+describe("OpenCode 2 browser-mcp", () => {
+  // Playwright MCP's tools as the engine lists them: `<server>_<tool>`, the server as namespace. The
+  // server was named by hand, so it is known by its tools, not its name.
+  const listed = [
+    ...["browser_tabs", "browser_navigate", "browser_snapshot", "browser_click"].map((name) => ({
+      id: `mine_${name}`,
+      name,
+      options: { namespace: "mine" },
+    })),
+    { id: "contract_echo", name: "echo", options: { namespace: "contract" } },
+    { id: "read", name: "read" },
+  ]
+
+  /** The plugin set up against a context whose listing and hooks the test can watch. */
+  async function browserMcp(
+    decide: (body: Record<string, unknown>) => unknown = () => ({ allowed: true, reason: "ok" }),
+    list: () => Promise<unknown[]> = async () => listed,
+  ) {
+    const harnessCalls = await loopback(async (route, body) => {
+      if (route === "/harness/browser-mcp/decide") return Response.json({ data: await decide(body) })
+      return Response.json({ data: { observed: true } })
+    })
+    const recorded = context()
+    const engine = { lists: 0 }
+    Object.assign(recorded.ctx.tool, {
+      list: () => {
+        engine.lists++
+        return list()
+      },
+    })
+    Object.assign(recorded.ctx, {
+      permission: {
+        hook: async (name: string, callback: Callback) => void recorded.hooks.set(`permission.${name}`, callback),
+      },
+    })
+    await (await plugin("flupcode-browser-mcp.js")).setup(recorded.ctx)
+    return { recorded, engine, harnessCalls }
+  }
+
+  /** One call as the engine runs it: before-hook, then the permission hook. What the engine decided. */
+  async function call(
+    recorded: ReturnType<typeof context>,
+    tool: string,
+    input: Record<string, unknown>,
+    id = "call_1",
+  ) {
+    await fire(recorded, "tool.execute.before", { tool, sessionID: "ses_1", id, input })
+    const asked: Record<string, unknown> = {
+      sessionID: "ses_1",
+      action: tool,
+      resources: ["*"],
+      source: { id },
+      effect: "allow",
+    }
+    await fire(recorded, "permission.evaluate", asked)
+    return asked
+  }
+
+  test("each call to a browser server is decided by the harness, with its arguments, under the plugins' bearer", async () => {
+    const { recorded, harnessCalls } = await browserMcp()
+    const asked = await call(recorded, "mine_browser_click", { element: "Go", ref: "e1" })
+    expect(asked.effect).toBe("allow")
+    expect(harnessCalls.on("/harness/browser-mcp/decide")).toEqual([
+      expect.objectContaining({
+        authorization: "Bearer plugin-token",
+        body: {
+          sessionID: "ses_1",
+          server: "mine",
+          kind: "playwright",
+          tool: "browser_click",
+          input: { element: "Go", ref: "e1" },
+        },
+      }),
+    ])
+    // What it returned goes back, for the page it is now on.
+    await fire(recorded, "tool.execute.after", {
+      tool: "mine_browser_click",
+      sessionID: "ses_1",
+      id: "call_1",
+      input: { element: "Go", ref: "e1" },
+      status: "completed",
+      result: { content: [{ type: "text", text: "### Page\n- Page URL: https://a.example/" }] },
+    })
+    expect(harnessCalls.on("/harness/browser-mcp/observe")[0]!.body).toMatchObject({
+      tool: "browser_click",
+      ok: true,
+      text: "### Page\n- Page URL: https://a.example/",
+    })
+  })
+
+  test("a refusal is the engine's denial with the harness's reason, and the call is never reported", async () => {
+    const { recorded, harnessCalls } = await browserMcp(() => ({ allowed: false, reason: "The reader denied it" }))
+    const asked = await call(recorded, "mine_browser_navigate", { url: "https://b.example/" })
+    expect(asked).toMatchObject({ effect: "deny", message: "The reader denied it" })
+    await fire(recorded, "tool.execute.after", {
+      tool: "mine_browser_navigate",
+      sessionID: "ses_1",
+      id: "call_1",
+      status: "error",
+    })
+    expect(harnessCalls.on("/harness/browser-mcp/observe")).toEqual([])
+  })
+
+  test("other tools are left alone, and without the harness a browser call is refused", async () => {
+    const { recorded, harnessCalls } = await browserMcp()
+    expect((await call(recorded, "contract_echo", { text: "hi" })).effect).toBe("allow")
+    expect((await call(recorded, "read", {})).effect).toBe("allow")
+    expect(harnessCalls.calls).toEqual([])
+
+    delete process.env.FLUPCODE_HARNESS_SERVER_URL
+    const offline = context()
+    Object.assign(offline.ctx.tool, { list: async () => listed })
+    Object.assign(offline.ctx, {
+      permission: {
+        hook: async (name: string, callback: Callback) => void offline.hooks.set(`permission.${name}`, callback),
+      },
+    })
+    process.env.FLUPCODE_HARNESS_SERVER_URL = "https://far.example"
+    await (await plugin("flupcode-browser-mcp.js")).setup(offline.ctx)
+    expect(await call(offline, "mine_browser_snapshot", {})).toMatchObject({
+      effect: "deny",
+      message: "FlupCode cannot ask for approval to use the browser, so the call was refused.",
+    })
+  })
+
+  test("a token written after the engine started is picked up on the next call", async () => {
+    const harnessCalls = await loopback(() => Response.json({ data: { allowed: true, reason: "ok" } }), {
+      plugin: false,
+    })
+    const recorded = context()
+    Object.assign(recorded.ctx.tool, { list: async () => listed })
+    Object.assign(recorded.ctx, {
+      permission: {
+        hook: async (name: string, callback: Callback) => void recorded.hooks.set(`permission.${name}`, callback),
+      },
+    })
+    await (await plugin("flupcode-browser-mcp.js")).setup(recorded.ctx)
+    expect((await call(recorded, "mine_browser_snapshot", {}, "call_1")).effect).toBe("deny")
+    await writeFile(path.join(process.env.FLUPCODE_CONFIG_DIR!, "plugin-token"), "late-token\n")
+    expect((await call(recorded, "mine_browser_snapshot", {}, "call_2")).effect).toBe("allow")
+    expect(harnessCalls.on("/harness/browser-mcp/decide")[0]!.authorization).toBe("Bearer late-token")
+  })
+
+  test("the permission hook never calls into the engine", async () => {
+    const { recorded, engine } = await browserMcp()
+    await fire(recorded, "tool.execute.before", {
+      tool: "mine_browser_snapshot",
+      sessionID: "ses_1",
+      id: "call_1",
+      input: {},
+    })
+    const before = engine.lists
+    // Every method of the context, counted while only the permission hook runs.
+    const touched: string[] = []
+    for (const [area, methods] of Object.entries(recorded.ctx as Record<string, Record<string, unknown>>))
+      for (const [name, value] of Object.entries(methods))
+        if (typeof value === "function")
+          methods[name] = (...args: unknown[]) => {
+            touched.push(`${area}.${name}`)
+            return (value as (...args: unknown[]) => unknown)(...args)
+          }
+    await fire(recorded, "permission.evaluate", {
+      sessionID: "ses_1",
+      action: "mine_browser_snapshot",
+      resources: ["*"],
+      source: { id: "call_1" },
+      effect: "allow",
+    })
+    expect(touched).toEqual([])
+    expect(engine.lists).toBe(before)
+  })
+
+  test("an engine that evaluates while it lists the tools does not loop", async () => {
+    // A listing that runs the permission hook for a browser tool, as an engine that filters the
+    // catalog by permission would. Calling into the engine from the hook would recurse without end;
+    // the bound turns that into a failure instead of a hang.
+    let evaluations = 0
+    let recordedRef: ReturnType<typeof context> | undefined
+    const { recorded, harnessCalls } = await browserMcp(undefined, async () => {
+      evaluations++
+      if (evaluations > 20) throw new Error("re-entered without end")
+      await fire(recordedRef!, "permission.evaluate", {
+        sessionID: "ses_1",
+        action: "mine_browser_click",
+        resources: ["*"],
+        source: { id: "inner" },
+        effect: "allow",
+      })
+      return listed
+    })
+    recordedRef = recorded
+    const asked = await call(recorded, "mine_browser_click", { ref: "e1" })
+    expect(evaluations).toBe(1)
+    expect(asked.effect).toBe("allow")
+    expect(harnessCalls.on("/harness/browser-mcp/decide")).toHaveLength(1)
+  })
+
+  test("the same call evaluated again while it is decided is refused at once, and asks once", async () => {
+    let nested: Record<string, unknown> | undefined
+    let recordedRef: ReturnType<typeof context> | undefined
+    const { recorded, harnessCalls } = await browserMcp(async () => {
+      nested = {
+        sessionID: "ses_1",
+        action: "mine_browser_click",
+        resources: ["*"],
+        source: { id: "call_1" },
+        effect: "allow",
+      }
+      await fire(recordedRef!, "permission.evaluate", nested)
+      return { allowed: true, reason: "ok" }
+    })
+    recordedRef = recorded
+    const asked = await call(recorded, "mine_browser_click", { ref: "e1" })
+    expect(asked.effect).toBe("allow")
+    expect(nested).toMatchObject({
+      effect: "deny",
+      message: expect.stringContaining("asked again while it was being decided"),
+    })
+    expect(harnessCalls.on("/harness/browser-mcp/decide")).toHaveLength(1)
+    // The call that was allowed still reports what it returned.
+    await fire(recorded, "tool.execute.after", {
+      tool: "mine_browser_click",
+      sessionID: "ses_1",
+      id: "call_1",
+      status: "completed",
+    })
+    expect(harnessCalls.on("/harness/browser-mcp/observe")).toHaveLength(1)
+  })
+
+  test("a listing that never answers leaves the call unknown instead of holding the turn", async () => {
+    const { recorded, harnessCalls } = await browserMcp(undefined, () => new Promise(() => {}))
+    const started = Date.now()
+    expect((await call(recorded, "mine_browser_click", { ref: "e1" })).effect).toBe("allow")
+    expect(Date.now() - started).toBeLessThan(7000)
+    expect(harnessCalls.calls).toEqual([])
+  }, 10_000)
+})

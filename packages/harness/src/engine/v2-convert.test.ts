@@ -245,6 +245,27 @@ test("a browser approval the harness asked carries its site, tier and answers to
   expect(toQuestion({ ...approval, metadata: { flupcode: "browser-approval", tier: "everything" } } as unknown as V2Form).browser).toBeUndefined()
 })
 
+test("an approval for the reader's own browser says so (BU-02)", () => {
+  const mine = {
+    id: "frm_3",
+    sessionID: "ses_1",
+    title: "Allow the agent to read pages on example.com?",
+    metadata: {
+      flupcode: "browser-approval",
+      origin: "https://example.com",
+      site: "example.com",
+      tier: "read",
+      action: "playwright.browser_snapshot",
+      browser: "yours",
+    },
+    fields: [{ key: "choice", type: "string", title: "?", options: [{ value: "once", label: "Allow once" }] }],
+  } as unknown as V2Form
+  expect(toQuestion(mine).browser).toMatchObject({ action: "playwright.browser_snapshot", yours: true })
+  // The agent's own browser carries no such mark.
+  const agents = { ...mine, metadata: { ...mine.metadata, browser: undefined } } as unknown as V2Form
+  expect(toQuestion(agents).browser).not.toHaveProperty("yours")
+})
+
 const model = {
   id: "gpt",
   modelID: "gpt",

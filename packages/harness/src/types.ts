@@ -289,6 +289,8 @@ export type BrowserApproval = {
   tier: BrowserTier
   action: string
   options: Array<{ value: string; label: string }>
+  /** The reader's own browser, through an MCP preset (BU-02), rather than the agent's. */
+  yours?: boolean
 }
 
 /** A web action a routine or task runs (WA-7): a profile id and the values it was given. */
