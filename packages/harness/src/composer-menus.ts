@@ -1,3 +1,5 @@
+import type { CommandOption } from "./types"
+
 /**
  * What the composer's `/` and `@` menus mean, in one place (H-26).
  *
@@ -36,13 +38,27 @@ export function slashQuery(value: string, chat: boolean): string | undefined {
   return body.toLowerCase()
 }
 
-export function filterCommands<T extends { name: string }>(commands: T[], query: string | undefined): T[] {
+/**
+ * What the `/` menu lists for the query: every matching built-in, then at most eight of each other
+ * source. The built-ins are a fixed few and are how the app is driven (TI-13), so none is hidden
+ * behind the cap; a project's commands, skills and workflows can run to dozens.
+ */
+export function filterCommands<T extends { name: string; source?: CommandOption["source"] }>(
+  commands: T[],
+  query: string | undefined,
+): T[] {
   if (query === undefined) return []
-  return commands.filter((command) => command.name.toLowerCase().includes(query)).slice(0, 8)
+  const matches = commands.filter((command) => command.name.toLowerCase().includes(query))
+  return [
+    ...matches.filter((command) => command.source === "builtin"),
+    ...(["command", "skill", "workflow"] as const).flatMap((source) =>
+      matches.filter((command) => (command.source ?? "command") === source).slice(0, 8),
+    ),
+  ]
 }
 
 /** The badge a `/` entry shows for its source; built-ins show none (SK-2). */
-export function commandBadge(source: "builtin" | "command" | "skill" | "workflow" | undefined): string | undefined {
+export function commandBadge(source: CommandOption["source"]): string | undefined {
   return source === undefined || source === "builtin" ? undefined : source
 }
 

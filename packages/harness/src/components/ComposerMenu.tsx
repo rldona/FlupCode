@@ -10,6 +10,8 @@ export type MenuItem = {
   soon?: boolean
   /** Where a `/` entry comes from: command, skill or workflow (SK-2). Built-ins show none. */
   badge?: string
+  /** A heading drawn above the first item of each run of the same group (TI-13). */
+  group?: string
 }
 
 /**
@@ -30,27 +32,33 @@ export const ComposerMenu: Component<{
   <div class="fc-command-menu" ref={(element) => props.ref?.(element)}>
     <For each={props.items}>
       {(item, index) => (
-        <button
-          class="fc-command-item"
-          classList={{ "fc-command-item-active": props.active === index() && !item.disabled }}
-          type="button"
-          disabled={item.disabled}
-          // Keep the field focused: a tap must not blur the draft before the pick is handled.
-          onMouseDown={(event) => event.preventDefault()}
-          onMouseEnter={() => props.onHover?.(index())}
-          onClick={() => props.onPick(index())}
-        >
-                            <span class="fc-command-name">{item.label}</span>
-                            <Show when={item.badge}>
-                              <span class="fc-command-source">{item.badge}</span>
-                            </Show>
-                            <Show when={item.hint}>
-            <span class="fc-command-desc">{item.hint}</span>
+        <>
+          {/* A heading is not an item: the arrows and the active index only ever count the buttons. */}
+          <Show when={item.group && item.group !== props.items[index() - 1]?.group}>
+            <div class="fc-command-group">{item.group}</div>
           </Show>
-          <Show when={item.soon}>
-            <span class="fc-command-soon">{t("Soon")}</span>
-          </Show>
-        </button>
+          <button
+            class="fc-command-item"
+            classList={{ "fc-command-item-active": props.active === index() && !item.disabled }}
+            type="button"
+            disabled={item.disabled}
+            // Keep the field focused: a tap must not blur the draft before the pick is handled.
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => props.onHover?.(index())}
+            onClick={() => props.onPick(index())}
+          >
+            <span class="fc-command-name">{item.label}</span>
+            <Show when={item.badge}>
+              <span class="fc-command-source">{item.badge}</span>
+            </Show>
+            <Show when={item.hint}>
+              <span class="fc-command-desc">{item.hint}</span>
+            </Show>
+            <Show when={item.soon}>
+              <span class="fc-command-soon">{t("Soon")}</span>
+            </Show>
+          </button>
+        </>
       )}
     </For>
     <Show when={props.footer}>{props.footer}</Show>

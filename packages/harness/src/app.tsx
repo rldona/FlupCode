@@ -96,6 +96,7 @@ import type {
   ProjectMemory,
 } from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
+import { BUILTIN_COMMANDS, builtinCommand, runBuiltin, type CommandContext } from "./commands"
 import {
   KEYBIND_ACTIONS,
   loadKeybinds,
@@ -197,45 +198,6 @@ function isTypingTarget(target: EventTarget | null) {
   if (!element) return false
   return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable
 }
-
-/**
- * App actions reachable from the palette and the composer's slash menu (H-24). `session` marks the
- * ones that need an open session, so they are not offered when there is none.
- */
-const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: boolean }> = [
-  { name: "new", descriptionKey: "New session…" },
-  { name: "compact", descriptionKey: "Compact the current session", session: true },
-  { name: "resume", descriptionKey: "Checkpoint of this session", session: true },
-  { name: "steps", descriptionKey: "Show or hide tool steps" },
-  { name: "mcp", descriptionKey: "MCP servers…" },
-  { name: "stash", descriptionKey: "Save the current prompt" },
-  { name: "stashes", descriptionKey: "View saved prompts" },
-  { name: "skills", descriptionKey: "Skills" },
-  { name: "workflows", descriptionKey: "Workflows" },
-  { name: "compare", descriptionKey: "Compare two runs" },
-  { name: "best-of-n", descriptionKey: "Best of N: one task, several models" },
-  { name: "skillify", descriptionKey: "Save this session as a skill", session: true },
-  { name: "next-tab", descriptionKey: "Next session tab" },
-  { name: "prev-tab", descriptionKey: "Previous session tab" },
-  { name: "close-tab", descriptionKey: "Close this session tab", session: true },
-  { name: "memory", descriptionKey: "Memory" },
-  { name: "config", descriptionKey: "Config (advanced)" },
-  { name: "settings", descriptionKey: "Customize FlupCode" },
-  { name: "routines", descriptionKey: "Scheduled tasks" },
-  { name: "actions", descriptionKey: "Web actions" },
-  { name: "remote", descriptionKey: "Remote control / mobile" },
-  { name: "artifacts", descriptionKey: "Artifacts" },
-  { name: "files", descriptionKey: "Files" },
-  { name: "about", descriptionKey: "About FlupCode" },
-  // Actions that used to live only in a menu, now reachable from the launcher too (H-24). Kept at
-  // the end so the ones people already know stay where they were.
-  { name: "split", descriptionKey: "Split view", session: true },
-  { name: "rename", descriptionKey: "Rename session", session: true },
-  { name: "pin", descriptionKey: "Pin or unpin this session", session: true },
-  { name: "delete", descriptionKey: "Delete this session", session: true },
-  { name: "toggle-sidebar", descriptionKey: "Toggle sidebar" },
-  { name: "providers", descriptionKey: "Providers & API keys" },
-]
 
 export const App: Component = () => {
   const [localServerUrl, setLocalServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
@@ -2270,15 +2232,13 @@ export const App: Component = () => {
     })
 
     const commandOptions = (): CommandOption[] => [
-      ...BUILTIN_COMMANDS.filter(
-        (command) =>
-          desktopWindow() || command.name !== "actions",
-      ).map((command) => ({
-        name: command.name,
-        description: t(command.descriptionKey),
+      ...BUILTIN_COMMANDS.filter((command) => desktopWindow() || !command.desktop).map((command) => ({
+        name: command.id,
+        description: t(command.title),
         // An action that acts on the open session is not offered when there is none.
-        disabled: UNAVAILABLE_FEATURES.has(command.name) || (command.session === true && !selected()),
+        disabled: UNAVAILABLE_FEATURES.has(command.id) || (command.session === true && !selected()),
         source: "builtin" as const,
+        group: t(command.group),
       })),
       // A chat has no project behind it, so the engine's commands, its skills and its workflows are
       // not offered there: what is typed after a built-in is a message, as it has always been.
@@ -2289,11 +2249,13 @@ export const App: Component = () => {
               name: command.name,
               description: command.description,
               source: "command" as const,
+              group: t("Commands"),
             })),
             ...(skills()?.data ?? []).map((skill) => ({
               name: skill.name,
               description: skill.description ?? "Skill",
               source: "skill" as const,
+              group: t("Skills"),
             })),
             // A workflow is a command: that is the audit's "launcher unificado", and the reason it
             // goes in the same list rather than a menu of its own.
@@ -2301,6 +2263,7 @@ export const App: Component = () => {
               name: workflow.name,
               description: workflow.description || t("Workflow"),
               source: "workflow" as const,
+              group: t("Workflows"),
             })),
           ]),
     ]
@@ -2339,129 +2302,10 @@ export const App: Component = () => {
       return response.data
     }
 
+    // A built-in runs here exactly as it does typed in the composer (TI-13); anything else is put in
+    // the composer for its arguments.
     const runCommand = (name: string) => {
-      if (UNAVAILABLE_FEATURES.has(name)) {
-        toast(t("Coming soon"), "info")
-        return
-      }
-      if (name === "new" || name === "clear") {
-        newSession()
-        return
-      }
-      if (name === "about") {
-        setAboutOpen(true)
-        return
-      }
-      if (name === "mcp") {
-        openSettings("mcp")
-        return
-      }
-      if (name === "stash") {
-        stashPrompt(prompt(), true)
-        return
-      }
-      if (name === "stashes") {
-        setStashOpen(true)
-        return
-      }
-      if (name === "settings") {
-        setSettingsOpen(true)
-        return
-      }
-      if (name === "routines") {
-        showScreen("routines")
-        return
-      }
-      if (name === "actions") {
-        showScreen("actions")
-        return
-      }
-      if (name === "remote") {
-        setRemoteOpen(true)
-        return
-      }
-      if (name === "artifacts") {
-        showScreen("artifacts")
-        return
-      }
-      if (name === "files") {
-        showScreen("files")
-        return
-      }
-      if (name === "skills") {
-        setSkillsOpen(true)
-        return
-      }
-      if (name === "workflows") {
-        showScreen("workflows")
-        return
-      }
-      if (name === "compare") {
-        showScreen("compare")
-        return
-      }
-      if (name === "best-of-n") {
-        setBestOfNOpen(true)
-        return
-      }
-      if (name === "skillify") {
-        skillifySession()
-        return
-      }
-      if (name === "compact") {
-        compactSession()
-        return
-      }
-      if (name === "resume") {
-        resumeSession()
-        return
-      }
-      if (name === "next-tab") {
-        cycleSessionTab(1)
-        return
-      }
-      if (name === "prev-tab") {
-        cycleSessionTab(-1)
-        return
-      }
-      if (name === "close-tab") {
-        const id = selected()
-        if (id) closeSessionTab(id)
-        return
-      }
-      if (name === "memory") {
-        setMemoryOpen(true)
-        return
-      }
-      if (name === "config") {
-        setConfigOpen(true)
-        return
-      }
-      if (name === "providers") {
-        openSettings("providers")
-        return
-      }
-      if (name === "toggle-sidebar") {
-        toggleSidebar()
-        return
-      }
-      // Actions on the open session, which the palette offers next to the engine's commands (H-24).
-      if (name === "split") {
-        if (selected() && !splitActive()) openSplit(selected()!)
-        return
-      }
-      if (name === "rename") {
-        renameSession()
-        return
-      }
-      if (name === "pin") {
-        if (selected()) togglePin(selected()!)
-        return
-      }
-      if (name === "delete") {
-        deleteSession()
-        return
-      }
+      if (runBuiltin(name, "", commandContext())) return
       setPrompt(`/${name} `)
     }
 
@@ -5103,6 +4947,44 @@ export const App: Component = () => {
     submitPrompt(resumePrompt(), [], keepDraft)
   }
 
+  /** What a built-in command is run with (TI-13), the same from the palette and the composer. */
+  const commandContext = (): CommandContext => ({
+    session: selected(),
+    draft: prompt(),
+    notify: (message) => toast(message, "info"),
+    newSession: () => newSession(),
+    showScreen,
+    openSettings,
+    open: (dialog) => {
+      if (dialog === "about") return setAboutOpen(true)
+      if (dialog === "settings") return setSettingsOpen(true)
+      if (dialog === "stashes") return setStashOpen(true)
+      if (dialog === "remote") return setRemoteOpen(true)
+      if (dialog === "skills") return setSkillsOpen(true)
+      if (dialog === "best-of-n") return setBestOfNOpen(true)
+      if (dialog === "memory") return setMemoryOpen(true)
+      setConfigOpen(true)
+    },
+    send: (text) => {
+      if (!chatView()) return submitPrompt(text, attachments())
+      return composerChatClass() === "cowork" ? sendCowork(text, attachments()) : sendChat(text, attachments())
+    },
+    stash: (text) => stashPrompt(text, true),
+    compact: compactSession,
+    resume: () => resumeSession(),
+    skillify: () => skillifySession(),
+    toggleSteps: toggleTools,
+    toggleSidebar,
+    cycleTab: cycleSessionTab,
+    closeTab: closeSessionTab,
+    split: (session) => {
+      if (!splitActive()) openSplit(session)
+    },
+    rename: renameSession,
+    pin: togglePin,
+    remove: deleteSession,
+  })
+
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
@@ -5113,6 +4995,13 @@ export const App: Component = () => {
       const [rawName, ...rest] = text.slice(1).split(/\s+/)
       const name = rawName ?? ""
       const args = rest.join(" ").trim()
+      // The built-ins first, so one runs the same here as from the palette (TI-13). The draft is the
+      // command itself, so it is spent before the command runs.
+      if (builtinCommand(name)) {
+        setPrompt("")
+        runBuiltin(name, args, commandContext())
+        return
+      }
       if (UNAVAILABLE_FEATURES.has(name)) {
         setPrompt("")
         toast(t("Coming soon"), "info")
@@ -5122,132 +5011,6 @@ export const App: Component = () => {
       const workflow = chatView() ? undefined : workflowNamed(name)
       if (workflow) {
         startWorkflow(workflow, args)
-        return
-      }
-      if (name === "new" || name === "clear") {
-        setPrompt("")
-        newSession()
-        return
-      }
-      if (name === "about") {
-        setPrompt("")
-        setAboutOpen(true)
-        return
-      }
-      if (name === "compact") {
-        setPrompt("")
-        compactSession()
-        return
-      }
-      if (name === "resume") {
-        setPrompt("")
-        resumeSession(false)
-        return
-      }
-      if (name === "steps") {
-        setPrompt("")
-        toggleTools()
-        return
-      }
-      if (name === "mcp") {
-        setPrompt("")
-        openSettings("mcp")
-        return
-      }
-      if (name === "stash") {
-        stashPrompt(args, false)
-        if (args) setPrompt("")
-        return
-      }
-      if (name === "stashes") {
-        setPrompt("")
-        setStashOpen(true)
-        return
-      }
-      if (name === "settings") {
-        setPrompt("")
-        setSettingsOpen(true)
-        return
-      }
-      if (name === "routines") {
-        setPrompt("")
-        showScreen("routines")
-        return
-      }
-      // `/actions` with no arguments opens the Web actions screen. With anything after it the reader
-      // is asking for an action to run, so the text goes to the agent, which owns the tool and its
-      // approval — opening a session when there is none, exactly like any other message.
-      if (name === "actions") {
-        setPrompt("")
-        if (!args) {
-          showScreen("actions")
-          return
-        }
-        return chatView()
-          ? composerChatClass() === "cowork"
-            ? sendCowork(args, files)
-            : sendChat(args, files)
-          : submitPrompt(args, files)
-      }
-      if (name === "remote") {
-        setPrompt("")
-        setRemoteOpen(true)
-        return
-      }
-      if (name === "artifacts") {
-        setPrompt("")
-        showScreen("artifacts")
-        return
-      }
-      if (name === "skills") {
-        setPrompt("")
-        setSkillsOpen(true)
-        return
-      }
-      if (name === "workflows") {
-        setPrompt("")
-        showScreen("workflows")
-        return
-      }
-      if (name === "compare") {
-        setPrompt("")
-        showScreen("compare")
-        return
-      }
-      if (name === "best-of-n") {
-        setPrompt("")
-        setBestOfNOpen(true)
-        return
-      }
-      if (name === "skillify") {
-        setPrompt("")
-        skillifySession(false)
-        return
-      }
-      if (name === "next-tab") {
-        setPrompt("")
-        cycleSessionTab(1)
-        return
-      }
-      if (name === "prev-tab") {
-        setPrompt("")
-        cycleSessionTab(-1)
-        return
-      }
-      if (name === "close-tab") {
-        setPrompt("")
-        const id = selected()
-        if (id) closeSessionTab(id)
-        return
-      }
-      if (name === "memory") {
-        setPrompt("")
-        setMemoryOpen(true)
-        return
-      }
-      if (name === "config") {
-        setPrompt("")
-        setConfigOpen(true)
         return
       }
       // A chat has no engine commands or project skills: the built-ins have run by now, and what is

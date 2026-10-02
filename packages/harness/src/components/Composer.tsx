@@ -319,6 +319,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               label: `/${command.name}`,
               hint: command.description,
               badge: commandBadge(command.source),
+              group: command.group,
               disabled: command.disabled,
               soon: command.disabled,
             }))}
