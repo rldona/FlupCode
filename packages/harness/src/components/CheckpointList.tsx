@@ -16,7 +16,7 @@ type CheckpointListProps = {
 const when = (at: number) => formatDateTime(at)
 
 /** Nothing to do, said once, rather than a confirmation for a restore that would change nothing. */
-const empty = (plan: RestorePlan) => plan.write.length === 0 && plan.remove.length === 0
+export const empty = (plan: RestorePlan) => plan.write.length === 0 && plan.remove.length === 0
 
 /**
  * Checkpoints (H-15), and the confirmation that guards restoring one.
@@ -110,31 +110,7 @@ export const CheckpointList: Component<CheckpointListProps> = (props) => {
                         when={!empty(what())}
                         fallback={<p class="fc-checkpoints-empty">{t("This folder already looks like that.")}</p>}
                       >
-                        {/*
-                          Deletions first, named in full and never summarised as a count: a file
-                          nobody ever added to git is gone from everywhere once this runs.
-                        */}
-                        <Show when={what().remove.length > 0}>
-                          <div class="fc-checkpoint-group">
-                            <strong class="fc-diff-minus">{t("Deleted ({n})", { n: what().remove.length })}</strong>
-                            <ul>
-                              <For each={what().remove}>{(path) => <li>{path}</li>}</For>
-                            </ul>
-                          </div>
-                        </Show>
-                        <Show when={what().write.length > 0}>
-                          <div class="fc-checkpoint-group">
-                            <strong>{t("Rewritten ({n})", { n: what().write.length })}</strong>
-                            <ul>
-                              <For each={what().write.slice(0, 20)}>{(path) => <li>{path}</li>}</For>
-                            </ul>
-                            <Show when={what().write.length > 20}>
-                              <li class="fc-checkpoints-empty">
-                                {t("and {n} more", { n: what().write.length - 20 })}
-                              </li>
-                            </Show>
-                          </div>
-                        </Show>
+                        <RestoreFiles plan={what()} />
                         <p class="fc-checkpoints-empty">
                           {t("A checkpoint of how things are now is recorded first, so this can be undone.")}
                         </p>
@@ -166,3 +142,31 @@ export const CheckpointList: Component<CheckpointListProps> = (props) => {
     </section>
   )
 }
+
+/**
+ * What a restore would do to the folder: deletions first, named in full and never summarised as a
+ * count — a file nobody ever added to git is gone from everywhere once this runs.
+ */
+export const RestoreFiles: Component<{ plan: RestorePlan }> = (props) => (
+  <>
+    <Show when={props.plan.remove.length > 0}>
+      <div class="fc-checkpoint-group">
+        <strong class="fc-diff-minus">{t("Deleted ({n})", { n: props.plan.remove.length })}</strong>
+        <ul>
+          <For each={props.plan.remove}>{(path) => <li>{path}</li>}</For>
+        </ul>
+      </div>
+    </Show>
+    <Show when={props.plan.write.length > 0}>
+      <div class="fc-checkpoint-group">
+        <strong>{t("Rewritten ({n})", { n: props.plan.write.length })}</strong>
+        <ul>
+          <For each={props.plan.write.slice(0, 20)}>{(path) => <li>{path}</li>}</For>
+        </ul>
+        <Show when={props.plan.write.length > 20}>
+          <li class="fc-checkpoints-empty">{t("and {n} more", { n: props.plan.write.length - 20 })}</li>
+        </Show>
+      </div>
+    </Show>
+  </>
+)

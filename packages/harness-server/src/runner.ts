@@ -4,7 +4,7 @@ import type { Run, Task, TaskStatus, TaskVerdict, Artifact } from "./types"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { externalCommand, fillCommand, runExternal } from "./external"
-import { take } from "./checkpoint"
+import { take, type Checkpoint } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { packFiles, packRefs, expandArtifactRefs } from "./packs"
 import { parsePlan } from "./plan"
@@ -192,6 +192,33 @@ function worktreeName(task: string) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 40)
   return slug || "task"
+}
+
+/**
+ * The tasks a task waits for, by name.
+ *
+ * An explicit `dependsOn` — including an empty one, which is what `parallel: true` becomes — is
+ * used as written. A task that says nothing follows the one above it, which is the v1 rule. A
+ * `when` names a task whose outcome decides this one, so it is waited for whether or not it was
+ * listed.
+ */
+function dependencies(task: Task, tasks: Task[]): string[] {
+  const explicit = task.foreach
+    ? [task.foreach]
+    : task.dependsOn !== undefined
+      ? task.dependsOn
+      : task.retryOf
+        ? // A retry somebody asked for (H-12) works from what the original was given (TI-03).
+          (() => {
+            const original = tasks.find((entry) => entry.id === task.retryOf)
+            return original ? dependencies(original, tasks) : []
+          })()
+        : (() => {
+            const previous = tasks.filter((entry) => entry.position < task.position).at(-1)
+            return previous ? [previous.name] : []
+          })()
+  const condition = task.when?.task
+  return condition && !explicit.includes(condition) ? [...explicit, condition] : explicit
 }
 
 /** What a task is waiting for, and what lets it run. */
@@ -446,33 +473,6 @@ export class TaskRunner {
     }
   }
 
-  /**
-   * The tasks a task waits for, by name.
-   *
-   * An explicit `dependsOn` — including an empty one, which is what `parallel: true` becomes — is
-   * used as written. A task that says nothing follows the one above it, which is the v1 rule. A
-   * `when` names a task whose outcome decides this one, so it is waited for whether or not it was
-   * listed.
-   */
-  private dependencies(task: Task, tasks: Task[]): string[] {
-    const explicit = task.foreach
-      ? [task.foreach]
-      : task.dependsOn !== undefined
-        ? task.dependsOn
-        : task.retryOf
-          ? // A retry somebody asked for (H-12) works from what the original was given (TI-03).
-            (() => {
-              const original = tasks.find((entry) => entry.id === task.retryOf)
-              return original ? this.dependencies(original, tasks) : []
-            })()
-          : (() => {
-              const previous = tasks.filter((entry) => entry.position < task.position).at(-1)
-              return previous ? [previous.name] : []
-            })()
-    const condition = task.when?.task
-    return condition && !explicit.includes(condition) ? [...explicit, condition] : explicit
-  }
-
   /** Whether every instance of a name has settled, and whether any of them succeeded. */
   private settled(name: string, tasks: Task[]): "ok" | "failed" | "pending" {
     const instances = tasks.filter((task) => task.name === name)
@@ -491,7 +491,7 @@ export class TaskRunner {
   }
 
   private decide(task: Task, tasks: Task[]): Decision {
-    for (const name of this.dependencies(task, tasks)) {
+    for (const name of dependencies(task, tasks)) {
       const state = this.settled(name, tasks)
       if (state === "pending") return { action: "wait" }
       if (state === "failed") {
@@ -505,7 +505,7 @@ export class TaskRunner {
     // `require: verified` (RP-06): the work before this task has to have been checked, not only to
     // have ended. The newest attempt of each dependency is the one that speaks for it.
     if (task.require === "verified") {
-      const unverified = this.dependencies(task, tasks).find(
+      const unverified = dependencies(task, tasks).find(
         (name) => tasks.filter((entry) => entry.name === name).at(-1)?.verdict?.value !== "verified",
       )
       if (unverified) return { action: "skip", reason: `Not run: ${unverified} was not verified` }
@@ -555,7 +555,7 @@ export class TaskRunner {
 
   /** What the tasks before it concluded, joined: a graph task may have several (H-28). */
   private handoffFor(task: Task, tasks: Task[], context: RunContext) {
-    const notes = this.dependencies(task, tasks)
+    const notes = dependencies(task, tasks)
       .map((name) =>
         tasks
           .filter((entry) => entry.name === name && entry.status === "success")
@@ -568,7 +568,7 @@ export class TaskRunner {
 
   /** The tree a task works in: the one its dependencies left, or the run's own (H-29). */
   private directoryFor(task: Task, tasks: Task[], context: RunContext) {
-    const deps = this.dependencies(task, tasks).filter((name) => name !== task.when?.task)
+    const deps = dependencies(task, tasks).filter((name) => name !== task.when?.task)
     for (const name of [...deps].reverse()) {
       const instance = tasks.filter((entry) => entry.name === name && entry.status === "success").at(-1)
       const directory = instance ? context.directories.get(instance.id) : undefined
@@ -1141,4 +1141,70 @@ export class TaskRunner {
       context.pause = "gate"
     }
   }
+}
+
+/**
+ * Where a run picks up again (RP-04), and what it runs.
+ *
+ * Only what has not succeeded runs: the task it resumes from — the one named, or else every task
+ * that failed or was stopped — and whatever behind it was failed, stopped or skipped because of it.
+ * Each is put back as a new attempt rather than the same row run twice, for the reason a retry is
+ * (H-12): the failed attempt keeps what it did, said and cost, and the run's verdict reads the newest
+ * attempt (RP-06). Work that never started stays queued and waits for them; succeeded tasks are not
+ * touched, so their output, cost and checkpoints stay.
+ *
+ * The folder goes back to the newest checkpoint of a task that stays succeeded, which is how it
+ * looked before the task it resumes from began — the run then behaves as if it had never stopped. A
+ * task an interrupted process left queued counts as where it broke. There is nothing to go back to
+ * before the first task (no point was taken), nor in a run of worktrees, where every attempt starts
+ * a tree of its own.
+ */
+export function resumePoint(run: Run, tasks: Task[], checkpoints: Checkpoint[], fromTask?: string) {
+  const superseded = new Set(tasks.flatMap((task) => (task.retryOf ? [task.retryOf] : [])))
+  const standing = tasks.filter((task) => !superseded.has(task.id))
+  const starts = fromTask
+    ? [startingTask(standing, tasks, fromTask)]
+    : standing.filter((task) => task.status === "failed" || task.status === "stopped")
+  const again = behind(starts, standing, tasks)
+  const from = [...starts, ...standing.filter((task) => task.status === "queued" && task.startedAt !== undefined)]
+    .sort((a, b) => a.position - b.position)
+    .at(0)
+  const kept = new Set(standing.filter((task) => task.status === "success").map((task) => task.id))
+  const checkpoint =
+    from && !run.worktrees ? checkpoints.find((point) => point.taskID && kept.has(point.taskID)) : undefined
+  return {
+    again,
+    /** Everything that will run, in order: the new attempts and the work that was still queued. */
+    runs: [...again, ...standing.filter((task) => task.status === "queued")].sort((a, b) => a.position - b.position),
+    checkpoint,
+  }
+}
+
+/** The task a reader chose to resume from: the newest attempt of its name, and one that did not succeed. */
+function startingTask(standing: Task[], tasks: Task[], taskID: string) {
+  const task = standing.find((entry) => entry.id === taskID)
+  if (!task && tasks.some((entry) => entry.id === taskID))
+    throw new Error("A newer attempt of this task exists; resume from that one")
+  if (!task) throw new Error("This task is not part of the run")
+  if (task.status !== "failed" && task.status !== "stopped" && task.status !== "skipped")
+    throw new Error("Only a task that failed, was stopped or was skipped can be resumed from")
+  return task
+}
+
+/** The starting tasks and every settled, unsucceeded task that waits on them, however far down. */
+function behind(starts: Task[], standing: Task[], tasks: Task[]) {
+  const again = new Map(starts.map((task) => [task.id, task]))
+  const grow = (): Task[] => {
+    const names = new Set([...again.values()].map((task) => task.name))
+    const next = standing.filter(
+      (task) =>
+        !again.has(task.id) &&
+        (task.status === "failed" || task.status === "stopped" || task.status === "skipped") &&
+        dependencies(task, tasks).some((name) => names.has(name)),
+    )
+    if (next.length === 0) return [...again.values()].sort((a, b) => a.position - b.position)
+    for (const task of next) again.set(task.id, task)
+    return grow()
+  }
+  return grow()
 }

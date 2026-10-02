@@ -178,3 +178,49 @@ test("a task stopped by the ceiling says what was running and for how long", asy
 
   await expect(page.locator(".fc-run-error")).toContainText("`glob` ran for 20 minutes")
 })
+
+test("a failed task resumes the run from it, after saying what runs and what the folder loses (RP-04)", async ({ page }) => {
+  await open(page, {
+    run: { status: "failed", finishedAt: now + 9000, error: "build it broke" },
+    tasks: [
+      tasks[0],
+      { ...tasks[1], status: "failed", error: "build it broke", finishedAt: now + 8000 },
+      { id: "t3", runID: "run_1", position: 2, name: "ship it", prompt: "s", status: "queued" },
+    ],
+  })
+  const asked: Array<{ method: string; fromTask: string | null; body: string | null }> = []
+  await page.route("http://127.0.0.1:9097/harness/runs/run_1/resume**", (route) => {
+    const request = route.request()
+    asked.push({ method: request.method(), fromTask: new URL(request.url()).searchParams.get("fromTask"), body: request.postData() })
+    if (request.method() === "POST") return route.fulfill({ status: 202, json: { data: { ...run, status: "running" } } })
+    return route.fulfill({
+      json: {
+        data: {
+          tasks: [
+            { id: "t2", name: "build it" },
+            { id: "t3", name: "ship it" },
+          ],
+          checkpoint: { id: "cp1", directory: "/work/demo", sha: "abc1234", title: "plan it", createdAt: now },
+          plan: { write: ["PLAN.md"], remove: ["half-built.ts"] },
+        },
+      },
+    })
+  })
+
+  // The succeeded task offers nothing of the kind.
+  await page.locator(".fc-run-node").filter({ hasText: "plan it" }).click()
+  await expect(page.getByRole("button", { name: /Resume from here|Reanudar desde aquí/ })).toHaveCount(0)
+  await page.getByRole("button", { name: /^Close$|^Cerrar$/ }).click()
+
+  await page.locator(".fc-run-node").filter({ hasText: "build it" }).click()
+  await page.getByRole("button", { name: /Resume from here|Reanudar desde aquí/ }).click()
+  const plan = page.locator(".fc-run-detail .fc-checkpoint-plan")
+  await expect(plan).toContainText("build it → ship it")
+  await expect(plan).toContainText("half-built.ts")
+  await expect(plan).toContainText("PLAN.md")
+  expect(asked).toEqual([{ method: "GET", fromTask: "t2", body: null }])
+
+  await plan.getByRole("button", { name: /^Resume$|^Reanudar$/ }).click()
+  await expect.poll(() => asked.length).toBe(2)
+  expect(asked[1]).toEqual({ method: "POST", fromTask: null, body: JSON.stringify({ fromTask: "t2" }) })
+})

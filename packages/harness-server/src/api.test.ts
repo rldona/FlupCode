@@ -3,7 +3,8 @@ import { UNTRUSTED_NOTICE, createBrowserPolicy } from "./browser-policy"
 import { createBrowserMcpGate } from "./browser-mcp"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
 import { allowedHarnessHost, allowedHarnessOrigin } from "./cors"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { take } from "./checkpoint"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { projectRoots } from "./project-roots"
@@ -639,14 +640,6 @@ tasks:
       }),
     )
     expect(unknownTask.status).toBe(400)
-
-    const unknownCheckpoint = await handler(
-      new Request("http://localhost/harness/workflows/feature/runs", {
-        method: "POST",
-        body: JSON.stringify({ inputs: { goal: "search" }, directory, fromCheckpoint: "ckpt_nope" }),
-      }),
-    )
-    expect(unknownCheckpoint.status).toBe(404)
     repository.close()
   })
 
@@ -1244,6 +1237,58 @@ describe("resuming a run that ended with work queued (HF-5)", () => {  const pas
     repository.close()
   })
 
+  // RP-04: what a resume would do is asked first, and a task of another run is not a place to start.
+  test("the plan names the tasks that run and the point the folder goes back to; resuming from a task restores it", async () => {
+    const { handler, repository } = open()
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "flupcode-api-resume-from-")))
+    made.push(directory)
+    passingProject(directory)
+    Bun.spawnSync(["git", "init", "-q"], { cwd: directory })
+    const run = repository.startRun({ type: "manual" }, 1000, directory)
+    const [first, second] = repository.addTasks(run.id, [
+      { name: "first", prompt: "", kind: "verify" },
+      { name: "second", prompt: "", kind: "verify" },
+    ])
+    repository.finishTask(first!.id, "success", { output: "ok" }, 1500)
+    repository.addCheckpoint(await take({ directory, title: "first", runID: run.id, taskID: first!.id }))
+    repository.startTask(second!.id, 1600)
+    repository.finishTask(second!.id, "failed", { error: "no" }, 1700)
+    repository.finishRun(run.id, "failed", "no", 1800)
+    writeFileSync(join(directory, "half-done.txt"), "x")
+
+    const plan = await handler(new Request(`http://x/harness/runs/${run.id}/resume?fromTask=${second!.id}`))
+    expect(plan.status).toBe(200)
+    const data = (await plan.json()).data
+    expect(data.tasks.map((task: { name: string }) => task.name)).toEqual(["second"])
+    expect(data.checkpoint.title).toBe("first")
+    expect(data.plan).toEqual({ write: [], remove: ["half-done.txt"] })
+
+    const other = repository.startRun({ type: "manual" }, 1000)
+    const [stranger] = repository.addTasks(other.id, [{ name: "x", prompt: "y" }])
+    const foreign = await handler(
+      new Request(`http://x/harness/runs/${run.id}/resume`, { method: "POST", body: JSON.stringify({ fromTask: stranger!.id }) }),
+    )
+    expect(foreign.status).toBe(404)
+    const wrong = await handler(
+      new Request(`http://x/harness/runs/${run.id}/resume`, { method: "POST", body: JSON.stringify({ fromTask: 3 }) }),
+    )
+    expect(wrong.status).toBe(400)
+
+    const resumed = await handler(
+      new Request(`http://x/harness/runs/${run.id}/resume`, { method: "POST", body: JSON.stringify({ fromTask: second!.id }) }),
+    )
+    expect(resumed.status).toBe(202)
+    await settled(repository, run.id)
+    expect(existsSync(join(directory, "half-done.txt"))).toBe(false)
+    expect(repository.listTasks(run.id).map((task) => `${task.name}:${task.status}`)).toEqual([
+      "first:success",
+      "second:failed",
+      "second:success",
+    ])
+    expect(repository.getRun(run.id)?.status).toBe("success")
+    repository.close()
+  })
+
   test("a restart requeues work that was in flight", async () => {
     const { repository } = open()
     const run = repository.startRun({ type: "manual" }, 1000)
@@ -1438,6 +1483,7 @@ describe("the runs surface's bearer and host (AH-A05)", () => {
       ["GET", `/harness/runs/${run.id}/tasks`],
       ["GET", `/harness/runs/${run.id}/activity`],
       ["POST", `/harness/runs/${run.id}/stop`],
+      ["GET", `/harness/runs/${run.id}/resume`],
       ["POST", `/harness/runs/${run.id}/resume`],
       ["DELETE", `/harness/runs/${run.id}`],
     ]

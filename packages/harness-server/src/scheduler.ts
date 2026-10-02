@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto"
 import { Engine } from "./engine"
 import { parseModelKey } from "./policy"
-import { TaskRunner } from "./runner"
+import { TaskRunner, resumePoint } from "./runner"
 import { isDue } from "./schedule"
 import { readWorkflow, tasksFor } from "./workflow"
 import type { WorkflowFile } from "./workflow"
-import { restore } from "./checkpoint"
+import { planRestore, restore } from "./checkpoint"
 import type { BrowserAllowRule, Run, RunPolicy, RunSource, RunVerdict, RunWorkflow, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 import type { ActionRunner } from "./action-runner"
@@ -60,13 +60,6 @@ export class RoutineBusyError extends Error {
   constructor() {
     super("Routine is already running")
     this.name = "RoutineBusyError"
-  }
-}
-
-export class CheckpointNotFoundError extends Error {
-  constructor(readonly checkpoint: string) {
-    super(`Checkpoint not found: ${checkpoint}`)
-    this.name = "CheckpointNotFoundError"
   }
 }
 
@@ -230,8 +223,6 @@ export class RoutineScheduler {
     policy?: RunPolicy
     /** Stop the task list at this task id, inclusive (HF-1). */
     until?: string
-    /** Restore this checkpoint before starting, so a run resumes from disk state (HF-1). */
-    fromCheckpoint?: string
   }) {
     const file = await readWorkflow(input.name, input.directory)
     if (!file) throw new UnknownWorkflowError(input.name)
@@ -240,20 +231,9 @@ export class RoutineScheduler {
     const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
     if (missing.length > 0) throw new MissingInputsError(missing)
     const until = input.until?.trim() ? input.until.trim() : undefined
-    let directory = input.directory
-    if (input.fromCheckpoint?.trim()) {
-      const checkpoint = this.repository.getCheckpoint(input.fromCheckpoint.trim())
-      if (!checkpoint) throw new CheckpointNotFoundError(input.fromCheckpoint.trim())
-      directory = input.directory ?? checkpoint.directory
-      await restore({
-        directory,
-        sha: checkpoint.sha,
-        safetyTitle: `Before resuming ${workflow.name} from "${checkpoint.title}"`,
-      })
-    }
     return this.runTasks({
       tasks: tasksFor(workflow, input.inputs ?? {}, until),
-      directory,
+      directory: input.directory,
       // A workflow is a file, so its ceiling, its bypass, its trees and its shell are written
       // in the file too (H-47, H-29); the launcher can still ask for worktrees on top.
       ...(workflow.toolLimitMs ? { toolLimitMs: workflow.toolLimitMs } : {}),
@@ -368,23 +348,80 @@ export class RoutineScheduler {
   }
 
   /**
-   * Pick up a run that ended with work still queued (HF-5).
-   *
-   * A restart, a stop, or a failure can leave tasks behind that never ran. Anything already
-   * settled stays as it is — history is not rewritten — and the drive continues from the first
-   * task the graph allows. A requeued task may repeat side effects its lost attempt already made,
-   * which is why the requeue reason stays on the row.
+   * What resuming a run would do (RP-04), before it does it: the tasks that run, and the checkpoint
+   * the folder goes back to with what restoring it would write and delete. Asked first and shown,
+   * because the folder may have changed since the run ended and restoring overwrites that.
    */
-  resume(runID: string) {
+  async resumePlan(runID: string, fromTask?: string) {
+    const point = this.resumePoint(runID, fromTask)
+    if (!point) return undefined
+    return {
+      tasks: point.runs,
+      ...(point.checkpoint
+        ? { checkpoint: point.checkpoint, plan: await planRestore(point.checkpoint.directory, point.checkpoint.sha) }
+        : {}),
+    }
+  }
+
+  /**
+   * Pick up a run that failed, was stopped or lost its process (HF-5, RP-04), from a task or from
+   * where it broke.
+   *
+   * Only what has not succeeded runs again (`resumePoint`): a task that ran is attempted again as a
+   * new task, one that never started goes back to the queue, and succeeded ones stay as they are. The
+   * folder is put back first to how it looked before that work, and where it was is kept as a
+   * checkpoint like any restore's, so the resume can be undone. A requeued task may repeat side
+   * effects outside the folder that its lost attempt already made, which is why the requeue reason
+   * stays on the row.
+   */
+  async resume(runID: string, options: { fromTask?: string } = {}) {
+    const point = this.resumePoint(runID, options.fromTask)
+    if (!point) return undefined
+    if (point.runs.length === 0) throw new Error("Nothing left to resume: every task settled")
+    if (point.checkpoint) {
+      const done = await restore({
+        directory: point.checkpoint.directory,
+        sha: point.checkpoint.sha,
+        safetyTitle: `Before resuming from "${point.checkpoint.title}"`,
+      })
+      this.repository.addCheckpoint(done.safety)
+    }
+    const fresh = point.again.filter((task) => task.startedAt === undefined)
+    this.repository.requeueTasks(fresh.map((task) => task.id))
+    this.repository.addTasks(
+      runID,
+      point.again
+        .filter((task) => task.startedAt !== undefined)
+        .map((task) => ({
+          name: task.name,
+          prompt: task.prompt,
+          kind: task.kind,
+          ...(task.command ? { command: task.command } : {}),
+          ...(task.action ? { action: task.action } : {}),
+          agent: task.agent,
+          model: task.model,
+          ...(task.retries !== undefined ? { retries: task.retries } : {}),
+          ...(task.gate ? { gate: task.gate } : {}),
+          ...(task.dependsOn ? { dependsOn: task.dependsOn } : {}),
+          ...(task.when ? { when: task.when } : {}),
+          ...(task.foreach ? { foreach: task.foreach } : {}),
+          ...(task.require ? { require: task.require } : {}),
+          attempt: task.attempt + 1,
+          retryOf: task.id,
+        })),
+    )
+    const run = this.repository.getRun(runID)!
+    this.repository.reopenRun(runID)
+    void this.drive(runID, run.directory)
+    return this.repository.getRun(runID)
+  }
+
+  private resumePoint(runID: string, fromTask?: string) {
     const run = this.repository.getRun(runID)
     if (!run) return undefined
     if (run.status === "running" || run.status === "awaiting")
       throw new Error("The run is still active; stop it before resuming")
-    const tasks = this.repository.listTasks(run.id)
-    if (!tasks.some((task) => task.status === "queued")) throw new Error("Nothing left to resume: every task settled")
-    this.repository.reopenRun(run.id)
-    void this.drive(run.id, run.directory)
-    return this.repository.getRun(run.id)
+    return resumePoint(run, this.repository.listTasks(runID), this.repository.listCheckpoints({ runID }), fromTask)
   }
 
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {

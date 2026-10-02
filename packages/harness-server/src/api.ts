@@ -15,7 +15,7 @@ import type {
 import type { SqliteRoutineRepository } from "./repository"
 import { readFileSync } from "node:fs"
 import { confinedPath, projectRoots, type ProjectRoots } from "./project-roots"
-import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler, CheckpointNotFoundError } from "./scheduler"
+import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
 import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
@@ -1195,14 +1195,24 @@ export const createHarnessHandler = (
       const resumed = scheduler.approve(run.id)
       return resumed ? json({ data: resumed }) : error("This run is not waiting at a gate", 409)
     }
-    // Picking up a run that ended with work still queued (HF-5).
-    if (path[1] === "runs" && request.method === "POST" && path[2] && path[3] === "resume") {
+    // Picking up a run that failed, was stopped or lost its process (HF-5, RP-04), from a task or
+    // from where it broke. What it would do is asked first (GET), because it restores the folder.
+    if (path[1] === "runs" && path[2] && path[3] === "resume" && (request.method === "GET" || request.method === "POST")) {
       const run = repository.getRun(path[2])
       if (!run) return error("Run not found", 404)
+      const given =
+        request.method === "GET"
+          ? (new URL(request.url).searchParams.get("fromTask") ?? undefined)
+          : ((await readJSON(request)) as { fromTask?: unknown } | undefined)?.fromTask
+      if (given !== undefined && typeof given !== "string") return error("fromTask is a task id", 400)
+      const fromTask = given || undefined
+      if (fromTask && repository.getTask(fromTask)?.runID !== run.id) return error("Task not found in this run", 404)
       try {
-        const resumed = scheduler.resume(run.id)
+        if (request.method === "GET") return json({ data: await scheduler.resumePlan(run.id, fromTask) })
+        const resumed = await scheduler.resume(run.id, { fromTask })
         return resumed ? json({ data: resumed }, 202) : error("Run not found", 404)
       } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
         return error(cause instanceof Error ? cause.message : String(cause), 409)
       }
     }
@@ -1934,7 +1944,7 @@ export const createHarnessHandler = (
     }
     if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
       const body = (await readJSON(request)) as
-        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown; policy?: unknown; until?: unknown; fromCheckpoint?: unknown }
+        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown; policy?: unknown; until?: unknown }
         | undefined
       const inputs: Record<string, string> = {}
       if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
@@ -1954,16 +1964,12 @@ export const createHarnessHandler = (
           ...(body?.worktrees === true ? { worktrees: true } : {}),
           ...(policy ? { policy } : {}),
           ...(typeof body?.until === "string" && body.until.trim() ? { until: body.until.trim() } : {}),
-          ...(typeof body?.fromCheckpoint === "string" && body.fromCheckpoint.trim()
-            ? { fromCheckpoint: body.fromCheckpoint.trim() }
-            : {}),
         })
         return json({ data: run }, 202)
       } catch (cause) {
         if (cause instanceof UnknownWorkflowError) return error(cause.message, 404)
         if (cause instanceof MissingInputsError) return error(cause.message, 400)
         if (cause instanceof UnknownTaskError) return error(cause.message, 400)
-        if (cause instanceof CheckpointNotFoundError) return error(cause.message, 404)
         return error(cause instanceof Error ? cause.message : String(cause), 500)
       }
     }

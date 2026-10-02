@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
-import type { Artifact, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageRunReport } from "../types"
+import type { Artifact, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageRunReport } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
 import { RunGraph, elapsed } from "./RunGraph"
 import { StateBadge } from "./StateBadge"
@@ -11,6 +11,7 @@ import { AttentionMark } from "./AttentionMark"
 import type { Attention } from "../attention"
 import { runInputs, runTitle } from "../run-title"
 import { runReason, runState } from "../run-state"
+import { ResumeConfirm } from "./ResumeConfirm"
 
 type RunsPanelProps = {
   open: boolean
@@ -49,8 +50,13 @@ type RunsPanelProps = {
   onSteer: (taskID: string, text: string) => void
   /** Takes a queued task off the run without stopping the rest (HF-4). */
   onCancelTask: (taskID: string) => void
-  /** Picks up a run that ended with work still queued (HF-5). */
-  onResume: (id: string) => void
+  /**
+   * Picks up a run that failed, was stopped or lost its process (HF-5, RP-04): from a task, or from
+   * where it broke.
+   */
+  onResume: (id: string, fromTask?: string) => void
+  /** What resuming would do, asked before it is done (RP-04). */
+  onResumePlan: (id: string, fromTask?: string) => Promise<ResumePlan>
   /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
   onBestOfN: () => void
   /** Each routine's name, by id, so a routine's run is called what the reader called it (UX-04). */
@@ -70,6 +76,21 @@ const progress = (run: Run) => {
   if (!going(run) || tasks.length === 0) return []
   const done = tasks.filter((task) => task.status !== "queued" && task.status !== "running").length
   return [`${done}/${tasks.length}`]
+}
+
+/**
+ * Whether a run that ended has anything to pick up (RP-04): work still queued, or a task that failed or
+ * was stopped and has not been done again since.
+ */
+const resumable = (run: Run) => {
+  const tasks = run.tasks ?? []
+  const retried = new Set(tasks.flatMap((task) => (task.retryOf ? [task.retryOf] : [])))
+  return (
+    (run.status === "failed" || run.status === "stopped") &&
+    tasks.some(
+      (task) => task.status === "queued" || ((task.status === "failed" || task.status === "stopped") && !retried.has(task.id)),
+    )
+  )
 }
 
 /** A task's own rows of its run's ledger report: a retry is a task of its own, so its own bill. */
@@ -96,6 +117,8 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
   // Which run has been asked about, or ALL for the whole finished list. The question is drawn where
   // the button is: the list scrolls, and a confirmation at the foot of it is one nobody sees.
   const [confirming, setConfirming] = createSignal<string>()
+  // The run whose resume is being asked about (RP-04), drawn in its card for the same reason.
+  const [resuming, setResuming] = createSignal<string>()
   // Runs asked to stop that the server has not yet reported as stopped (TI-01): the card stays
   // "running" until the engine has let go, and the button says so instead of offering Stop again.
   const [stopping, setStopping] = createSignal<string[]>([])
@@ -258,16 +281,13 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       when={going(run)}
                       fallback={
                         <>
-                          {/* A run that ended with work still queued can be picked up (HF-5). */}
-                          <Show
-                            when={(run.status === "failed" || run.status === "stopped") &&
-                              (run.tasks ?? []).some((task) => task.status === "queued")}
-                          >
+                          {/* A run that ended with work left can be picked up where it broke (HF-5, RP-04). */}
+                          <Show when={resumable(run)}>
                             <button
                               class="fc-run-open"
                               type="button"
                               disabled={!props.serverAvailable}
-                              onClick={() => props.onResume(run.id)}
+                              onClick={() => setResuming(run.id)}
                             >
                               {t("Resume")}
                             </button>
@@ -315,6 +335,17 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                         {t("Delete")}
                       </button>
                     </div>
+                  </Show>
+                  <Show when={resuming() === run.id && resumable(run)}>
+                    <ResumeConfirm
+                      load={() => props.onResumePlan(run.id)}
+                      busy={!props.serverAvailable}
+                      onCancel={() => setResuming(undefined)}
+                      onResume={() => {
+                        props.onResume(run.id)
+                        setResuming(undefined)
+                      }}
+                    />
                   </Show>
                   <Show when={run.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
                   {/*
@@ -418,6 +449,11 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     onRetry={props.onRetry}
                     onSteer={props.onSteer}
                     onCancel={props.onCancelTask}
+                    onResumePlan={(taskID) => props.onResumePlan(picked().run.id, taskID)}
+                    onResume={(taskID) => {
+                      props.onResume(picked().run.id, taskID)
+                      setSelectedTask(undefined)
+                    }}
                     onOpenChanges={props.onOpenChanges ?? (() => undefined)}
                     onClose={() => setSelectedTask(undefined)}
                   />

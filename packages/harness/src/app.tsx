@@ -4068,14 +4068,15 @@ export const App: Component = () => {
   }
 
   /**
-   * Pick up a run that ended with work still queued (HF-5). Settled tasks stay as they are;
-   * the drive continues from the first task the graph allows.
+   * Pick up a run that failed, was stopped or lost its process (HF-5, RP-04), from a task or from
+   * where it broke. Succeeded tasks stay as they are; the folder is put back first.
    */
-  const resumeRun = (id: string) => {
+  const resumeRun = (id: string, fromTask?: string) => {
     void createHarnessClient(harnessServerUrl())
-      .runs.resume(id)
+      .runs.resume(id, fromTask ? { fromTask } : {})
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
+  const resumePlan = (id: string, fromTask?: string) => createHarnessClient(harnessServerUrl()).runs.resumePlan(id, fromTask)
 
   /**
    * Steer a running task by sending a message to its own session. The legacy runner absorbs a prompt
@@ -5195,6 +5196,7 @@ export const App: Component = () => {
             onSteer={steerTask}
             onCancelTask={cancelTask}
             onResume={resumeRun}
+            onResumePlan={resumePlan}
             onBestOfN={() => setBestOfNOpen(true)}
             onOpenSession={(id) => {
               leaveScreen()
