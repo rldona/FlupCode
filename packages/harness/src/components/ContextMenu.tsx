@@ -33,7 +33,7 @@ const MARGIN = 8
 export const ContextMenu: Component<ContextMenuProps> = (props) => {
   const close = () => props.onClose()
   let element: HTMLDivElement | undefined
-  const [placed, setPlaced] = createSignal<{ left: number; top: number }>()
+  const [placed, setPlaced] = createSignal<{ left: number; top: number; above: boolean }>()
 
   // The menu is a menu, not a pile of buttons: focus moves into it, and the arrows walk it (H-24).
   const enabled = () => Array.from(element?.querySelectorAll<HTMLButtonElement>(".fc-menu-item:not(:disabled)") ?? [])
@@ -73,7 +73,7 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
       Math.max(MARGIN, props.x),
       Math.max(MARGIN, window.innerWidth - MARGIN - width),
     )
-    setPlaced({ left, top })
+    setPlaced({ left, top, above: placement === "above" })
   }
 
   onMount(() => {
@@ -87,7 +87,11 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
       close()
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") return close()
+      if (event.key === "Escape") {
+        // The menu takes this Escape: a dialog underneath stays open.
+        event.preventDefault()
+        return close()
+      }
       if (event.key === "ArrowDown") {
         event.preventDefault()
         return step(1)
@@ -120,7 +124,10 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
       class="fc-menu"
       role="menu"
       tabIndex={-1}
+      data-placement={placed()?.above ? "above" : "below"}
       style={{
+        // It grows out of the point it opened from (UX-03), wherever the window's edges pushed it.
+        "transform-origin": `${cssPx(props.x - (placed()?.left ?? props.x))}px ${cssPx(props.y - (placed()?.top ?? props.y))}px`,
         left: `${cssPx(placed()?.left ?? props.x)}px`,
         top: `${cssPx(placed()?.top ?? props.y)}px`,
         // Hidden for the one frame it takes to measure, so it never flashes at the wrong corner.

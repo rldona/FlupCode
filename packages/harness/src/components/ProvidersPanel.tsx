@@ -11,6 +11,7 @@ import type {
 import { isEditableProvider, type ConfiguredProvider, type CustomProviderResult } from "../custom-provider"
 import { CustomProviderForm } from "./CustomProviderForm"
 import { t } from "../i18n"
+import { Modal, ModalClose } from "./Modal"
 
 type ProvidersEditorProps = {
   providers: ProviderDirectoryInfo[]
@@ -299,71 +300,53 @@ export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
             </Show>
       <Show when={attempt()}>
         {(current) => (
-          <div class="fc-modal-backdrop" onClick={closeOAuth}>
-            <div
-              class="fc-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label={t("Sign in to {name}", { name: providerName(attemptProvider()) })}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div class="fc-modal-header">
-                <span>{t("Sign in to {name}", { name: providerName(attemptProvider()) })}</span>
-                <button class="fc-icon-button" type="button" aria-label={t("Cancel")} onClick={closeOAuth}>
-                  ×
-                </button>
-              </div>
-              <p class="fc-modal-line">{current().instructions}</p>
-              <p class="fc-modal-line">
-                <a class="fc-link" href={current().url} target="_blank" rel="noreferrer">
-                  {current().url}
-                </a>
-              </p>
-              <Show when={attemptError()}>
-                <p class="fc-modal-error">{attemptError()}</p>
-              </Show>
-              <div class="fc-modal-actions">
-                <span class="fc-status-line">
-                  {attemptState()?.status === "pending" ? t("Waiting for authorization…") : ""}
-                </span>
-                <button class="fc-button" type="button" onClick={closeOAuth}>
-                  {t("Cancel")}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </Show>
-      <Show when={attemptError() && !attempt()}>
-        <div class="fc-modal-backdrop" onClick={() => setAttemptError(undefined)}>
-          <div
-            class="fc-modal"
-            role="alertdialog"
-            aria-modal="true"
-            aria-label={t("Sign in failed")}
-            onClick={(event) => event.stopPropagation()}
+          <Modal
+            onClose={closeOAuth}
+            label={t("Sign in to {name}", { name: providerName(attemptProvider()) })}
           >
             <div class="fc-modal-header">
-              <span>{t("Sign in failed")}</span>
-              <button
-                class="fc-icon-button"
-                type="button"
-                aria-label={t("Close")}
-                onClick={() => setAttemptError(undefined)}
-              >
-                ×
-              </button>
+              <span>{t("Sign in to {name}", { name: providerName(attemptProvider()) })}</span>
+              <ModalClose />
             </div>
-            <p class="fc-modal-error">{attemptError()}</p>
+            <p class="fc-modal-line">{current().instructions}</p>
+            <p class="fc-modal-line">
+              <a class="fc-link" href={current().url} target="_blank" rel="noreferrer">
+                {current().url}
+              </a>
+            </p>
+            <Show when={attemptError()}>
+              <p class="fc-modal-error">{attemptError()}</p>
+            </Show>
             <div class="fc-modal-actions">
-              <span />
-              <button class="fc-button" type="button" onClick={() => setAttemptError(undefined)}>
-                {t("Close")}
+              <span class="fc-status-line">
+                {attemptState()?.status === "pending" ? t("Waiting for authorization…") : ""}
+              </span>
+              <button class="fc-button" type="button" onClick={closeOAuth}>
+                {t("Cancel")}
               </button>
             </div>
-          </div>
-        </div>
+          </Modal>
+        )}
       </Show>
+      <Modal
+        open={!!attemptError() && !attempt()}
+        onClose={() => setAttemptError(undefined)}
+        class="fc-modal"
+        role="alertdialog"
+        label={t("Sign in failed")}
+      >
+        <div class="fc-modal-header">
+          <span>{t("Sign in failed")}</span>
+          <ModalClose />
+        </div>
+        <p class="fc-modal-error">{attemptError()}</p>
+        <div class="fc-modal-actions">
+          <span />
+          <button class="fc-button" type="button" onClick={() => setAttemptError(undefined)}>
+            {t("Close")}
+          </button>
+        </div>
+      </Modal>
       <Show when={customOpen()}>
         <CustomProviderForm
           existingProviderIDs={props.existingProviderIDs}

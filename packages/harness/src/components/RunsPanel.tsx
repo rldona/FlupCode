@@ -15,6 +15,7 @@ import { heldForRequest, metPerson, runReason, runState } from "../run-state"
 import { ResumeConfirm } from "./ResumeConfirm"
 import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
+import { Modal } from "./Modal"
 
 /** What a run held for a request waits on (RP-05): its tasks' engine requests, and what they preview from. */
 export type RunRequests = {
@@ -548,40 +549,32 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
         </div>
         <Show when={detail()}>
           {(picked) => (
-            <div class="fc-modal-backdrop" onClick={() => setSelectedTask(undefined)}>
-              <div
-                class="fc-modal fc-detail-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-label={t("Task detail")}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div class="fc-modal-body">
-                  <RunTaskDetail
-                    run={picked().run}
-                    task={picked().task}
-                    activity={props.activity[picked().task.id]}
-                    touched={props.touched[picked().task.id]}
-                    tools={props.tools?.[picked().task.id]}
-                    artifacts={(props.artifacts?.[picked().run.id] ?? []).filter((artifact) => artifact.taskID === picked().task.id)}
-                    cost={taskUsage(props.usage?.[picked().run.id], picked().task)}
-                    models={props.models}
-                    serverAvailable={props.serverAvailable}
-                    onOpenSession={props.onOpenSession}
-                    onRetry={props.onRetry}
-                    onSteer={props.onSteer}
-                    onCancel={props.onCancelTask}
-                    onResumePlan={(taskID) => props.onResumePlan(picked().run.id, taskID)}
-                    onResume={(taskID) => {
-                      props.onResume(picked().run.id, taskID)
-                      setSelectedTask(undefined)
-                    }}
-                    onOpenChanges={props.onOpenChanges ?? (() => undefined)}
-                    onClose={() => setSelectedTask(undefined)}
-                  />
-                </div>
+            <Modal onClose={() => setSelectedTask(undefined)} class="fc-modal fc-detail-modal" label={t("Task detail")}>
+              <div class="fc-modal-body">
+                <RunTaskDetail
+                  run={picked().run}
+                  task={picked().task}
+                  activity={props.activity[picked().task.id]}
+                  touched={props.touched[picked().task.id]}
+                  tools={props.tools?.[picked().task.id]}
+                  artifacts={(props.artifacts?.[picked().run.id] ?? []).filter((artifact) => artifact.taskID === picked().task.id)}
+                  cost={taskUsage(props.usage?.[picked().run.id], picked().task)}
+                  models={props.models}
+                  serverAvailable={props.serverAvailable}
+                  onOpenSession={props.onOpenSession}
+                  onRetry={props.onRetry}
+                  onSteer={props.onSteer}
+                  onCancel={props.onCancelTask}
+                  onResumePlan={(taskID) => props.onResumePlan(picked().run.id, taskID)}
+                  onResume={(taskID) => {
+                    props.onResume(picked().run.id, taskID)
+                    setSelectedTask(undefined)
+                  }}
+                  onOpenChanges={props.onOpenChanges ?? (() => undefined)}
+                  onClose={() => setSelectedTask(undefined)}
+                />
               </div>
-            </div>
+            </Modal>
           )}
         </Show>
       </section>

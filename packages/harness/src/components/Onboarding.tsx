@@ -3,6 +3,7 @@ import { t } from "../i18n"
 import { touchDevice } from "../remote"
 import type { LocalNetworkState } from "../local-network"
 import logo from "../assets/flupcode-logo.png"
+import { Modal } from "./Modal"
 
 type OnboardingProps = {
   open: boolean
@@ -193,41 +194,37 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
   )
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop">
-        <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Welcome to FlupCode")}>
-          <div class="fc-onboarding">
-            <div class="fc-onboarding-brand">
-              <img src={logo} alt="" width="40" height="40" />
-              <span class="fc-onboarding-logo">FlupCode</span>
-            </div>
-            <h2 class="fc-onboarding-title">{t("Welcome to FlupCode")}</h2>
-            <p class="fc-onboarding-text">
-              {t("A harness for OpenCode with a dashboard, routines and projects, on web and desktop.")}
-            </p>
-
-            <Show
-              when={remoteFirst()}
-              fallback={
-                <>
-                  {localServer()}
-                  {nameField()}
-                  {getStarted(true)}
-                  <Show when={props.remoteClient}>{remoteOption(false)}</Show>
-                </>
-              }
-            >
-              {nameField()}
-              {remoteOption(true)}
-              <details class="fc-onboarding-local">
-                <summary>{t("Use a server on this device")}</summary>
-                {localServer()}
-                {getStarted(false)}
-              </details>
-            </Show>
-          </div>
+    <Modal open={props.open} required class="fc-modal fc-modal-wide" label={t("Welcome to FlupCode")}>
+      <div class="fc-onboarding">
+        <div class="fc-onboarding-brand">
+          <img src={logo} alt="" width="40" height="40" />
+          <span class="fc-onboarding-logo">FlupCode</span>
         </div>
+        <h2 class="fc-onboarding-title">{t("Welcome to FlupCode")}</h2>
+        <p class="fc-onboarding-text">
+          {t("A harness for OpenCode with a dashboard, routines and projects, on web and desktop.")}
+        </p>
+
+        <Show
+          when={remoteFirst()}
+          fallback={
+            <>
+              {localServer()}
+              {nameField()}
+              {getStarted(true)}
+              <Show when={props.remoteClient}>{remoteOption(false)}</Show>
+            </>
+          }
+        >
+          {nameField()}
+          {remoteOption(true)}
+          <details class="fc-onboarding-local">
+            <summary>{t("Use a server on this device")}</summary>
+            {localServer()}
+            {getStarted(false)}
+          </details>
+        </Show>
       </div>
-    </Show>
+    </Modal>
   )
 }

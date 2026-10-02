@@ -1,6 +1,6 @@
-import { Show, createUniqueId, onCleanup, type Component, type JSX } from "solid-js"
+import { createUniqueId, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
-import { holdModalFocus } from "../modal-focus"
+import { Modal, ModalClose } from "./Modal"
 
 type ConfirmDialogProps = {
   open: boolean
@@ -24,22 +24,12 @@ type ConfirmDialogProps = {
 export const ConfirmDialog: Component<ConfirmDialogProps> = (props) => {
   const messageID = createUniqueId()
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          ref={(node) => onCleanup(holdModalFocus(node))}
-          class="fc-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={props.title}
-          aria-describedby={messageID}
-          tabIndex={-1}
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault()
-              props.onClose()
-            }
+    <Modal
+      open={props.open}
+      onClose={props.onClose}
+      label={props.title}
+      describedBy={messageID}
+      onKeyDown={(event) => {
             // Enter on the dialog itself confirms; on a button it presses that button, so Enter on
             // Cancel cancels instead of confirming.
             if (event.key === "Enter" && event.target === event.currentTarget) {
@@ -50,9 +40,7 @@ export const ConfirmDialog: Component<ConfirmDialogProps> = (props) => {
         >
           <div class="fc-modal-header">
             <span>{props.title}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
+            <ModalClose />
           </div>
           <p id={messageID} class="fc-confirm-message">
             {props.message}
@@ -66,8 +54,6 @@ export const ConfirmDialog: Component<ConfirmDialogProps> = (props) => {
               {props.confirmLabel ?? t("Delete")}
             </button>
           </div>
-        </div>
-      </div>
-    </Show>
+    </Modal>
   )
 }

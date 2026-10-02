@@ -163,8 +163,17 @@
   --fc-text-lg: 16px;
   --fc-text-xl: 26px;
 
-  --fc-motion-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
-  --fc-motion-panel: 180ms cubic-bezier(0.2, 0, 0, 1);
+  /* Motion (UX-03): two durations and one easing, and nothing else in the app writes a time or a
+     curve (tokens.test.ts checks). Short is a change in place: a hover, a press, a chevron turning.
+     Long is something arriving or leaving: a dialog, a menu, a panel. The easing starts quickly and
+     settles, for both. The loop is the beat of the marks that say "working": a spinner, a pulse, a
+     shimmer. */
+  --fc-duration-short: 120ms;
+  --fc-duration-long: 200ms;
+  --fc-duration-loop: 1.4s;
+  --fc-ease: cubic-bezier(0.2, 0, 0, 1);
+  --fc-motion-fast: var(--fc-duration-short) var(--fc-ease);
+  --fc-motion-panel: var(--fc-duration-long) var(--fc-ease);
 }
 
 .fc-dark {
@@ -614,9 +623,12 @@ html {
   background-color: var(--fc-bg);
 }
 
+/* Reduced motion, honoured here and only here: with every duration at zero, things appear and change
+   at once, and the loops stand still. */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --fc-motion-fast: 0ms linear;
-    --fc-motion-panel: 0ms linear;
+    --fc-duration-short: 0s;
+    --fc-duration-long: 0s;
+    --fc-duration-loop: 0s;
   }
 }

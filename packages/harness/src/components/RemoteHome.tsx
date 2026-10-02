@@ -8,6 +8,7 @@ import type { ProjectItem, Run } from "../types"
 import type { Attention } from "../attention"
 import { AttentionMark, attentionLabel } from "./AttentionMark"
 import { runTitle } from "../run-title"
+import { Modal } from "./Modal"
 
 /** Phone home screen while controlling a computer: devices, sessions and a new-session action. */
 
@@ -241,34 +242,30 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
         <span aria-hidden="true">+</span> {props.view === "chat" ? t("New chat") : t("New session")}
       </button>
 
-      <Show when={picking()}>
-        <div class="fc-remote-sheet-backdrop" onClick={() => setPicking(false)}>
-          <div
-            class="fc-remote-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("New session")}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 class="fc-remote-home-heading">{t("Choose a project")}</h2>
-            <For each={props.projects}>
-              {(project) => (
-                <button class="fc-remote-card" type="button" onClick={() => newSession(project.directory)}>
-                  <span class="fc-remote-card-main">
-                    <span class="fc-remote-card-title">{project.name}</span>
-                    <span class="fc-remote-card-meta">{project.directory}</span>
-                  </span>
-                </button>
-              )}
-            </For>
-            <button class="fc-remote-card" type="button" onClick={() => newSession(undefined)}>
+      <Modal
+        open={picking()}
+        onClose={() => setPicking(false)}
+        backdropClass="fc-remote-sheet-backdrop"
+        class="fc-remote-sheet"
+        label={t("New session")}
+      >
+        <h2 class="fc-remote-home-heading">{t("Choose a project")}</h2>
+        <For each={props.projects}>
+          {(project) => (
+            <button class="fc-remote-card" type="button" onClick={() => newSession(project.directory)}>
               <span class="fc-remote-card-main">
-                <span class="fc-remote-card-title">{t("No folder")}</span>
+                <span class="fc-remote-card-title">{project.name}</span>
+                <span class="fc-remote-card-meta">{project.directory}</span>
               </span>
             </button>
-          </div>
-        </div>
-      </Show>
+          )}
+        </For>
+        <button class="fc-remote-card" type="button" onClick={() => newSession(undefined)}>
+          <span class="fc-remote-card-main">
+            <span class="fc-remote-card-title">{t("No folder")}</span>
+          </span>
+        </button>
+      </Modal>
     </div>
   )
 }

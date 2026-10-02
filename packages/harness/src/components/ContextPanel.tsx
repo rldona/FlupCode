@@ -10,6 +10,7 @@ import { mcpLatency, mcpToolUses } from "../mcp"
 import type { AdaptiveModel, CapturedPrompt, ContextReport, ItemDisposition, StoredPlan, ToolCall } from "../types"
 import { duration } from "./UsagePanel"
 import { PanelFailure } from "./PanelBoundary"
+import { Modal, ModalClose } from "./Modal"
 
 export type ContextTokens = {
   input: number
@@ -202,36 +203,21 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
                   the worst place to read it. */}
               <Show when={openFile()}>
                 {(path) => (
-                  <div class="fc-modal-backdrop" onClick={() => setOpenFile(undefined)}>
-                    <div
-                      class="fc-modal fc-form-modal"
-                      role="dialog"
-                      aria-modal="true"
-                      aria-label={name(path())}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <div class="fc-modal-header">
-                        <span class="fc-modal-heading" dir="auto">
-                          {name(path())}
-                        </span>
-                        <button
-                          class="fc-icon-button"
-                          type="button"
-                          aria-label={t("Close")}
-                          onClick={() => setOpenFile(undefined)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                      <div class="fc-modal-body">
-                        <div class="fc-context-file">
-                          <Show when={problem()} fallback={<pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>}>
-                            {(message) => <p class="fc-usage-note">{message()}</p>}
-                          </Show>
-                        </div>
+                  <Modal onClose={() => setOpenFile(undefined)} class="fc-modal fc-form-modal" label={name(path())}>
+                    <div class="fc-modal-header">
+                      <span class="fc-modal-heading" dir="auto">
+                        {name(path())}
+                      </span>
+                      <ModalClose />
+                    </div>
+                    <div class="fc-modal-body">
+                      <div class="fc-context-file">
+                        <Show when={problem()} fallback={<pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>}>
+                          {(message) => <p class="fc-usage-note">{message()}</p>}
+                        </Show>
                       </div>
                     </div>
-                  </div>
+                  </Modal>
                 )}
               </Show>
             </Show>
@@ -461,30 +447,19 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
               {/* Read in a dialog, not folded under its row: the prompt is long and is the point. */}
               <Show when={props.prompts?.find((prompt) => prompt.at === openPrompt())}>
                 {(prompt) => (
-                  <div class="fc-modal-backdrop" onClick={() => setOpenPrompt(undefined)}>
-                    <div
-                      class="fc-modal fc-form-modal"
-                      role="dialog"
-                      aria-modal="true"
-                      aria-label={t("The system prompt")}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <div class="fc-modal-header">
-                        <span class="fc-modal-heading">{when(prompt().at)}</span>
-                        <button
-                          class="fc-icon-button"
-                          type="button"
-                          aria-label={t("Close")}
-                          onClick={() => setOpenPrompt(undefined)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                      <div class="fc-modal-body">
-                        <pre class="fc-pr-log">{prompt().system.join("\n\n")}</pre>
-                      </div>
+                  <Modal
+                    onClose={() => setOpenPrompt(undefined)}
+                    class="fc-modal fc-form-modal"
+                    label={t("The system prompt")}
+                  >
+                    <div class="fc-modal-header">
+                      <span class="fc-modal-heading">{when(prompt().at)}</span>
+                      <ModalClose />
                     </div>
-                  </div>
+                    <div class="fc-modal-body">
+                      <pre class="fc-pr-log">{prompt().system.join("\n\n")}</pre>
+                    </div>
+                  </Modal>
                 )}
               </Show>
             </Show>

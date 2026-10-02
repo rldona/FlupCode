@@ -45,6 +45,12 @@ textarea {
   outline-offset: 2px;
 }
 
+/* A dialog holds the focus itself as it opens (Modal.tsx), so a screen reader reads its name first:
+   it is not a control, and draws no ring. The controls inside it do. */
+[data-modal] > [role]:focus-visible {
+  outline: none;
+}
+
 /* Text fields show focus with their border, like the dock's input. */
 input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]):focus,
 input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]):focus-visible,
@@ -2349,7 +2355,7 @@ button.fc-status {
     color-mix(in srgb, var(--fc-border) 55%, transparent) 63%
   );
   background-size: 400% 100%;
-  animation: fc-skeleton-shimmer 1.4s ease-in-out infinite;
+  animation: fc-skeleton-shimmer var(--fc-duration-loop) var(--fc-ease) infinite;
 }
 
 /* Vary the placeholder width so the list reads as rows, not a stack of identical bars. */
@@ -2369,13 +2375,6 @@ button.fc-status {
   }
   to {
     background-position: 0 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-skeleton-dot,
-  .fc-skeleton-bar {
-    animation: none;
   }
 }
 
@@ -2511,15 +2510,15 @@ button.fc-status {
   border-radius: 50%;
   background: currentColor;
   opacity: 0.25;
-  animation: fc-thought-dot 1s ease-in-out infinite;
+  animation: fc-thought-dot var(--fc-duration-loop) var(--fc-ease) infinite;
 }
 
 .fc-loader-dots i:nth-child(2) {
-  animation-delay: 0.15s;
+  animation-delay: calc(var(--fc-duration-loop) * 0.15);
 }
 
 .fc-loader-dots i:nth-child(3) {
-  animation-delay: 0.3s;
+  animation-delay: calc(var(--fc-duration-loop) * 0.3);
 }
 
 .fc-loader-time,
@@ -4473,12 +4472,6 @@ button.fc-status {
   color: var(--fc-text);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .fc-message-actions {
-    transition: none;
-  }
-}
-
 .fc-qr {
   display: flex;
   align-items: center;
@@ -5113,7 +5106,7 @@ button.fc-status {
 .fc-spinner {
   display: inline-block;
   vertical-align: -2px;
-  animation: fc-spin 1s steps(8) infinite;
+  animation: fc-spin var(--fc-duration-loop) steps(8) infinite;
 }
 
 @keyframes fc-spin {
@@ -5514,7 +5507,7 @@ button.fc-status {
 .fc-file-chevron {
   flex-shrink: 0;
   color: var(--fc-text-muted);
-  transition: transform 0.12s ease;
+  transition: transform var(--fc-motion-fast);
 }
 
 .fc-file-open .fc-file-chevron {
@@ -7527,8 +7520,8 @@ button.fc-status {
   opacity: 0;
   transform: translate(-50%, 10px) scale(0.9);
   transition:
-    opacity 180ms cubic-bezier(0.2, 0, 0, 1),
-    transform 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity var(--fc-motion-panel),
+    transform var(--fc-motion-panel),
     background var(--fc-motion-fast);
 }
 
@@ -7575,7 +7568,7 @@ button.fc-status {
 .fc-composer .fc-effort-popover,
 .fc-composer .fc-context-popover {
   transform-origin: bottom left;
-  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  animation: fc-rise-in var(--fc-motion-panel);
 }
 
 .fc-dock-popover-right,
@@ -7599,48 +7592,35 @@ button.fc-status {
 .fc-chapters-list,
 .fc-menu {
   transform-origin: top left;
-  animation: fc-drop-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  animation: fc-drop-in var(--fc-motion-panel);
+}
+
+/* A context menu that flipped above the point it opened from rises from it instead; its corner of
+   origin is set where it is placed (ContextMenu.tsx). */
+.fc-menu[data-placement="above"] {
+  animation-name: fc-rise-in;
 }
 
 .fc-chapters-ticks span,
 .fc-chapters-item-mark {
   transition:
-    width 200ms cubic-bezier(0.2, 0, 0, 1),
-    background 200ms;
+    width var(--fc-motion-panel),
+    background var(--fc-motion-panel);
 }
 
 .fc-dock-attachment {
-  animation: fc-rise-in 180ms cubic-bezier(0.2, 0, 0, 1);
+  animation: fc-rise-in var(--fc-motion-panel);
 }
 
 .fc-composer .fc-input-send {
   transition:
-    background 160ms,
-    color 160ms,
-    transform 120ms;
+    background var(--fc-motion-fast),
+    color var(--fc-motion-fast),
+    transform var(--fc-motion-fast);
 }
 
 .fc-composer .fc-input-send:active:not(:disabled) {
   transform: scale(0.92);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-dock-popover,
-  .fc-composer .fc-mode-popover,
-  .fc-composer .fc-folder-popover,
-  .fc-composer .fc-effort-popover,
-  .fc-composer .fc-context-popover,
-  .fc-chapters-list,
-  .fc-menu,
-  .fc-dock-attachment {
-    animation: none;
-  }
-
-  .fc-scroll-end,
-  .fc-chapters-ticks span,
-  .fc-chapters-item-mark {
-    transition: none;
-  }
 }
 
 /* The chat and the dock share one column: the same side inset, with the transcript's scrollbar
@@ -7750,7 +7730,7 @@ button.fc-status {
 
 .fc-toolgroup-chevron {
   flex-shrink: 0;
-  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  transition: transform var(--fc-motion-panel);
 }
 
 .fc-toolgroup-open .fc-toolgroup-chevron {
@@ -7770,7 +7750,7 @@ button.fc-status {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: fc-tool-shimmer 1.6s linear infinite;
+  animation: fc-tool-shimmer var(--fc-duration-loop) linear infinite;
 }
 
 @keyframes fc-tool-shimmer {
@@ -7786,25 +7766,7 @@ button.fc-status {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  animation: fc-drop-in 160ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-toolgroup-running .fc-toolgroup-label {
-    animation: fc-tool-pulse 1.6s ease-in-out infinite;
-    background: none;
-    color: var(--fc-text-muted);
-  }
-
-  .fc-toolgroup-list {
-    animation: none;
-  }
-}
-
-@keyframes fc-tool-pulse {
-  50% {
-    opacity: 0.55;
-  }
+  animation: fc-drop-in var(--fc-motion-panel);
 }
 
 .fc-tool-header {
@@ -7885,7 +7847,7 @@ button.fc-status {
 
 .fc-attention[data-attention="running"] {
   --fc-attention-color: var(--fc-accent);
-  animation: fc-remote-pulse 1.4s ease-in-out infinite;
+  animation: fc-remote-pulse var(--fc-duration-loop) var(--fc-ease) infinite;
 }
 
 /* With a count it grows into a pill that holds the number. */
@@ -7899,12 +7861,6 @@ button.fc-status {
 
 .fc-attention-count[data-attention="approval"] {
   border-radius: 4px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-attention[data-attention="running"] {
-    animation: none;
-  }
 }
 
 /* Where the sidebar puts a tally: at the end of a nav item, and after a collapsed project's name. */
@@ -7946,7 +7902,7 @@ button.fc-status {
 .fc-session-dot-running {
   border-color: var(--fc-accent);
   background: var(--fc-accent);
-  animation: fc-remote-pulse 1.4s ease-in-out infinite;
+  animation: fc-remote-pulse var(--fc-duration-loop) var(--fc-ease) infinite;
 }
 
 .fc-session-row-active .fc-session-dot-running {
@@ -7955,12 +7911,6 @@ button.fc-status {
 
 .fc-session-title {
   min-width: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-session-dot-running {
-    animation: none;
-  }
 }
 
 .fc-project-new {
@@ -7982,7 +7932,7 @@ button.fc-status {
 .fc-composer .fc-input-stop {
   background: transparent;
   color: var(--fc-text);
-  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  animation: fc-rise-in var(--fc-motion-panel);
 }
 
 .fc-composer .fc-input-stop:hover:not(:disabled) {
@@ -8171,7 +8121,8 @@ button.fc-status {
   scroll-margin-block-start: var(--fc-space-3);
 }
 
-/* Modals: the backdrop fades in and the dialog rises and scales into place. */
+/* Modals (Modal.tsx): the backdrop fades in and the dialog rises and scales into place; a closing
+   dialog's copy plays it backwards. A bottom sheet rises from the edge it sits on. */
 @keyframes fc-backdrop-in {
   from {
     opacity: 0;
@@ -8192,12 +8143,13 @@ button.fc-status {
   }
 }
 
-.fc-modal-backdrop {
-  animation: fc-backdrop-in 160ms ease-out;
-}
-
-.fc-modal-backdrop > * {
-  animation: fc-modal-in 220ms cubic-bezier(0.2, 0, 0, 1);
+@keyframes fc-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
 }
 
 @keyframes fc-backdrop-out {
@@ -8213,21 +8165,35 @@ button.fc-status {
   }
 }
 
-/* The stand-in left behind when a modal closes (modal-motion.ts). */
-.fc-modal-backdrop.fc-modal-leaving {
-  pointer-events: none;
-  animation: fc-backdrop-out 180ms ease-in forwards;
-}
-
-.fc-modal-backdrop.fc-modal-leaving > * {
-  animation: fc-modal-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-modal-backdrop,
-  .fc-modal-backdrop > * {
-    animation: none;
+@keyframes fc-sheet-out {
+  to {
+    transform: translateY(100%);
   }
+}
+
+[data-modal="open"] {
+  animation: fc-backdrop-in var(--fc-motion-panel);
+}
+
+[data-modal="open"] > * {
+  animation: fc-modal-in var(--fc-motion-panel);
+}
+
+[data-modal="closing"] {
+  pointer-events: none;
+  animation: fc-backdrop-out var(--fc-motion-panel) forwards;
+}
+
+[data-modal="closing"] > * {
+  animation: fc-modal-out var(--fc-motion-panel) forwards;
+}
+
+[data-modal="open"] > :is(.fc-sheet, .fc-remote-sheet) {
+  animation-name: fc-sheet-in;
+}
+
+[data-modal="closing"] > :is(.fc-sheet, .fc-remote-sheet) {
+  animation-name: fc-sheet-out;
 }
 
 /* Suggested next message: the placeholder shows it, with a Tab hint next to the send button. */
@@ -8245,7 +8211,7 @@ button.fc-status {
   color: var(--fc-text-muted);
   font: 500 11px/16px var(--fc-font-ui);
   pointer-events: none;
-  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  animation: fc-rise-in var(--fc-motion-panel);
 }
 
 /* Prompt history (↑/↓ in the input), like Claude Code's "History 3/12" */
@@ -8254,7 +8220,7 @@ button.fc-status {
   color: var(--fc-text-muted);
   font: 500 12px/16px var(--fc-font-ui);
   user-select: none;
-  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  animation: fc-rise-in var(--fc-motion-panel);
 }
 
 /* Space under the label; the shorter min-height keeps a one-line prompt centred on the send button. */
@@ -8385,7 +8351,7 @@ button.fc-status {
   font-weight: 600;
   letter-spacing: -0.01em;
   text-align: center;
-  animation: fc-rise-in 240ms cubic-bezier(0.2, 0, 0, 1);
+  animation: fc-rise-in var(--fc-motion-panel);
 }
 
 .fc-chat-greeting-logo {
@@ -10888,7 +10854,7 @@ button.fc-status {
 /* Running: the one state that is still changing, so it is the one that moves. */
 .fc-pr-checks[data-verdict="running"] .fc-pr-dot {
   background: var(--fc-warning, #d9a441);
-  animation: fc-pr-pulse 1.4s ease-in-out infinite;
+  animation: fc-pr-pulse var(--fc-duration-loop) var(--fc-ease) infinite;
 }
 
 @keyframes fc-pr-pulse {
@@ -10898,12 +10864,6 @@ button.fc-status {
   }
   50% {
     opacity: 0.35;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-pr-checks[data-verdict="running"] .fc-pr-dot {
-    animation: none;
   }
 }
 

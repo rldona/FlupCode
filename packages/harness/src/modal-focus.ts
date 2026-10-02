@@ -1,8 +1,8 @@
 /**
  * Moves the focus into a modal as it opens and gives it back to what opened it as it closes (AH-E06).
  *
- * Escape and the Tab loop are the app's own, done once for every dialog (H-24, `app.tsx`); this is the
- * half a dialog has to ask for, because only it knows when it mounts. The dialog itself takes the
+ * Every dialog gets it from `Modal` (UX-03), with Escape and the Tab loop; a popover that is not a
+ * modal, such as the adaptive chip's, asks for it itself. The dialog itself takes the
  * focus, not its first button, so a screen reader reads its name first and Enter or Space never lands
  * on a destructive button by accident. It needs `tabIndex={-1}`.
  *

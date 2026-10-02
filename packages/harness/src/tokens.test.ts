@@ -219,3 +219,61 @@ describe("contrast, in every palette and mode (WCAG AA, AH-E06)", () => {
     expect(shell).toContain("--fc-focus-border: var(--fc-text-muted);")
   })
 })
+
+describe("motion (UX-03)", () => {
+  /** Everything that sets a time or a curve: transitions, animations, and their long-hand parts. */
+  const MOTION = /^\s*(?:transition|animation)(?:-[a-z-]+)?\s*:/
+  const LITERAL = /\b\d*\.?\d+m?s\b|cubic-bezier\(|\bease(?:-in|-out|-in-out)?\b/
+
+  test("the durations and the easing are tokens, and nothing else writes one", () => {
+    // A declaration's value can run over several lines: each one up to its semicolon is checked.
+    const offenders = css()
+      .filter((file) => file.name !== "tokens.css")
+      .flatMap((file) =>
+        [...file.text.matchAll(/^[^\S\n]*(?:transition|animation)(?:-[a-z-]+)?\s*:[^;]*;/gm)].flatMap((match) => {
+          const value = match[0].replace(/var\(--fc-[\w-]+\)/g, "")
+          if (!LITERAL.test(value)) return []
+          const line = file.text.slice(0, match.index).split("\n").length
+          return [`${file.name}:${line} ${match[0].trim().replace(/\s+/g, " ")}`]
+        }),
+      )
+    expect(offenders).toEqual([])
+  })
+
+  test("no component writes a duration either", () => {
+    const offenders = readdirSync(join(import.meta.dir), { recursive: true })
+      .filter((name): name is string => typeof name === "string" && /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name))
+      .flatMap((name) =>
+        readFileSync(join(import.meta.dir, name), "utf8")
+          .split("\n")
+          .flatMap((text, index) =>
+            // An inline style, or the Web Animations API, are the two ways a component could.
+            (/["']?(?:transition|animation)(?:-[a-z]+)?["']?\s*:/.test(text) && LITERAL.test(text)) ||
+            /\.animate\(/.test(text)
+              ? [`${name}:${index + 1} ${text.trim()}`]
+              : [],
+          ),
+      )
+    expect(offenders).toEqual([])
+  })
+
+  test("is reading the real declarations", () => {
+    const declarations = css().flatMap((file) => file.text.split("\n").filter((text) => MOTION.test(text)))
+    expect(declarations.length).toBeGreaterThan(30)
+  })
+
+  test("two durations and one easing, set to nothing under reduced motion in this one place", () => {
+    const tokens = readFileSync(join(STYLES, "tokens.css"), "utf8")
+    expect(tokens).toContain("--fc-duration-short: 120ms")
+    expect(tokens).toContain("--fc-duration-long: 200ms")
+    expect(tokens).toContain("--fc-ease: cubic-bezier(0.2, 0, 0, 1)")
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(tokens)?.[1] ?? ""
+    for (const name of ["--fc-duration-short", "--fc-duration-long", "--fc-duration-loop"]) {
+      expect(reduced).toContain(`${name}: 0s`)
+    }
+    const elsewhere = css().filter(
+      (file) => file.name !== "tokens.css" && file.text.includes("prefers-reduced-motion"),
+    )
+    expect(elsewhere.map((file) => file.name)).toEqual([])
+  })
+})

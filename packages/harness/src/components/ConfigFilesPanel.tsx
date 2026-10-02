@@ -7,6 +7,7 @@ import type {
   ConfigFileExportClassification,
   ConfigFileKind,
 } from "../types"
+import { Modal, ModalClose } from "./Modal"
 
 type ConfigFilesPanelProps = {
   open: boolean
@@ -298,185 +299,173 @@ export const ConfigFilesPanel: Component<ConfigFilesPanelProps> = (props) => {
   )
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal fc-form-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("Config files")}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span class="fc-modal-heading">
-              <Show when={props.onBack}>
-                <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-                  ←
-                </button>
-              </Show>
-              <span>{t("Config files")}</span>
-            </span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
+    <Modal open={props.open} onClose={props.onClose} class="fc-modal fc-form-modal" label={t("Config files")}>
+      <div class="fc-modal-header">
+        <span class="fc-modal-heading">
+          <Show when={props.onBack}>
+            <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
+              ←
             </button>
-          </div>
-
-          <div class="fc-modal-body">
-            <Show when={!props.serverAvailable}>
-              <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
-            </Show>
-
-            <Show when={guardRestart()}>
-              <p class="fc-usage-note">{t("Guards are cached as ESM: a change needs an engine restart.")}</p>
-            </Show>
-            <Show when={toolRestart()}>
-              <p class="fc-usage-note">
-                {t("An edited tool file needs an engine restart; a new one takes effect after a reload.")}
-              </p>
-            </Show>
-            <Show when={!props.canOpenFiles}>
-              <p class="fc-usage-note">{t("The desktop app is required to open files in an editor.")}</p>
-            </Show>
-
-            <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
-
-            <Show
-              when={groupByKind(entries()).length > 0}
-              fallback={
-                <p class="fc-usage-note">
-                  {loading() ? t("Reading…") : t("No config files are loaded for this folder.")}
-                </p>
-              }
-            >
-              <For each={groupByKind(entries())}>
-                {(group) => (
-                  <section class="fc-usage-block">
-                    <h2>
-                      {t(KIND_LABELS[group.kind])}
-                      <span class="fc-context-aside">{group.entries.length}</span>
-                    </h2>
-                    <div class="fc-artifact-files">
-                      <For each={group.entries}>
-                        {(entry) => (
-                          <div class="fc-artifact-file">
-                            <label class="fc-check">
-                              <input
-                                type="checkbox"
-                                checked={selected().has(entry.path)}
-                                aria-label={t("Select {name}", { name: entry.name })}
-                                onChange={() => toggle(entry.path)}
-                              />
-                              <span class="fc-artifact-file-name" title={entry.path}>
-                                {entry.name}
-                              </span>
-                            </label>
-                            <span class="fc-artifact-file-path" title={entry.path}>
-                              {entry.path}
-                            </span>
-                            <span class="fc-artifact-kind">{t(entry.scope)}</span>
-                            <span class="fc-artifact-kind">{sizeLabel(entry.bytes)}</span>
-                            <Show when={entry.missing}>
-                              <span class="fc-run-error">{t("Missing")}</span>
-                            </Show>
-                            <Show when={entry.symlink}>
-                              {(link) => (
-                                <span class="fc-artifact-file-path" title={link().target}>
-                                  {t("link to {target}", { target: link().target })}
-                                </span>
-                              )}
-                            </Show>
-                            <Show when={props.canOpenFiles && !entry.missing}>
-                              <button class="fc-button" type="button" onClick={() => props.onOpenInEditor(entry.path)}>
-                                {t("Open in editor")}
-                              </button>
-                            </Show>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </section>
-                )}
-              </For>
-            </Show>
-
-            <section class="fc-usage-block">
-              <h2>{t("Export to config repo")}</h2>
-              <p class="fc-usage-note">
-                {t(
-                  "Copies the chosen global config files into the repository the global config names. Project files, and links that leave the repository, are left alone.",
-                )}
-              </p>
-              <Show
-                when={props.configRepo}
-                fallback={
-                  <p class="fc-run-error">{t("No config repository is set in the global config (flupcode.configRepo).")}</p>
-                }
-              >
-                {(repo) => <p class="fc-usage-note">{t("Repository: {repo}", { repo: repo() })}</p>}
-              </Show>
-              <div class="fc-field-row">
-                <label class="fc-field">
-                  <span>{t("Config repository")}</span>
-                  <input
-                    class="fc-question-custom"
-                    spellcheck={false}
-                    value={repoInput()}
-                    placeholder="/path/to/config"
-                    onInput={(event) => setRepoInput(event.currentTarget.value)}
-                  />
-                </label>
-                <button class="fc-button" type="button" onClick={saveRepo}>
-                  {t("Save")}
-                </button>
-              </div>
-
-              <div class="fc-modal-links">
-                <button class="fc-button" type="button" onClick={toggleAll}>
-                  {allSelected() ? t("Clear selection") : t("Select all")}
-                </button>
-                <button
-                  class="fc-button fc-button-primary"
-                  type="button"
-                  disabled={exporting() || selectedPaths().length === 0 || !props.configRepo}
-                  onClick={() => void runExport(false)}
-                >
-                  {t("Plan export")}
-                </button>
-              </div>
-
-              <Show when={plan()}>
-                {(value) => (
-                  <ExportReport
-                    value={value()}
-                    title={t("This is a plan; nothing has been written yet.")}
-                    onConfirm={() => void runExport(true)}
-                  />
-                )}
-              </Show>
-
-              <Show when={result()}>
-                {(value) => (
-                  <ExportReport value={value()} title={t("Exported {n} files.", { n: value().written.length })} />
-                )}
-              </Show>
-            </section>
-          </div>
-
-          <div class="fc-dialog-actions">
-            <button
-              class="fc-button"
-              type="button"
-              disabled={reloading() || !props.serverAvailable}
-              onClick={manualReload}
-            >
-              {reloading() ? t("Reloading…") : t("Reload")}
-            </button>
-            <button class="fc-button fc-button-primary" type="button" onClick={props.onClose}>
-              {t("Close")}
-            </button>
-          </div>
-        </div>
+          </Show>
+          <span>{t("Config files")}</span>
+        </span>
+        <ModalClose />
       </div>
-    </Show>
+
+      <div class="fc-modal-body">
+        <Show when={!props.serverAvailable}>
+          <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
+        </Show>
+
+        <Show when={guardRestart()}>
+          <p class="fc-usage-note">{t("Guards are cached as ESM: a change needs an engine restart.")}</p>
+        </Show>
+        <Show when={toolRestart()}>
+          <p class="fc-usage-note">
+            {t("An edited tool file needs an engine restart; a new one takes effect after a reload.")}
+          </p>
+        </Show>
+        <Show when={!props.canOpenFiles}>
+          <p class="fc-usage-note">{t("The desktop app is required to open files in an editor.")}</p>
+        </Show>
+
+        <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
+
+        <Show
+          when={groupByKind(entries()).length > 0}
+          fallback={
+            <p class="fc-usage-note">
+              {loading() ? t("Reading…") : t("No config files are loaded for this folder.")}
+            </p>
+          }
+        >
+          <For each={groupByKind(entries())}>
+            {(group) => (
+              <section class="fc-usage-block">
+                <h2>
+                  {t(KIND_LABELS[group.kind])}
+                  <span class="fc-context-aside">{group.entries.length}</span>
+                </h2>
+                <div class="fc-artifact-files">
+                  <For each={group.entries}>
+                    {(entry) => (
+                      <div class="fc-artifact-file">
+                        <label class="fc-check">
+                          <input
+                            type="checkbox"
+                            checked={selected().has(entry.path)}
+                            aria-label={t("Select {name}", { name: entry.name })}
+                            onChange={() => toggle(entry.path)}
+                          />
+                          <span class="fc-artifact-file-name" title={entry.path}>
+                            {entry.name}
+                          </span>
+                        </label>
+                        <span class="fc-artifact-file-path" title={entry.path}>
+                          {entry.path}
+                        </span>
+                        <span class="fc-artifact-kind">{t(entry.scope)}</span>
+                        <span class="fc-artifact-kind">{sizeLabel(entry.bytes)}</span>
+                        <Show when={entry.missing}>
+                          <span class="fc-run-error">{t("Missing")}</span>
+                        </Show>
+                        <Show when={entry.symlink}>
+                          {(link) => (
+                            <span class="fc-artifact-file-path" title={link().target}>
+                              {t("link to {target}", { target: link().target })}
+                            </span>
+                          )}
+                        </Show>
+                        <Show when={props.canOpenFiles && !entry.missing}>
+                          <button class="fc-button" type="button" onClick={() => props.onOpenInEditor(entry.path)}>
+                            {t("Open in editor")}
+                          </button>
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </section>
+            )}
+          </For>
+        </Show>
+
+        <section class="fc-usage-block">
+          <h2>{t("Export to config repo")}</h2>
+          <p class="fc-usage-note">
+            {t(
+              "Copies the chosen global config files into the repository the global config names. Project files, and links that leave the repository, are left alone.",
+            )}
+          </p>
+          <Show
+            when={props.configRepo}
+            fallback={
+              <p class="fc-run-error">{t("No config repository is set in the global config (flupcode.configRepo).")}</p>
+            }
+          >
+            {(repo) => <p class="fc-usage-note">{t("Repository: {repo}", { repo: repo() })}</p>}
+          </Show>
+          <div class="fc-field-row">
+            <label class="fc-field">
+              <span>{t("Config repository")}</span>
+              <input
+                class="fc-question-custom"
+                spellcheck={false}
+                value={repoInput()}
+                placeholder="/path/to/config"
+                onInput={(event) => setRepoInput(event.currentTarget.value)}
+              />
+            </label>
+            <button class="fc-button" type="button" onClick={saveRepo}>
+              {t("Save")}
+            </button>
+          </div>
+
+          <div class="fc-modal-links">
+            <button class="fc-button" type="button" onClick={toggleAll}>
+              {allSelected() ? t("Clear selection") : t("Select all")}
+            </button>
+            <button
+              class="fc-button fc-button-primary"
+              type="button"
+              disabled={exporting() || selectedPaths().length === 0 || !props.configRepo}
+              onClick={() => void runExport(false)}
+            >
+              {t("Plan export")}
+            </button>
+          </div>
+
+          <Show when={plan()}>
+            {(value) => (
+              <ExportReport
+                value={value()}
+                title={t("This is a plan; nothing has been written yet.")}
+                onConfirm={() => void runExport(true)}
+              />
+            )}
+          </Show>
+
+          <Show when={result()}>
+            {(value) => (
+              <ExportReport value={value()} title={t("Exported {n} files.", { n: value().written.length })} />
+            )}
+          </Show>
+        </section>
+      </div>
+
+      <div class="fc-dialog-actions">
+        <button
+          class="fc-button"
+          type="button"
+          disabled={reloading() || !props.serverAvailable}
+          onClick={manualReload}
+        >
+          {reloading() ? t("Reloading…") : t("Reload")}
+        </button>
+        <button class="fc-button fc-button-primary" type="button" onClick={props.onClose}>
+          {t("Close")}
+        </button>
+      </div>
+    </Modal>
   )
 }

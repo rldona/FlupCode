@@ -8,6 +8,7 @@ import { enginePort, lanServeCommand, reachabilityLabel, tunnelCommand } from ".
 import { RemoteNotifications } from "./RemoteNotifications"
 import { Toggle } from "./Toggle"
 import { probeServer, type ServerStatus } from "../client"
+import { Modal, ModalClose } from "./Modal"
 
 type RemotePanelProps = {
   open: boolean
@@ -410,34 +411,22 @@ const LocalNetwork: Component<{ open: boolean; initialUrl: string }> = (props) =
 
 export const RemotePanel: Component<RemotePanelProps> = (props) => {
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal fc-modal-wide"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("Remote control")}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span class="fc-modal-heading">
-              <Show when={props.onBack}>
-                <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-                  ←
-                </button>
-              </Show>
-              <span>{t("Remote control")}</span>
-            </span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
+    <Modal open={props.open} onClose={props.onClose} class="fc-modal fc-modal-wide" label={t("Remote control")}>
+      <div class="fc-modal-header">
+        <span class="fc-modal-heading">
+          <Show when={props.onBack}>
+            <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
+              ←
             </button>
-          </div>
-          <Show when={desktopRemote()} fallback={<ClientView />}>
-            {(host) => <HostView bridge={host()} />}
           </Show>
-          <LocalNetwork open={props.open} initialUrl={props.initialUrl} />
-        </div>
+          <span>{t("Remote control")}</span>
+        </span>
+        <ModalClose />
       </div>
-    </Show>
+      <Show when={desktopRemote()} fallback={<ClientView />}>
+        {(host) => <HostView bridge={host()} />}
+      </Show>
+      <LocalNetwork open={props.open} initialUrl={props.initialUrl} />
+    </Modal>
   )
 }

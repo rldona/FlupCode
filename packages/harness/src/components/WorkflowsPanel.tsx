@@ -5,6 +5,7 @@ import { runInputs } from "../run-title"
 import { runReason, runState } from "../run-state"
 import { StateBadge } from "./StateBadge"
 import { workflowGraph, type WorkflowGraphNode } from "../workflow-graph"
+import { Modal, ModalClose } from "./Modal"
 
 type WorkflowsPanelProps = {
   open: boolean
@@ -312,196 +313,182 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
           </Show>
         </section>
 
-        <Show when={openName()}>
-          <div class="fc-modal-backdrop" onClick={() => setOpenName(undefined)}>
-            <div
-              class="fc-modal fc-workflow-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label={openName()}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div class="fc-modal-header">
-                <span class="fc-workflow-modal-title">
-                  {openName()}
-                  <Show when={file()}>
-                    {(read) => (
-                      <span class="fc-context-aside">{read().scope === "project" ? t("project") : t("global")}</span>
-                    )}
-                  </Show>
-                </span>
-                <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setOpenName(undefined)}>
-                  ×
-                </button>
-              </div>
-              <Show when={reading()}>
-                <p class="fc-usage-note">{t("Reading…")}</p>
+        <Modal
+          open={!!openName()}
+          onClose={() => setOpenName(undefined)}
+          class="fc-modal fc-workflow-modal"
+          label={openName() ?? ""}
+        >
+          <div class="fc-modal-header">
+            <span class="fc-workflow-modal-title">
+              {openName()}
+              <Show when={file()}>
+                {(read) => (
+                  <span class="fc-context-aside">{read().scope === "project" ? t("project") : t("global")}</span>
+                )}
               </Show>
-
-              {/*
-                The graph is of what the file says, which is the last thing that parsed. While an edit
-                is half-typed it stays where it was rather than drawing a shape that would not run.
-              */}
-              <Show when={file()?.workflow.tasks?.length}>
-                <WorkflowGraphView tasks={file()!.workflow.tasks} />
-              </Show>
-
-              {/* What this workflow has run (RP-01): each run says the inputs and the version it had. */}
-              <Show when={runs().length > 0}>
-                <section aria-label={t("Runs")}>
-                  <h3 class="fc-routines-kicker">{t("Runs")}</h3>
-                  <ul class="fc-workflow-runs">
-                    <For each={runs().slice(0, 10)}>
-                      {(run) => (
-                        <li class="fc-workflow-run">
-                          {/* How it ended in the run card's word (UX-04), not the raw status. */}
-                          <StateBadge state={runState(run)} reason={runReason(run)} />
-                          <span class="fc-run-meta">
-                            {[new Date(run.startedAt).toLocaleString(), runInputs(run)].filter(Boolean).join(" · ")}
-                          </span>
-                          <Show when={currentHash() && run.workflow && run.workflow.hash !== currentHash()}>
-                            <span class="fc-context-aside">{t("an earlier version")}</span>
-                          </Show>
-                          <Show when={run.sessionID && props.onOpenSession}>
-                            <button class="fc-run-open" type="button" onClick={() => props.onOpenSession?.(run.sessionID!)}>
-                              {t("Open")}
-                            </button>
-                          </Show>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </section>
-              </Show>
-
-              <label class="fc-field">
-                <span>{t("Where it is written")}</span>
-                <select
-                  class="fc-question-custom"
-                  value={scope()}
-                  onChange={(event) => setScope(event.currentTarget.value as "project" | "global")}
-                >
-                  <PlaceOptions />
-                </select>
-              </label>
-
-              <textarea
-                class="fc-question-custom fc-workflow-source"
-                aria-label={t("Workflow source")}
-                spellcheck={false}
-                value={source()}
-                onInput={(event) => setSource(event.currentTarget.value)}
-              />
-
-              <div class="fc-workflow-editor-actions">
-                <Show
-                  when={confirming()}
-                  fallback={
-                    <button class="fc-button" type="button" disabled={!file()} onClick={() => setConfirming(true)}>
-                      {t("Delete")}
-                    </button>
-                  }
-                >
-                  <span class="fc-confirm-inline">
-                    <span>{t("Delete {name}?", { name: openName() ?? "" })}</span>
-                    <button class="fc-button" type="button" onClick={() => setConfirming(false)}>
-                      {t("Cancel")}
-                    </button>
-                    <button
-                      class="fc-button fc-button-danger"
-                      type="button"
-                      onClick={async () => {
-                        const name = openName()
-                        if (!name) return
-                        await props.onDelete(name).catch(() => undefined)
-                        setConfirming(false)
-                        setOpenName(undefined)
-                        setFile(undefined)
-                      }}
-                    >
-                      {t("Delete")}
-                    </button>
-                  </span>
-                </Show>
-                <Show when={props.onRun && file()}>
-                  <button class="fc-button" type="button" onClick={() => props.onRun?.(file()!.workflow)}>
-                    {t("Run")}
-                  </button>
-                </Show>
-                <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={() => void save()}>
-                  {saving() ? t("Saving…") : t("Save")}
-                </button>
-              </div>
-              <Show when={problem()}>{(text) => <p class="fc-run-error">{text()}</p>}</Show>
-              <Show when={saved()}>{(text) => <p class="fc-agent-saved">{text()}</p>}</Show>
-            </div>
+            </span>
+            <ModalClose />
           </div>
-        </Show>
+          <Show when={reading()}>
+            <p class="fc-usage-note">{t("Reading…")}</p>
+          </Show>
 
-        <Show when={creating()}>
-          <div class="fc-modal-backdrop" onClick={() => setCreating(false)}>
-            <div
-              class="fc-modal fc-workflow-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label={t("New workflow")}
-              onClick={(event) => event.stopPropagation()}
+          {/*
+            The graph is of what the file says, which is the last thing that parsed. While an edit
+            is half-typed it stays where it was rather than drawing a shape that would not run.
+          */}
+          <Show when={file()?.workflow.tasks?.length}>
+            <WorkflowGraphView tasks={file()!.workflow.tasks} />
+          </Show>
+
+          {/* What this workflow has run (RP-01): each run says the inputs and the version it had. */}
+          <Show when={runs().length > 0}>
+            <section aria-label={t("Runs")}>
+              <h3 class="fc-routines-kicker">{t("Runs")}</h3>
+              <ul class="fc-workflow-runs">
+                <For each={runs().slice(0, 10)}>
+                  {(run) => (
+                    <li class="fc-workflow-run">
+                      {/* How it ended in the run card's word (UX-04), not the raw status. */}
+                      <StateBadge state={runState(run)} reason={runReason(run)} />
+                      <span class="fc-run-meta">
+                        {[new Date(run.startedAt).toLocaleString(), runInputs(run)].filter(Boolean).join(" · ")}
+                      </span>
+                      <Show when={currentHash() && run.workflow && run.workflow.hash !== currentHash()}>
+                        <span class="fc-context-aside">{t("an earlier version")}</span>
+                      </Show>
+                      <Show when={run.sessionID && props.onOpenSession}>
+                        <button class="fc-run-open" type="button" onClick={() => props.onOpenSession?.(run.sessionID!)}>
+                          {t("Open")}
+                        </button>
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+          </Show>
+
+          <label class="fc-field">
+            <span>{t("Where it is written")}</span>
+            <select
+              class="fc-question-custom"
+              value={scope()}
+              onChange={(event) => setScope(event.currentTarget.value as "project" | "global")}
             >
-              <div class="fc-modal-header">
-                <span>{t("New workflow")}</span>
-                <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setCreating(false)}>
-                  ×
+              <PlaceOptions />
+            </select>
+          </label>
+
+          <textarea
+            class="fc-question-custom fc-workflow-source"
+            aria-label={t("Workflow source")}
+            spellcheck={false}
+            value={source()}
+            onInput={(event) => setSource(event.currentTarget.value)}
+          />
+
+          <div class="fc-workflow-editor-actions">
+            <Show
+              when={confirming()}
+              fallback={
+                <button class="fc-button" type="button" disabled={!file()} onClick={() => setConfirming(true)}>
+                  {t("Delete")}
                 </button>
-              </div>
-              <p class="fc-modal-note">{t("A workflow is a file: write the tasks it runs, in order.")}</p>
-
-              <label class="fc-field">
-                <span>{t("Name")}</span>
-                <input
-                  class="fc-question-custom"
-                  value={newName()}
-                  aria-label={t("Name")}
-                  onInput={(event) => rename(event.currentTarget.value)}
-                />
-              </label>
-
-              <label class="fc-field">
-                <span>{t("Where it is written")}</span>
-                <select
-                  class="fc-question-custom"
-                  value={newScope()}
-                  onChange={(event) => setNewScope(event.currentTarget.value as "project" | "global")}
-                >
-                  <PlaceOptions />
-                </select>
-              </label>
-
-              <textarea
-                class="fc-question-custom fc-workflow-source"
-                aria-label={t("Workflow source")}
-                spellcheck={false}
-                value={newSource()}
-                onInput={(event) => setNewSource(event.currentTarget.value)}
-              />
-
-              <Show when={newProblem()}>{(text) => <p class="fc-modal-error">{text()}</p>}</Show>
-
-              <div class="fc-dialog-actions">
-                <button class="fc-button" type="button" onClick={() => setCreating(false)}>
+              }
+            >
+              <span class="fc-confirm-inline">
+                <span>{t("Delete {name}?", { name: openName() ?? "" })}</span>
+                <button class="fc-button" type="button" onClick={() => setConfirming(false)}>
                   {t("Cancel")}
                 </button>
                 <button
-                  class="fc-button fc-button-primary"
+                  class="fc-button fc-button-danger"
                   type="button"
-                  disabled={!newName().trim() || newSaving()}
-                  onClick={() => void create()}
+                  onClick={async () => {
+                    const name = openName()
+                    if (!name) return
+                    await props.onDelete(name).catch(() => undefined)
+                    setConfirming(false)
+                    setOpenName(undefined)
+                    setFile(undefined)
+                  }}
                 >
-                  {newSaving() ? t("Creating…") : t("Create")}
+                  {t("Delete")}
                 </button>
-              </div>
-            </div>
+              </span>
+            </Show>
+            <Show when={props.onRun && file()}>
+              <button class="fc-button" type="button" onClick={() => props.onRun?.(file()!.workflow)}>
+                {t("Run")}
+              </button>
+            </Show>
+            <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={() => void save()}>
+              {saving() ? t("Saving…") : t("Save")}
+            </button>
           </div>
-        </Show>
+          <Show when={problem()}>{(text) => <p class="fc-run-error">{text()}</p>}</Show>
+          <Show when={saved()}>{(text) => <p class="fc-agent-saved">{text()}</p>}</Show>
+        </Modal>
+
+        <Modal
+          open={creating()}
+          onClose={() => setCreating(false)}
+          class="fc-modal fc-workflow-modal"
+          label={t("New workflow")}
+        >
+          <div class="fc-modal-header">
+            <span>{t("New workflow")}</span>
+            <ModalClose />
+          </div>
+          <p class="fc-modal-note">{t("A workflow is a file: write the tasks it runs, in order.")}</p>
+
+          <label class="fc-field">
+            <span>{t("Name")}</span>
+            <input
+              class="fc-question-custom"
+              value={newName()}
+              aria-label={t("Name")}
+              onInput={(event) => rename(event.currentTarget.value)}
+            />
+          </label>
+
+          <label class="fc-field">
+            <span>{t("Where it is written")}</span>
+            <select
+              class="fc-question-custom"
+              value={newScope()}
+              onChange={(event) => setNewScope(event.currentTarget.value as "project" | "global")}
+            >
+              <PlaceOptions />
+            </select>
+          </label>
+
+          <textarea
+            class="fc-question-custom fc-workflow-source"
+            aria-label={t("Workflow source")}
+            spellcheck={false}
+            value={newSource()}
+            onInput={(event) => setNewSource(event.currentTarget.value)}
+          />
+
+          <Show when={newProblem()}>{(text) => <p class="fc-modal-error">{text()}</p>}</Show>
+
+          <div class="fc-dialog-actions">
+            <button class="fc-button" type="button" onClick={() => setCreating(false)}>
+              {t("Cancel")}
+            </button>
+            <button
+              class="fc-button fc-button-primary"
+              type="button"
+              disabled={!newName().trim() || newSaving()}
+              onClick={() => void create()}
+            >
+              {newSaving() ? t("Creating…") : t("Create")}
+            </button>
+          </div>
+        </Modal>
       </section>
     </Show>
   )

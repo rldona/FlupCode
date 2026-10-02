@@ -9,6 +9,7 @@ import type { SkillSourceKind, SkillSources } from "../skill-sources"
 import { skillAccess } from "../skill-access"
 import { PanelFailure } from "./PanelBoundary"
 import { ConfirmDialog } from "./ConfirmDialog"
+import { Modal, ModalClose } from "./Modal"
 
 type SkillCatalogueProps = {
   open: boolean
@@ -522,136 +523,118 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               {/* Read in a dialog: a SKILL.md is prose, and under its row it was cramped. */}
               <Show when={props.files.find((file) => file.path === openPath())}>
                 {(file) => (
-                  <div class="fc-modal-backdrop" onClick={() => setOpenPath(undefined)}>
-                    <div
-                      class="fc-modal fc-form-modal"
-                      role="dialog"
-                      aria-modal="true"
-                      aria-label={file().name ?? file().path}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <div class="fc-modal-header">
-                        <span class="fc-modal-heading">{file().name ?? file().path}</span>
-                        <button
-                          class="fc-icon-button"
-                          type="button"
-                          aria-label={t("Close")}
-                          onClick={() => setOpenPath(undefined)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                      <div class="fc-modal-body">
-                        <pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>
-                      </div>
-                      <div class="fc-dialog-actions">
-                        <Show
-                          when={confirming() === file().path}
-                          fallback={
-                            <button class="fc-button" type="button" onClick={() => setConfirming(file().path)}>
-                              {t("Delete")}
-                            </button>
-                          }
-                        >
-                          <span class="fc-confirm-inline">
-                            <span>{t("Delete {name}?", { name: file().name ?? file().path })}</span>
-                            <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
-                              {t("Cancel")}
-                            </button>
-                            <button
-                              class="fc-button fc-button-danger"
-                              type="button"
-                              onClick={async () => {
-                                await props.onDelete(file().path)
-                                setConfirming(undefined)
-                                setOpenPath(undefined)
-                              }}
-                            >
-                              {t("Delete")}
-                            </button>
-                          </span>
-                        </Show>
-                      </div>
+                  <Modal
+                    onClose={() => setOpenPath(undefined)}
+                    class="fc-modal fc-form-modal"
+                    label={file().name ?? file().path}
+                  >
+                    <div class="fc-modal-header">
+                      <span class="fc-modal-heading">{file().name ?? file().path}</span>
+                      <ModalClose />
                     </div>
-                  </div>
+                    <div class="fc-modal-body">
+                      <pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>
+                    </div>
+                    <div class="fc-dialog-actions">
+                      <Show
+                        when={confirming() === file().path}
+                        fallback={
+                          <button class="fc-button" type="button" onClick={() => setConfirming(file().path)}>
+                            {t("Delete")}
+                          </button>
+                        }
+                      >
+                        <span class="fc-confirm-inline">
+                          <span>{t("Delete {name}?", { name: file().name ?? file().path })}</span>
+                          <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
+                            {t("Cancel")}
+                          </button>
+                          <button
+                            class="fc-button fc-button-danger"
+                            type="button"
+                            onClick={async () => {
+                              await props.onDelete(file().path)
+                              setConfirming(undefined)
+                              setOpenPath(undefined)
+                            }}
+                          >
+                            {t("Delete")}
+                          </button>
+                        </span>
+                      </Show>
+                    </div>
+                  </Modal>
                 )}
               </Show>
             </Show>
           </section>
 
-          <Show when={creating()}>
-            <div class="fc-modal-backdrop" onClick={() => setCreating(false)}>
-              <div
-                class="fc-modal fc-form-modal fc-agent-form"
-                role="dialog"
-                aria-modal="true"
-                aria-label={t("New skill")}
-                onClick={(event) => event.stopPropagation()}
+          <Modal
+            open={creating()}
+            onClose={() => setCreating(false)}
+            class="fc-modal fc-form-modal fc-agent-form"
+            label={t("New skill")}
+          >
+              <div class="fc-modal-header">
+                <span>{t("New skill")}</span>
+                <ModalClose />
+              </div>
+              <div class="fc-modal-body">
+              <p class="fc-modal-note">
+                {t("Written as the engine reads it: a folder of its own, a SKILL.md, and a name in its frontmatter.")}
+              </p>
+            <label class="fc-field">
+              <span>{t("Name")}</span>
+              <input
+                class="fc-question-custom"
+                value={name()}
+                onInput={(event) => setName(event.currentTarget.value)}
+                placeholder="reviewing"
+              />
+            </label>
+            <label class="fc-field">
+              <span>{t("Where")}</span>
+              <select
+                class="fc-question-custom"
+                value={scope()}
+                onChange={(event) => setScope(event.currentTarget.value as "global" | "project")}
               >
-                <div class="fc-modal-header">
-                  <span>{t("New skill")}</span>
-                  <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setCreating(false)}>
-                    ×
-                  </button>
-                </div>
-                <div class="fc-modal-body">
-                <p class="fc-modal-note">
-                  {t("Written as the engine reads it: a folder of its own, a SKILL.md, and a name in its frontmatter.")}
-                </p>
-              <label class="fc-field">
-                <span>{t("Name")}</span>
-                <input
-                  class="fc-question-custom"
-                  value={name()}
-                  onInput={(event) => setName(event.currentTarget.value)}
-                  placeholder="reviewing"
-                />
-              </label>
-              <label class="fc-field">
-                <span>{t("Where")}</span>
-                <select
-                  class="fc-question-custom"
-                  value={scope()}
-                  onChange={(event) => setScope(event.currentTarget.value as "global" | "project")}
-                >
-                  <option value="project" disabled={!props.hasProject}>
-                    {t("This project")}
-                  </option>
-                  <option value="global">{t("Everywhere")}</option>
-                </select>
-              </label>
-              <label class="fc-field">
-                <span>{t("Description")}</span>
-                <input
-                  class="fc-question-custom"
-                  value={description()}
-                  onInput={(event) => setDescription(event.currentTarget.value)}
-                  placeholder={t("When the model should reach for it")}
-                />
-              </label>
-              <label class="fc-field">
-                <span>{t("Body")}</span>
-                <textarea
-                  class="fc-question-custom fc-agent-prompt"
-                  rows={10}
-                  value={body()}
-                  onInput={(event) => setBody(event.currentTarget.value)}
-                />
-              </label>
-              <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
-              <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
-              </div>
-              <div class="fc-dialog-actions">
-                <button class="fc-button" type="button" onClick={() => setCreating(false)}>
-                  {t("Cancel")}
-                </button>
-                <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
-                  {saving() ? t("Saving…") : t("Save")}
-                </button>
-              </div>
-              </div>
+                <option value="project" disabled={!props.hasProject}>
+                  {t("This project")}
+                </option>
+                <option value="global">{t("Everywhere")}</option>
+              </select>
+            </label>
+            <label class="fc-field">
+              <span>{t("Description")}</span>
+              <input
+                class="fc-question-custom"
+                value={description()}
+                onInput={(event) => setDescription(event.currentTarget.value)}
+                placeholder={t("When the model should reach for it")}
+              />
+            </label>
+            <label class="fc-field">
+              <span>{t("Body")}</span>
+              <textarea
+                class="fc-question-custom fc-agent-prompt"
+                rows={10}
+                value={body()}
+                onInput={(event) => setBody(event.currentTarget.value)}
+              />
+            </label>
+            <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
+            <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
             </div>
-          </Show>
+            <div class="fc-dialog-actions">
+              <button class="fc-button" type="button" onClick={() => setCreating(false)}>
+                {t("Cancel")}
+              </button>
+              <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
+                {saving() ? t("Saving…") : t("Save")}
+              </button>
+            </div>
+          </Modal>
 
           <Show when={orphans().length > 0}>
             <section class="fc-usage-block">
