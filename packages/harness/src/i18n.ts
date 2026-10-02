@@ -705,6 +705,9 @@ const ES: Record<string, string> = {
   "Take over": "Tomar el control",
   Release: "Soltar",
   "No browser session": "Sin sesión de navegador",
+  "Give the agent a browser": "Darle un navegador al agente",
+  "The agent browses in its own browser, not yours, and asks before acting on each site.":
+    "El agente navega en su propio navegador, no en el tuyo, y pregunta antes de actuar en cada sitio.",
   "The agent's browser appears here while it acts on a site.":
     "El navegador del agente aparece aquí mientras actúa en un sitio.",
   "Files changed": "Ficheros cambiados",

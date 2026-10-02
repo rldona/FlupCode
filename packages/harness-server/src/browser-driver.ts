@@ -44,6 +44,8 @@ export type BrowserOpenInput = {
    */
   runID?: string
   taskID?: string
+  /** The engine session the agent's own tool browses for (BU-05), so its screenshots are filed under it. */
+  sessionID?: string
 }
 
 /** One thing done to the page. `read` reads an element; everything else may change the page. */
@@ -92,6 +94,60 @@ export type BrowserDriver = {
   endRun(id: string): Promise<void>
   /** A step boundary: blocks while a person holds the session, throws `stopped` if it was stopped. */
   waitIfPaused(id: string): Promise<void>
+  /** Tabs and element refs for the agent's own browser tool (BU-05), when the driver has them. */
+  tabs?: BrowserTabs
+}
+
+/**
+ * A page the agent's browser tool works in (BU-05), in the shape the engine's `opencode.browser`
+ * plugin publishes (ADR-0028). `generation` moves on with every navigation of the tab's document.
+ */
+export type BrowserTab = {
+  id: string
+  url: string
+  title: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  generation: number
+}
+
+export type BrowserTabList = { tabs: BrowserTab[]; focusedTabID: string | null }
+
+/**
+ * One thing the agent does in a tab. Elements are named by a ref from that tab's latest snapshot,
+ * never by a selector: a ref the page has moved past fails as `stale_ref` instead of acting on
+ * whatever is there now.
+ */
+export type TabAction =
+  | { kind: "navigate"; url: string }
+  | { kind: "back" }
+  | { kind: "forward" }
+  | { kind: "reload" }
+  | { kind: "click"; ref: string; button?: "left" | "right" | "middle"; count?: 1 | 2 }
+  | { kind: "type"; ref: string; text: string }
+  | { kind: "key"; key: string }
+  | { kind: "scroll"; deltaX?: number; deltaY: number }
+
+export type BrowserTabs = {
+  list(id: string): Promise<BrowserTabList>
+  /** A new tab, on `url` when one is given. */
+  open(id: string, url?: string): Promise<BrowserTab>
+  focus(id: string, tab: string): Promise<BrowserTab>
+  close(id: string, tab: string): Promise<BrowserTabList>
+  /**
+   * The tab's accessibility tree, one element per line with a ref (`e1`, `e2`, ...), redacted and
+   * bounded. Refs hold until the next snapshot or navigation of that tab. `find` keeps the lines that
+   * contain it (the refs are still those of the whole tree).
+   */
+  snapshot(
+    id: string,
+    tab: string,
+    options?: { find?: string },
+  ): Promise<{ tab: BrowserTab; content: string; truncated: boolean }>
+  act(id: string, tab: string, action: TabAction): Promise<BrowserTab>
+  /** A capture of the tab, filed as a screenshot artifact; `path` is its file. */
+  screenshot(id: string, tab: string): Promise<{ tab: BrowserTab; artifactId: string; path: string; bytes: number }>
 }
 
 /** A driver's refusal or failure, with the HTTP status a route answers it with. */
@@ -119,3 +175,6 @@ export type BrowserErrorCode =
   | "project_required"
   | "stopped"
   | "invalid_viewport"
+  | "tab_unavailable"
+  | "stale_ref"
+  | "not_editable"

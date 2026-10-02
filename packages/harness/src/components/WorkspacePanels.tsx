@@ -293,6 +293,20 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
             <div class="fc-empty-state fc-agent-browser-empty">
               <span class="fc-empty-title">{t("No browser session")}</span>
               <span class="fc-empty-hint">{t("The agent's browser appears here while it acts on a site.")}</span>
+              <span class="fc-empty-hint">
+                {t("The agent browses in its own browser, not yours, and asks before acting on each site.")}
+              </span>
+              <button
+                class="fc-button"
+                type="button"
+                disabled={busy() !== undefined}
+                onClick={() => act("attach", (id) => client().agentBrowser.attach(id))}
+              >
+                {busy() === "attach" ? t("Loading…") : t("Give the agent a browser")}
+              </button>
+              <Show when={notice()}>
+                <span class="fc-agent-browser-notice">{notice()}</span>
+              </Show>
             </div>
           }
         >

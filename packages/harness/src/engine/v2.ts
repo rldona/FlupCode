@@ -181,14 +181,28 @@ export function createV2Domains(
     switchModel: (input) => call(client.session.switchModel({ sessionID: input.sessionID, model: input.model })),
     switchAgent: (input) => call(client.session.switchAgent({ sessionID: input.sessionID, agent: input.agent })),
     setPermission: async (input) => {
+      // The `browser` rule is harness-server's (BU-05): it allows the engine's browser tools while it
+      // has a browser attached to the session, and denies them otherwise. A mode's rules are written
+      // under it, and it stays last, so a mode's `*` never offers tools nothing can answer.
+      const current = await call(client.session.get({ sessionID: input.sessionID }))
+      const browser = (current.permissions ?? []).findLast((rule) => rule.action === "browser") ?? {
+        action: "browser",
+        resource: "*",
+        effect: "deny" as const,
+      }
       await call(
         client.session.update({
           sessionID: input.sessionID,
-          permissions: input.permission.map((rule) => ({
-            action: rule.permission === "bash" ? "shell" : rule.permission,
-            resource: rule.pattern,
-            effect: rule.action,
-          })),
+          permissions: [
+            ...input.permission
+              .filter((rule) => rule.permission !== "browser")
+              .map((rule) => ({
+                action: rule.permission === "bash" ? "shell" : rule.permission,
+                resource: rule.pattern,
+                effect: rule.action,
+              })),
+            browser,
+          ],
         }),
       )
       return toSession(await call(client.session.get({ sessionID: input.sessionID })))

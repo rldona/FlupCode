@@ -11,6 +11,7 @@
 
 import { parseViewport, readSessionID } from "./browser"
 import type { RecipeDriver } from "./browser"
+import type { BrowserAttach } from "./browser-attach"
 import { BrowserError } from "./browser-driver"
 import { NavigationBlockedError } from "./browser-egress"
 
@@ -31,15 +32,21 @@ export async function handleBrowserRequest(
   request: Request,
   segments: string[],
   browser: RecipeDriver,
+  attach?: BrowserAttach,
 ): Promise<Response> {
   try {
-    return await dispatch(request, segments, browser)
+    return await dispatch(request, segments, browser, attach)
   } catch (cause) {
     return failure(cause)
   }
 }
 
-const dispatch = async (request: Request, segments: string[], browser: RecipeDriver): Promise<Response> => {
+const dispatch = async (
+  request: Request,
+  segments: string[],
+  browser: RecipeDriver,
+  attach: BrowserAttach | undefined,
+): Promise<Response> => {
   const id = readSessionID(request.headers.get("x-flupcode-session") ?? undefined)
   const route = segments[0]
   const method = request.method
@@ -85,6 +92,10 @@ const dispatch = async (request: Request, segments: string[], browser: RecipeDri
     return json({ data: { cleared: await browser.clearData(project) } })
   }
 
+  // A person hands the agent a browser for this session (BU-05): the engine's `browser.*` tools then
+  // run here, each one under the browser policy.
+  if (route === "attach" && method === "POST" && attach) return json({ data: await attach.attach(id) }, 201)
+
   if (route === "session" && method === "GET") {
     const session = browser.get(id)
     return session ? json({ data: session }) : error("No browser session is open", "no_session", 404)
@@ -128,6 +139,8 @@ const dispatch = async (request: Request, segments: string[], browser: RecipeDri
   if (route === "takeover" && method === "POST") return json({ data: await browser.takeOver(id) })
   if (route === "stop" && method === "POST") {
     const stopped = await browser.abort(id)
+    // The agent's tools go with the browser, now rather than at the next check.
+    await attach?.detach(id)
     return stopped ? json({ data: { stopped } }) : error("No browser session is open", "no_session", 404)
   }
 

@@ -22,6 +22,7 @@ import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
+import type { BrowserAttach } from "./browser-attach"
 import type { RecipeDriver } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
 import { remoteEvent, remoteScopeAllows } from "./remote-scope"
@@ -477,6 +478,8 @@ const openToAnyCaller = (request: Request, path: string[]) =>
 
 export type HarnessHandlerOptions = {
   browser?: RecipeDriver
+  /** The agent's own browser (BU-05): a session handed a browser, from the live view. */
+  browserAttach?: BrowserAttach
   /** The UI's bearer: every guarded route. */
   token?: string
   /**
@@ -604,7 +607,7 @@ export const createHarnessHandler = (
     if (path[1] === "browser" && options.browser) {
       if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleBrowserRequest(request, path.slice(2), options.browser)
+      return handleBrowserRequest(request, path.slice(2), options.browser, options.browserAttach)
     }
     // The runner drives the browser on the user's machine, so it sits behind the same bearer as
     // `/harness/browser/*` (WA-2). Without a runner the path is an ordinary 404.

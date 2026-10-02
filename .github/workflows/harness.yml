@@ -160,6 +160,10 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      # The agent's browser over the engine's attach protocol (BU-05) drives a real Chromium.
+      - name: Install Playwright browsers
+        run: cd packages/harness && bunx playwright install --with-deps chromium
+
       # The engine as FlupCode drives it, and FlupCode's OpenCode 2 adapter, against a real engine: the
       # pinned binary, fetched from the npm registry and checked against its integrity, isolated, with
       # a stub model and FlupCode's plugins installed (V2-05, V2-06, V2-20 to V2-26).
@@ -171,7 +175,7 @@ jobs:
           bun run --cwd packages/engine-contract typecheck
           bun run --cwd packages/engine-contract test
           (cd packages/harness && bun test src/engine --timeout 60000)
-          (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts src/project-roots.engine.test.ts src/usage-attribution.engine.test.ts src/usage-ledger.engine.test.ts src/usage-reconciler.engine.test.ts src/artifact-lineage.engine.test.ts --timeout 120000)
+          (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts src/project-roots.engine.test.ts src/usage-attribution.engine.test.ts src/usage-ledger.engine.test.ts src/usage-reconciler.engine.test.ts src/artifact-lineage.engine.test.ts src/browser-attach.engine.test.ts --timeout 120000)
 
   # oxlint over the whole repository: errors fail, warnings are reported. Cheap, so it runs on every
   # change rather than behind `changes`.
