@@ -1569,8 +1569,13 @@ describe("the task-verdict migration (RP-06)", () => {
     expect(repository.getRun(run.id)?.verdict).toEqual({ value: "failed", reason: "I give up.", source: "rule", taskID: task!.id })
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(1)
+    copy.close()
+    repository.close()
+  })
+})
+
 describe("the browser-policy migration (BU-01)", () => {
-  test("a populated database at version 8 is backed up, and the approver's always answers become grants", () => {
+  test("a populated database at version 9 is backed up, and the approver's always answers become grants", () => {
     const path = scratch()
     const before = open(path)
     const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
@@ -1583,7 +1588,7 @@ describe("the browser-policy migration (BU-01)", () => {
 
     const repository = open(path)
     const [backup] = backupsOf(path)
-    expect(backup).toMatch(/^harness\.sqlite\.bak-v8-/)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v9-/)
     expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 10").all()).toEqual([
       { version: 10, name: "browser-policy" },
     ])
