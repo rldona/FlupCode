@@ -114,3 +114,7 @@ export const BROWSER_PRESETS: BrowserPreset[] = [
     ],
   },
 ]
+
+/** Plain connect cannot finish these: only the engine's OAuth flow can (SE-2). */
+export const needsOAuth = (server: McpServer) =>
+  (server.status as { status?: string } | undefined)?.status === "needs_auth"

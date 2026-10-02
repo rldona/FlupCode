@@ -1,4 +1,4 @@
-import { Show } from "solid-js"
+import { Show, createMemo, lazy, type JSX } from "solid-js"
 import { rememberModelSwitch } from "../../model-switch"
 import { externalLinkOrigin, openExternalUrl, rememberExternalLinkOrigin } from "../../external-links"
 import { t } from "../../i18n"
@@ -14,29 +14,33 @@ import { McpAuthNotice } from "../../components/McpAuthNotice"
 import { Onboarding } from "../../components/Onboarding"
 import { desktopRemote, remote } from "../../remote"
 import { useApp } from "../../app-context"
-
 import PaletteRoute from "./PaletteRoute"
-import AboutRoute from "../settings/AboutRoute"
-import StashRoute from "../composer/StashRoute"
-import ExportRoute from "../sessions/ExportRoute"
-import WorkflowLaunchRoute from "../runs/WorkflowLaunchRoute"
-import BestOfNRoute from "../runs/BestOfNRoute"
-import SettingsRoute from "../settings/SettingsRoute"
-import FilesRoute from "../workspace/FilesRoute"
-import FolderRoute from "../composer/FolderRoute"
-import RemoteRoute from "../settings/RemoteRoute"
-import SkillPickerRoute from "../catalog/SkillPickerRoute"
-import MemoryRoute from "../workspace/MemoryRoute"
-import ConfigRoute from "../catalog/ConfigRoute"
-import ConfigFilesRoute from "../catalog/ConfigFilesRoute"
+
+const AboutRoute = lazy(() => import("../settings/AboutRoute"))
+const StashRoute = lazy(() => import("../composer/StashRoute"))
+const ExportRoute = lazy(() => import("../sessions/ExportRoute"))
+const WorkflowLaunchRoute = lazy(() => import("../runs/WorkflowLaunchRoute"))
+const BestOfNRoute = lazy(() => import("../runs/BestOfNRoute"))
+const SettingsRoute = lazy(() => import("../settings/SettingsRoute"))
+const FilesRoute = lazy(() => import("../workspace/FilesRoute"))
+const FolderRoute = lazy(() => import("../composer/FolderRoute"))
+const RemoteRoute = lazy(() => import("../settings/RemoteRoute"))
+const SkillPickerRoute = lazy(() => import("../catalog/SkillPickerRoute"))
+const MemoryRoute = lazy(() => import("../workspace/MemoryRoute"))
+const ConfigRoute = lazy(() => import("../catalog/ConfigRoute"))
+const ConfigFilesRoute = lazy(() => import("../catalog/ConfigFilesRoute"))
 
 /**
  * The dialogs, drawn over every screen, in the order they stack: a later one opens over an earlier one.
+ *
+ * The ones a reader opens now and then load the first time they open, and stay mounted from then on,
+ * as they were when they were part of the main bundle.
  */
 export function Dialogs() {
   const app = useApp()
   return (
     <>
+      {/* Opened from the keyboard at any moment, so it is ready before it is asked for. */}
       <PaletteRoute />
       <ModelPicker
         open={app.router.modelPickerOpen()}
@@ -49,9 +53,15 @@ export function Dialogs() {
         onRetry={() => void app.catalog.refetchModels()}
         onClose={() => app.router.setModelPickerOpen(false)}
       />
-      <AboutRoute />
-      <StashRoute />
-      <ExportRoute />
+      <Lazily when={app.router.aboutOpen()}>
+        <AboutRoute />
+      </Lazily>
+      <Lazily when={app.router.stashOpen()}>
+        <StashRoute />
+      </Lazily>
+      <Lazily when={app.router.exportOpen()}>
+        <ExportRoute />
+      </Lazily>
       <RenameDialog
         open={!!app.catalog.mcpCode()}
         title={t("Sign in to {server}", { server: app.catalog.mcpCode()?.server ?? "" })}
@@ -75,8 +85,12 @@ export function Dialogs() {
         onSave={app.composer.savePack}
         onClose={() => app.composer.setPackRefs(undefined)}
       />
-      <WorkflowLaunchRoute />
-      <BestOfNRoute />
+      <Lazily when={!!app.runs.launching()}>
+        <WorkflowLaunchRoute />
+      </Lazily>
+      <Lazily when={app.router.bestOfNOpen()}>
+        <BestOfNRoute />
+      </Lazily>
       <TagsDialog
         open={!!app.router.tagsTarget()}
         title={
@@ -112,9 +126,15 @@ export function Dialogs() {
         onConfirm={() => app.router.confirmTarget()?.onConfirm()}
         onClose={() => app.router.setConfirmTarget(undefined)}
       />
-      <SettingsRoute />
-      <FilesRoute />
-      <FolderRoute />
+      <Lazily when={app.router.settingsOpen()}>
+        <SettingsRoute />
+      </Lazily>
+      <Lazily when={app.router.filesOpen()}>
+        <FilesRoute />
+      </Lazily>
+      <Lazily when={app.router.folderOpen()}>
+        <FolderRoute />
+      </Lazily>
       <Onboarding
         open={
           !app.settings.onboarded() && !remote.activeHost() && !remote.pairing() && remote.status() !== "connecting"
@@ -138,11 +158,21 @@ export function Dialogs() {
         }}
         onDone={app.settings.completeOnboarding}
       />
-      <RemoteRoute />
-      <SkillPickerRoute />
-      <MemoryRoute />
-      <ConfigRoute />
-      <ConfigFilesRoute />
+      <Lazily when={app.router.remoteOpen()}>
+        <RemoteRoute />
+      </Lazily>
+      <Lazily when={app.router.skillsOpen()}>
+        <SkillPickerRoute />
+      </Lazily>
+      <Lazily when={app.router.memoryOpen()}>
+        <MemoryRoute />
+      </Lazily>
+      <Lazily when={app.router.configOpen()}>
+        <ConfigRoute />
+      </Lazily>
+      <Lazily when={app.router.configFilesOpen()}>
+        <ConfigFilesRoute />
+      </Lazily>
       <ImagePreview />
       {/* Drawn last: the warning opens over the modal that asked for the change (Customize, the picker). */}
       <ModelSwitchDialog
@@ -179,4 +209,10 @@ export function Dialogs() {
       <Toaster />
     </>
   )
+}
+
+/** Mounts its children the first time `when` holds, and keeps them mounted from then on. */
+function Lazily(props: { when: boolean; children: JSX.Element }) {
+  const opened = createMemo((was: boolean) => was || props.when, false)
+  return <Show when={opened()}>{props.children}</Show>
 }

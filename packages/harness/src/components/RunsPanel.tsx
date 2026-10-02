@@ -11,7 +11,7 @@ import { purposeName } from "../cost"
 import { AttentionMark } from "./AttentionMark"
 import type { Attention } from "../attention"
 import { runInputs, runTitle } from "../run-title"
-import { runReason, runState } from "../run-state"
+import { heldForRequest, metPerson, runReason, runState } from "../run-state"
 import { ResumeConfirm } from "./ResumeConfirm"
 import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
@@ -89,17 +89,6 @@ type RunsPanelProps = {
   onRejectQuestion: (request: QuestionV2Request) => void
   onUnattended?: (directory: string, unattended: Unattended) => void
 }
-
-/** Held mid-turn for a person (RP-05): answered in the engine, never approved like a gate. */
-const heldForRequest = (run: Run) => run.status === "awaiting" && run.paused === "request"
-
-/**
- * Where a run met a task that needs a person (RP-05): held for it, or failed for it — a failed task
- * judged as needing the user is the one way a run's task fails for that.
- */
-export const metPerson = (run: Run) =>
-  heldForRequest(run) ||
-  (run.tasks ?? []).some((task) => task.status === "failed" && task.verdict?.value === "needs-user")
 
 /** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */
 const going = (run: Run) => run.status === "running" || run.status === "awaiting"

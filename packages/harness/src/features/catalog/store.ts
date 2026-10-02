@@ -18,7 +18,7 @@ import { toast } from "../../toast"
 import { setCompositionTools } from "../../components/SessionView"
 import type { CommandDraft } from "../../components/CommandsPanel"
 import type { ModelKeyChange } from "../../components/AdaptiveSettingsPanel"
-import { needsOAuth } from "../../components/McpManager"
+import { needsOAuth } from "../../mcp"
 import type { AppStores } from "../../app-context"
 
 export function createCatalog(app: AppStores) {

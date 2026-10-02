@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { DEFAULT_MCP_SCOPE, needsOAuth, pairsFrom, pairsToText } from "./McpManager"
+import { DEFAULT_MCP_SCOPE, pairsFrom, pairsToText } from "./McpManager"
+import { needsOAuth } from "../mcp"
 
 describe("reading KEY=value lines", () => {
   test("one per line, trimmed, blanks and lines without a separator skipped", () => {
