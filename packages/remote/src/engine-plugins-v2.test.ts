@@ -44,6 +44,7 @@ afterEach(async () => {
     "FLUPCODE_ANCHORS_FETCH_TIMEOUT_MS",
     "FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS",
     "FLUPCODE_USAGE_RETRY_MS",
+    "FLUPCODE_QUOTA_ORIGIN",
     "OPENCODE_CONFIG_DIR",
   ])
     delete process.env[name]
@@ -3472,4 +3473,129 @@ describe("OpenCode 2 browser-mcp", () => {
     expect(Date.now() - started).toBeLessThan(7000)
     expect(harnessCalls.calls).toEqual([])
   }, 10_000)
+})
+
+describe("quota (UL-07)", () => {
+  type Connection = { type: "credential"; id: string; label: string; method: "key" | "oauth" } | { type: "env"; name: string }
+
+  /** A fake provider on the loopback, recording each request, answering as OpenRouter's `/key` does. */
+  function provider() {
+    const seen: Array<{ path: string; authorization: string | null }> = []
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        seen.push({ path: new URL(request.url).pathname, authorization: request.headers.get("authorization") })
+        return Response.json({ data: { label: "sk-or-v1-abc...123", limit: 20, limit_remaining: 12.5, usage: 7.5 } })
+      },
+    })
+    process.env.FLUPCODE_QUOTA_ORIGIN = `http://127.0.0.1:${server.port}`
+    return { seen, stop: () => server.stop(true) }
+  }
+
+  async function quota(connections: Record<string, Connection>, keys: Record<string, string>) {
+    const recorded = context()
+    const resolved: Connection[] = []
+    const ctx = {
+      ...recorded.ctx,
+      integration: {
+        connection: {
+          active: async (id: string) => connections[id],
+          resolve: async (connection: Connection) => {
+            resolved.push(connection)
+            const name = connection.type === "env" ? connection.name : connection.id
+            return keys[name] ? { type: "key", key: keys[name] } : undefined
+          },
+        },
+      },
+    }
+    await (await plugin("flupcode-quota.js")).setup(ctx)
+    const read = (integrationID: unknown) => recorded.rpcs.get("flupcode.quota")!.read!({ integrationID } as never)
+    return { read, resolved }
+  }
+
+  test("reads a provider's own endpoint with its stored key, and never hands out the key", async () => {
+    const fake = provider()
+    try {
+      const subject = await quota(
+        { openrouter: { type: "credential", id: "cred_1", label: "OpenRouter", method: "key" } },
+        { cred_1: "sk-or-secret" },
+      )
+      const answer = await subject.read("openrouter")
+      expect(answer).toEqual({
+        status: "read",
+        account: "cred_1",
+        httpStatus: 200,
+        body: { data: { limit: 20, limit_remaining: 12.5, usage: 7.5 } },
+      })
+      expect(JSON.stringify(answer)).not.toContain("sk-or")
+      expect(fake.seen).toEqual([{ path: "/api/v1/key", authorization: "Bearer sk-or-secret" }])
+    } finally {
+      fake.stop()
+    }
+  })
+
+  test("a key from the environment is read the same way, under an account named for the variable", async () => {
+    const fake = provider()
+    try {
+      const subject = await quota({ deepseek: { type: "env", name: "DEEPSEEK_API_KEY" } }, { DEEPSEEK_API_KEY: "sk-env" })
+      expect(await subject.read("deepseek")).toMatchObject({ status: "read", account: "env:DEEPSEEK_API_KEY" })
+      expect(fake.seen).toEqual([{ path: "/user/balance", authorization: "Bearer sk-env" }])
+    } finally {
+      fake.stop()
+    }
+  })
+
+  test("no connection, an OAuth sign-in or a provider without an adapter is never called nor resolved", async () => {
+    const fake = provider()
+    try {
+      const subject = await quota(
+        { opencode: { type: "credential", id: "cred_2", label: "Zen", method: "oauth" }, deepseek: { type: "credential", id: "cred_3", label: "DeepSeek", method: "oauth" } },
+        { cred_2: "token", cred_3: "token" },
+      )
+      expect(await subject.read("openrouter")).toEqual({ status: "unconfigured" })
+      // Resolving an OAuth sign-in would refresh it: FlupCode never refreshes a third party's token.
+      expect(await subject.read("deepseek")).toEqual({ status: "unsupported" })
+      expect(await subject.read("opencode")).toEqual({ status: "unsupported" })
+      expect(await subject.read("../../evil")).toEqual({ status: "unsupported" })
+      expect(subject.resolved).toEqual([])
+      expect(fake.seen).toEqual([])
+    } finally {
+      fake.stop()
+    }
+  })
+
+  test("a provider that echoes the key back does not hand it out", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) =>
+        Response.json({ error: { message: `Invalid key ${request.headers.get("authorization")}` } }, { status: 401 }),
+    })
+    process.env.FLUPCODE_QUOTA_ORIGIN = `http://127.0.0.1:${server.port}`
+    try {
+      const subject = await quota(
+        { openrouter: { type: "credential", id: "cred_1", label: "OpenRouter", method: "key" } },
+        { cred_1: "sk-or-secret" },
+      )
+      expect(await subject.read("openrouter")).toEqual({
+        status: "read",
+        account: "cred_1",
+        httpStatus: 401,
+        body: { error: { message: "Invalid key Bearer [redacted]" } },
+      })
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("a provider that does not answer is a failure with its reason, not an empty quota", async () => {
+    process.env.FLUPCODE_QUOTA_ORIGIN = "http://127.0.0.1:9"
+    const subject = await quota(
+      { openrouter: { type: "credential", id: "cred_1", label: "OpenRouter", method: "key" } },
+      { cred_1: "sk-or-secret" },
+    )
+    const answer = (await subject.read("openrouter")) as { status: string; message?: string }
+    expect(answer.status).toBe("failed")
+    expect(answer.message).toBeTruthy()
+    expect(JSON.stringify(answer)).not.toContain("sk-or")
+  })
 })

@@ -3409,6 +3409,97 @@ export default {
 `,
 }
 
+/**
+ * quota: a provider's documented quota endpoint, read inside the engine with the key the engine keeps
+ * for it (UL-07), so the key never leaves the engine's custody. harness-server asks over the RPC and
+ * gets the provider's answer back, minus any field that names the key.
+ *
+ * 2.0.18 has no route that reads a stored credential (only rename, activate and remove); the plugin
+ * context does: `integration.connection.active` names the connection in use and `.resolve` hands its
+ * value. `resolve` refreshes an OAuth sign-in that is about to expire, so only API keys (stored or
+ * from the environment) are resolved: FlupCode never refreshes a third party's tokens.
+ *
+ * The endpoints are fixed here, so the RPC can send a key only to its own provider.
+ * `FLUPCODE_QUOTA_ORIGIN` replaces their origin, for tests against a local fake provider; only whoever
+ * starts the engine can set it.
+ */
+export const QUOTA_PLUGIN_V2 = {
+  file: "flupcode-quota.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Reads a provider's documented quota endpoint with the key the
+// engine keeps for it, so the key never leaves the engine. Regenerated when FlupCode starts the engine;
+// edits here are overwritten.
+
+// Kept in step with QUOTA_ADAPTERS in packages/harness-server/src/quota/adapters.ts.
+const ENDPOINTS = {
+  // https://openrouter.ai/docs/api-reference/limits
+  openrouter: "https://openrouter.ai/api/v1/key",
+  // https://api-docs.deepseek.com/api/get-user-balance
+  deepseek: "https://api.deepseek.com/user/balance",
+}
+
+// Fields of an answer that name the key (OpenRouter's "label" is the key, shortened): never handed out.
+const SECRET_FIELDS = { openrouter: ["label"] }
+
+const TIMEOUT_MS = 15000
+
+function endpoint(id) {
+  const url = new URL(ENDPOINTS[id])
+  const origin = process.env.FLUPCODE_QUOTA_ORIGIN
+  return origin ? new URL(url.pathname + url.search, origin).toString() : url.toString()
+}
+
+function parse(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+function withoutSecrets(id, body) {
+  const data = body && typeof body === "object" && body.data && typeof body.data === "object" ? body.data : undefined
+  if (!data) return body
+  const kept = { ...data }
+  for (const field of SECRET_FIELDS[id] || []) delete kept[field]
+  return { ...body, data: kept }
+}
+
+async function read(ctx, input) {
+  const id = input && input.integrationID
+  if (typeof id !== "string" || !Object.prototype.hasOwnProperty.call(ENDPOINTS, id)) return { status: "unsupported" }
+  const connection = await ctx.integration.connection.active(id)
+  if (!connection) return { status: "unconfigured" }
+  // An OAuth sign-in is never resolved: resolving refreshes it.
+  if (connection.type === "credential" && connection.method !== "key") return { status: "unsupported" }
+  const account = connection.type === "env" ? "env:" + connection.name : connection.id
+  const credential = await ctx.integration.connection.resolve(connection)
+  if (!credential || credential.type !== "key" || !credential.key) return { status: "unconfigured" }
+  try {
+    const response = await fetch(endpoint(id), {
+      headers: { authorization: "Bearer " + credential.key, accept: "application/json" },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    // A provider that echoes the key back (in an error, say) does not hand it out either.
+    const text = (await response.text()).split(credential.key).join("[redacted]")
+    return { status: "read", account, httpStatus: response.status, body: withoutSecrets(id, parse(text)) }
+  } catch (cause) {
+    return { status: "failed", account, message: cause && cause.message ? String(cause.message) : "The provider did not answer" }
+  }
+}
+
+export default {
+  id: "flupcode-quota",
+  setup: async (ctx) => {
+    const registration = await ctx.rpc.register(
+      { id: "flupcode.quota", methods: { read: { input: { type: "object" }, output: {} } }, events: {} },
+      { read: (input) => read(ctx, input) },
+    )
+    return () => registration.dispose()
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -3427,4 +3518,5 @@ export const PLUGINS_V2 = [
   MEMORY_PLUGIN_V2,
   AGENTS_PLUGIN_V2,
   BROWSER_MCP_PLUGIN_V2,
+  QUOTA_PLUGIN_V2,
 ]

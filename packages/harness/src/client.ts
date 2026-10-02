@@ -47,6 +47,7 @@ import type {
   UsageRunReport,
   Budget,
   BudgetInput,
+  ProviderQuota,
   UsageSessionReport,
   UsageSummary,
   SessionMetricTurn,
@@ -919,6 +920,8 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/budgets/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
+    /** The connected providers' quota windows as the server last read them, with a forecast (UL-07). */
+    quotas: () => harnessRequest<ProviderQuota[]>(baseUrl, "/harness/quotas"),
     /**
      * Checkpoints (H-15): a way back from what a run did.
      *

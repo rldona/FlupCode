@@ -107,6 +107,7 @@ import type { DecisionKind, DecisionLabelCounts, DecisionLabelInput } from "./ad
 import { applyObservation, emptyTurn } from "./adaptive/session-metrics"
 import type { MetricObservation, SessionMetricTurn } from "./adaptive/session-metrics"
 import type { Arm, HoldoutCapability } from "./adaptive/holdout"
+import type { QuotaWindow } from "./quota/adapters"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
 export const ARTIFACT_LIMIT = 1_000_000
@@ -1626,6 +1627,30 @@ export class SqliteRoutineRepository implements RoutineRepository {
               level TEXT NOT NULL,
               at INTEGER NOT NULL,
               PRIMARY KEY (key, level)
+            );
+          `),
+      },
+      {
+        // Provider quota samples (UL-07): each reading of each window a provider reports, under the
+        // connection it was read with, so a pace and a forecast come from their history. A new table.
+        version: 15,
+        name: "quota-sample",
+        rewrites: true,
+        up: () =>
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS quota_sample (
+              at INTEGER NOT NULL,
+              provider_id TEXT NOT NULL,
+              account_id TEXT NOT NULL,
+              window_id TEXT NOT NULL,
+              window_kind TEXT NOT NULL,
+              unit TEXT NOT NULL,
+              used REAL,
+              limit_value REAL,
+              remaining REAL,
+              reset_at INTEGER,
+              source TEXT NOT NULL,
+              PRIMARY KEY (provider_id, account_id, window_id, at)
             );
           `),
       },
@@ -3892,6 +3917,65 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return this.db.query("INSERT OR IGNORE INTO budget_alert (key, level, at) VALUES (?1, ?2, ?3)").run(key, level, now).changes > 0
   }
 
+  // ---- provider quotas (UL-07) --------------------------------------------------------------------
+
+  /** One reading of a provider's windows, all at the same instant; a second one at that instant is ignored. */
+  addQuotaSamples(input: { providerID: string; account: string; at: number; source: string; windows: QuotaWindow[] }) {
+    const insert = this.db.query(
+      `INSERT OR IGNORE INTO quota_sample
+         (at, provider_id, account_id, window_id, window_kind, unit, used, limit_value, remaining, reset_at, source)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+    )
+    this.db.transaction(() => {
+      for (const window of input.windows)
+        insert.run(
+          input.at,
+          input.providerID,
+          input.account,
+          window.id,
+          window.kind,
+          window.unit,
+          window.used,
+          window.limit,
+          window.remaining,
+          window.resetAt,
+          input.source,
+        )
+    })()
+  }
+
+  /** A provider's samples since `since`, oldest first, for the account last read (or any when absent). */
+  quotaSamples(providerID: string, since: number) {
+    const latest = this.db
+      .query("SELECT account_id, at FROM quota_sample WHERE provider_id = ?1 ORDER BY at DESC LIMIT 1")
+      .get(providerID) as { account_id: string; at: number } | null
+    if (!latest) return []
+    const rows = this.db
+      .query(
+        `SELECT * FROM quota_sample WHERE provider_id = ?1 AND account_id = ?2 AND at >= ?3 ORDER BY at, window_id`,
+      )
+      .all(providerID, latest.account_id, Math.min(since, latest.at)) as QuotaSampleRow[]
+    return rows.map((row) => ({
+      at: row.at,
+      account: row.account_id,
+      source: row.source,
+      window: {
+        id: row.window_id,
+        kind: row.window_kind as QuotaWindow["kind"],
+        unit: row.unit as QuotaWindow["unit"],
+        used: row.used,
+        limit: row.limit_value,
+        remaining: row.remaining,
+        resetAt: row.reset_at,
+      },
+    }))
+  }
+
+  /** Samples older than `before` go: a forecast reads days, not months. */
+  pruneQuotaSamples(before: number) {
+    return this.db.query("DELETE FROM quota_sample WHERE at < ?1").run(before).changes
+  }
+
   /** Whether the run exists or the ledger holds rows for it. */
   knowsRunUsage(runID: string) {
     return (
@@ -4931,6 +5015,20 @@ function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
     endedAt: row.ended_at,
     ...(row.arms_json ? { arms: JSON.parse(row.arms_json) } : {}),
   }
+}
+
+type QuotaSampleRow = {
+  at: number
+  provider_id: string
+  account_id: string
+  window_id: string
+  window_kind: string
+  unit: string
+  used: number | null
+  limit_value: number | null
+  remaining: number | null
+  reset_at: number | null
+  source: string
 }
 
 type BudgetRow = {
