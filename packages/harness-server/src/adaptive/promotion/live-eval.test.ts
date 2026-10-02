@@ -7,7 +7,7 @@
 import { Database } from "bun:sqlite"
 import { afterAll, describe, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "../../repository"
@@ -108,7 +108,10 @@ describe("eval:live on a synthetic database", () => {
     const fixture = syntheticDatabase()
     await main(["start", "--db", fixture.path, "--config", fixture.config], () => {}, T0)
     const before = digest(fixture.path)
-    const files = readdirSync(fixture.dir).toSorted()
+    // The store runs in WAL (RP-02): a reader may leave the shared-memory index and an empty log
+    // beside the file, which writes nothing.
+    const listed = () => readdirSync(fixture.dir).filter((name) => !/\.sqlite-(shm|wal)$/.test(name)).toSorted()
+    const files = listed()
 
     const lines: string[] = []
     const args = ["--db", fixture.path, "--config", fixture.config, "--events", fixture.events]
@@ -136,7 +139,9 @@ describe("eval:live on a synthetic database", () => {
       expect(capability.checks.every((check: { role: string }) => check.role === "safety")).toBe(true)
     }
     expect(digest(fixture.path)).toBe(before)
-    expect(readdirSync(fixture.dir).toSorted()).toEqual(files)
+    expect(listed()).toEqual(files)
+    const wal = `${fixture.path}-wal`
+    expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0)
   })
 
   test("without a start or --since it refuses, and a missing database is an error", async () => {

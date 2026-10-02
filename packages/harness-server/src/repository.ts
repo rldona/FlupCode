@@ -1252,6 +1252,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
   }
 
   private migrateReferentialIntegrity() {
+    // Rebuilt below, the artifacts table must not be named by a trigger while it is swapped: a run
+    // of this migration over a database that already had it (or a later one's) would fail there.
+    this.db.exec("DROP TRIGGER IF EXISTS runs_take_harness_artifacts")
     this.db.exec(`
       DELETE FROM tasks WHERE run_id NOT IN (SELECT id FROM runs);
       UPDATE findings SET run_id = NULL WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT id FROM runs);
