@@ -18,6 +18,7 @@ import { createClient } from "../client"
 import { CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, INSTRUCTION_SYSTEM, type ChatClass } from "../chat"
 import { messageID } from "../ids"
 import { pendingPrompts, type Delivery } from "../pending-prompts"
+import { sendPrompt } from "../features/composer/send"
 import { createSessionSpend } from "../session-spend"
 import { contextFigures, type CompactionConfig } from "../metrics"
 import { permissionMode } from "../permission-modes"
@@ -267,61 +268,36 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     const id = messageID()
     setBusy(true)
     try {
-      const current = client()
       const body = props.expandPastes(text)
-      const fileRefs = files.map(({ uri, name }) => ({ uri, name }))
       if (props.chat === "chat" && props.chatsDirectory) {
-        // A line sent while the chat is answering interrupts it and starts a turn of its own.
-        if (generating())
-          await current.session
-            .abort({ sessionID: sessionID(), directory: props.chatsDirectory })
-            .catch(() => {})
-        await current.session.send({
+        await sendPrompt(client(), {
+          chat: true,
+          interrupt: generating(),
           sessionID: sessionID(),
           directory: props.chatsDirectory,
-          text: body,
+          text,
+          body,
+          files,
+          model: validModel(),
           instructions: { [INSTRUCTION_SYSTEM]: CHAT_SYSTEM },
-          files: fileRefs,
-          ...(validModel() ? { model: validModel()! } : {}),
         })
       } else {
         // Cowork is Code with the conversational prompt and the reserved agent that marks it.
         const cowork = props.chat === "cowork"
-        const promptAgent = cowork ? COWORK_AGENT : props.session.agent
-        await current.session.setPermission({
-          sessionID: sessionID(),
-          permission: permissionMode(props.permissionModeId).rules,
-          directory: props.session.location?.directory,
-        })
-        pendingPrompts.add({
+        await sendPrompt(client(), {
           id,
           sessionID: sessionID(),
           directory: props.session.location?.directory,
           text,
+          body,
           files,
-          agent: promptAgent,
-          ...(validModel() ? { model: validModel()! } : {}),
+          model: validModel(),
+          agent: cowork ? COWORK_AGENT : props.session.agent,
+          instructions: { [INSTRUCTION_SYSTEM]: cowork ? COWORK_SYSTEM : undefined },
+          permission: permissionMode(props.permissionModeId).rules,
+          permissionDirectory: props.session.location?.directory,
           delivery: mode,
-          ...(mode === "queue" ? { held: true } : {}),
         })
-        // The engine delivers it (V2-41): a steer joins the running turn at its next boundary, and a
-        // queued prompt waits in the session inbox.
-        try {
-          await current.session.send({
-            sessionID: sessionID(),
-            directory: props.session.location?.directory,
-            id,
-            text: body,
-            agent: promptAgent,
-            instructions: { [INSTRUCTION_SYSTEM]: cowork ? COWORK_SYSTEM : undefined },
-            ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
-            ...(validModel() ? { model: validModel()! } : {}),
-            ...(mode ? { delivery: mode } : {}),
-          })
-        } catch (cause) {
-          pendingPrompts.remove(id)
-          throw cause
-        }
       }
       batch(() => {
         setDraft("")

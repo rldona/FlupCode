@@ -17,7 +17,8 @@ import { modelSwitchWarningOn, needsModelSwitchWarning } from "../../model-switc
 import { hasModel, replacementModel } from "../../model-catalog"
 import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM } from "../../chat"
 import { messageID } from "../../ids"
-import { pendingPrompts, type Delivery } from "../../pending-prompts"
+import type { Delivery } from "../../pending-prompts"
+import { sendPrompt } from "./send"
 import type { Attachment, CommandOption, Workflow, StashedPrompt, ContextPack } from "../../types"
 import { UNAVAILABLE_FEATURES } from "../../features"
 import { BUILTIN_COMMANDS, builtinCommand, runBuiltin, type CommandContext } from "../../commands"
@@ -545,15 +546,17 @@ export function createComposer(app: AppStores) {
       }
       // Same as Code: a line sent while the chat is answering interrupts it and starts a turn of
       // its own, so the answer is about this line rather than the one in flight.
-      if (app.sessions.generating()) await current.session.abort({ sessionID, directory }).catch(() => {})
-      app.sessions.forgetRun(sessionID)
-      await current.session.send({
+      await sendPrompt(current, {
+        chat: true,
+        interrupt: app.sessions.generating(),
         sessionID,
         directory,
-        text: expandPastes(text),
+        text,
+        body: expandPastes(text),
+        files,
+        model,
         instructions: app.workspace.instructionsFor(CHAT_SYSTEM),
-        files: files.map(({ uri, name }) => ({ uri, name })),
-        ...(model ? { model } : {}),
+        onReady: () => app.sessions.forgetRun(sessionID),
       })
       app.sessions.setStreamedChars(0)
       if (!keepDraft) {
@@ -582,7 +585,6 @@ export function createComposer(app: AppStores) {
       const model = selectedModel()
       const location = app.sessions.targetDirectory()
       const existing = app.sessions.selected()
-      const created = !existing
       const sessionID =
         existing ??
         (
@@ -598,55 +600,36 @@ export function createComposer(app: AppStores) {
       if (!existing && !location) {
         app.sessions.setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
       }
-      await current.session.setPermission({
-        sessionID,
-        permission: permissionMode(permissionModeId()).rules,
-        directory: location ?? app.sessions.selectedSession()?.location?.directory,
-      })
-      app.sessions.forgetRun(sessionID)
-      // The folder this session lives in: the list is one page, so a session opened from the palette
-      // has no row here and the remembered folder is the only one there is.
-      const directory =
-        location ??
-        app.sessions.selectedSession()?.location?.directory ??
-        app.sessions.sessionDirectories.get(sessionID)
-      const instructions = app.workspace.instructionsFor(options?.system)
-      pendingPrompts.add({
+      const listedDirectory = location ?? app.sessions.selectedSession()?.location?.directory
+      await sendPrompt(current, {
         id,
         sessionID,
-        directory,
+        // The folder this session lives in: the list is one page, so a session opened from the
+        // palette has no row here and the remembered folder is the only one there is.
+        directory: listedDirectory ?? app.sessions.sessionDirectories.get(sessionID),
         text,
+        body: expandPastes(text),
         files,
+        model,
         agent: promptAgent,
-        ...(model ? { model } : {}),
+        instructions: app.workspace.instructionsFor(options?.system),
+        permission: permissionMode(permissionModeId()).rules,
+        permissionDirectory: listedDirectory,
         delivery: mode,
-        ...(mode === "queue" ? { held: true } : {}),
-      })
-      app.sessions.setStreamedChars(0)
-      if (!keepDraft) {
-        setPrompt("")
-        setAttachments([])
-      }
-      try {
-        await current.session.send({
-          sessionID,
-          directory,
-          id,
-          text: expandPastes(text),
-          agent: promptAgent,
-          instructions,
-          ...(model ? { model } : {}),
-          ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
-          ...(mode ? { delivery: mode } : {}),
-        })
-      } catch (cause) {
-        pendingPrompts.remove(id)
+        onReady: () => app.sessions.forgetRun(sessionID),
+        onListed: () => {
+          app.sessions.setStreamedChars(0)
+          if (keepDraft) return
+          setPrompt("")
+          setAttachments([])
+        },
         // A first turn that never reached the engine (an engine that does not know the agent, a
         // refused model) would otherwise leave an empty session in the list. Drop the one this
         // send just created; the reader is left with the error, not an orphan row.
-        if (created) await current.session.remove({ sessionID }).catch(() => {})
-        throw cause
-      }
+        onFailed: async () => {
+          if (!existing) await current.session.remove({ sessionID }).catch(() => {})
+        },
+      })
       return sessionID
     })
   }
@@ -664,6 +647,14 @@ export function createComposer(app: AppStores) {
     submitPrompt(text, files, keepDraft, { agent: COWORK_AGENT, system: COWORK_SYSTEM })
   }
 
+  /** Sends through the path the open view uses: a chat, a Cowork conversation, or Code. */
+  const sendText = (text: string, files: Attachment[], keepDraft = false) => {
+    if (!app.sessions.chatView()) return submitPrompt(text, files, keepDraft)
+    return app.sessions.composerChatClass() === "cowork"
+      ? sendCowork(text, files, keepDraft)
+      : sendChat(text, files, keepDraft)
+  }
+
   /** Resends the prompt that opened a failed turn, leaving whatever is typed in the composer alone. */
   const retryTurn = (messageID: string) => {
     const message = app.sessions.activeMessages()?.find((item) => item.id === messageID)
@@ -673,10 +664,7 @@ export function createComposer(app: AppStores) {
       uri: file.uri,
       name: file.name ?? file.uri,
     }))
-    if (app.sessions.chatView()) {
-      return app.sessions.composerChatClass() === "cowork" ? sendCowork(text, files, true) : sendChat(text, files, true)
-    }
-    submitPrompt(text, files, true)
+    sendText(text, files, true)
   }
 
   /**
@@ -705,12 +693,7 @@ export function createComposer(app: AppStores) {
       toast(t("No session"), "info")
       return
     }
-    if (app.sessions.chatView()) {
-      return app.sessions.composerChatClass() === "cowork"
-        ? sendCowork(resumePrompt(), [], keepDraft)
-        : sendChat(resumePrompt(), [], keepDraft)
-    }
-    submitPrompt(resumePrompt(), [], keepDraft)
+    sendText(resumePrompt(), [], keepDraft)
   }
 
   /** What a built-in command is run with (TI-13), the same from the palette and the composer. */
@@ -731,12 +714,7 @@ export function createComposer(app: AppStores) {
       if (dialog === "memory") return app.router.setMemoryOpen(true)
       app.router.setConfigOpen(true)
     },
-    send: (text) => {
-      if (!app.sessions.chatView()) return submitPrompt(text, attachments())
-      return app.sessions.composerChatClass() === "cowork"
-        ? sendCowork(text, attachments())
-        : sendChat(text, attachments())
-    },
+    send: (text) => sendText(text, attachments()),
     stash: (text) => stashPrompt(text, true),
     compact: app.sessions.compactSession,
     resume: () => resumeSession(),
@@ -784,7 +762,7 @@ export function createComposer(app: AppStores) {
       // A chat has no engine commands or project skills: the built-ins have run by now, and what is
       // left is a message like any other, which is how a chat could always use `/anything`.
       if (app.sessions.chatView()) {
-        return app.sessions.composerChatClass() === "cowork" ? sendCowork(text, files) : sendChat(text, files)
+        return sendText(text, files)
       }
       const skill = app.catalog.skills()?.data?.find((item) => item.name === name)
       if (skill) {
@@ -810,7 +788,7 @@ export function createComposer(app: AppStores) {
     }
 
     if (app.sessions.chatView()) {
-      return app.sessions.composerChatClass() === "cowork" ? sendCowork(text, files) : sendChat(text, files)
+      return sendText(text, files)
     }
 
     if (text.startsWith("!")) {
