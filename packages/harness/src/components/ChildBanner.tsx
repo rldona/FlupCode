@@ -34,7 +34,8 @@ export const ChildBanner: Component<{ onRecovered: () => void; onTrouble: (troub
   }
 
   return (
-    <>
+    // Mounted only where a supervisor exists (the desktop app): a browser tab gets no extra live region.
+    <Show when={bridge}>
       <p class="fc-sr-only" role="status" aria-live="polite">
         {troubled().map(childSentence).join(" ")}
       </p>
@@ -57,7 +58,7 @@ export const ChildBanner: Component<{ onRecovered: () => void; onTrouble: (troub
           </aside>
         )}
       </For>
-    </>
+    </Show>
   )
 }
 
