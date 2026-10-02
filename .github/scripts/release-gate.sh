@@ -46,7 +46,8 @@ while true; do
     exit 1
   fi
   if [ "$SECONDS" -ge "$deadline" ]; then
-    echo "::error::no passing gate on $sha after ${timeout}s; a commit that never ran harness.yml is not released"
+    if [ "$pending" = 1 ]; then reason="harness.yml was still running"; else reason="harness.yml never ran on it"; fi
+    echo "::error::no passing gate on $sha after ${timeout}s ($reason), so it is not released"
     exit 1
   fi
   if [ "$pending" = 1 ]; then echo "harness.yml is still running on $sha; waiting"; else echo "no harness.yml run on $sha yet; waiting"; fi
