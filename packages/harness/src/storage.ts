@@ -63,6 +63,10 @@ export const STORAGE_KEYS = {
   selectedModel: "flupcode.selectedModel",
   confirmModelSwitch: "flupcode.confirmModelSwitch",
   noFolderSessions: "flupcode.noFolderSessions",
+  /** Sessions this window saw finish while they were not open, until they are opened (UX-02). */
+  unseenSessions: "flupcode.unseenSessions",
+  /** When the reader last had runs in front of them, on this device (UX-02). */
+  runsSeenAt: "flupcode.runsSeenAt",
   /** Hosts whose external links the reader asked never to be prompted about again. */
   externalLinkHosts: "flupcode.externalLinkHosts",
 } as const

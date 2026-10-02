@@ -26,4 +26,16 @@ describe("normalizeRoutine run status", () => {
     expect(routine?.runs[0]?.status).toBe("failed")
     expect(routine?.runs[0]?.error).toBeTruthy()
   })
+
+  test("keeps the verdict the server judged the run with, and drops one it cannot read", () => {
+    const verdict = { value: "needs-user", reason: "Which parser?", source: "rule", taskID: "t1" }
+    const routine = normalizeRoutine(
+      payload([
+        { id: "run_1", startedAt: 1000, status: "success", verdict },
+        { id: "run_2", startedAt: 900, status: "success", verdict: { value: "great", taskID: "t1" } },
+      ]),
+    )
+    expect(routine?.runs[0]?.verdict).toEqual(verdict as never)
+    expect(routine?.runs[1]?.verdict).toBeUndefined()
+  })
 })

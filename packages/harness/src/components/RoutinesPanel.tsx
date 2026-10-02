@@ -3,6 +3,8 @@ import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
 import { routineNextRunAt } from "../routine-schedule"
+import type { Attention } from "../attention"
+import { AttentionMark } from "./AttentionMark"
 import type {
   ActionProfileSummary,
   Artifact,
@@ -16,6 +18,9 @@ import type {
 type RoutinesPanelProps = {
   open: boolean
   routines: Routine[]
+  /** What each routine needs from the reader (UX-02), by id, and what each of its runs does. */
+  routineAttention: Record<string, Attention | undefined>
+  runAttention: (run: RoutineRun) => Attention | undefined
   busy: boolean
   busyRoutineID?: string
   serverAvailable: boolean
@@ -71,7 +76,7 @@ const nextRunLabel = (routine: Routine) => {
 
 const runLabel = (run: RoutineRun) => {
   if (run.status === "running") return t("Running")
-  if (run.status === "awaiting") return t("Needs your input")
+  if (run.status === "awaiting") return t("Needs approval")
   if (run.status === "stopped") return t("Stopped")
   if (run.status === "failed") return t("Failed")
   return t("Succeeded")
@@ -333,7 +338,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
 
         <Show when={visible().length > 0} fallback={<div class="fc-routines-empty"><div class="fc-routines-empty-icon">◷</div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
             <div class="fc-routines-layout">
-              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small></span><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
+              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small></span><Show when={props.routineAttention[routine.id]}>{(level) => <AttentionMark level={level()} />}</Show><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
             </div>
             <Show when={selected()}>
               {(routine) => (
@@ -354,7 +359,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                       <p>{routine().description || t("No description")}</p>
                       <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show></dl>
                       <section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section>
-                      <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-running": run.status === "running", "fc-routine-run-dot-awaiting": run.status === "awaiting", "fc-routine-run-dot-stopped": run.status === "stopped" }} /><span><strong>{runLabel(run)}</strong><small>{formatDateTime(run.startedAt)}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
+                      <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><Show when={props.runAttention(run)} fallback={<span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-stopped": run.status === "stopped" }} />}>{(level) => <AttentionMark level={level()} />}</Show><span><strong>{runLabel(run)}</strong><small>{formatDateTime(run.startedAt)}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
                     </div>
                     <div class="fc-dialog-actions">
                       <Show

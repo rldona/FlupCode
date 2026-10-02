@@ -75,6 +75,8 @@ export const normalizeRoutine = (value: unknown): Routine | undefined => {
                 : status === "failed"
                   ? t("Run interrupted")
                   : undefined,
+            // How it was judged (RP-06), which decides what a finished run needs (UX-02).
+            verdict: runVerdictOf(entry.verdict),
           } satisfies RoutineRun,
         ]
       })
@@ -114,3 +116,19 @@ export const normalizeRoutines = (value: unknown) =>
         return routine ? [routine] : []
       })
     : []
+
+const VERDICTS = ["verified", "unverified", "needs-user", "failed"] as const
+
+/** A run's verdict as the server sent it, or nothing when it is not one this build knows. */
+function runVerdictOf(value: unknown): RoutineRun["verdict"] {
+  if (!value || typeof value !== "object") return undefined
+  const verdict = value as Record<string, unknown>
+  const known = VERDICTS.find((entry) => entry === verdict.value)
+  if (!known || typeof verdict.taskID !== "string") return undefined
+  return {
+    value: known,
+    reason: typeof verdict.reason === "string" ? verdict.reason : "",
+    source: verdict.source === "check" || verdict.source === "model" ? verdict.source : "rule",
+    taskID: verdict.taskID,
+  }
+}

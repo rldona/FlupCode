@@ -350,6 +350,8 @@ export type RoutineRun = {
   startedAt: number
   finishedAt?: number
   error?: string
+  /** The server sends a routine's runs as runs, verdict included (RP-06). */
+  verdict?: RunVerdict
 }
 
 export type RoutineInput = {

@@ -356,6 +356,7 @@ const ES: Record<string, string> = {
   Verdict: "Veredicto",
   Verified: "Verificada",
   "Not verified": "Sin verificar",
+  "Finished, not seen yet": "Terminada, aún sin ver",
   "Judged by a check that ran": "Lo decidió una comprobación que se ejecutó",
   "Judged by a rule over the agent's answer": "Lo decidió una regla sobre la respuesta del agente",
   "Judged by the auditor model": "Lo decidió el modelo auditor",

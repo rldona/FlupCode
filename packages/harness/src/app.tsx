@@ -37,6 +37,7 @@ import {
   resolveServerUrl,
 } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
+import { runAttention, sessionAttention, tallyAttention, worstAttention } from "./attention"
 import { activityByDay, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
 import {
@@ -248,6 +249,18 @@ export const App: Component = () => {
   // How a 2.x execution ended when that is worth telling (V2-40): a failure the transcript may not
   // carry (one before any answer), or a stop the reader did not ask for. Cleared when the next starts.
   const [runOutcomes, setRunOutcomes] = createSignal<Record<string, RunOutcome>>({})
+  /**
+   * "Finished unseen" for sessions (UX-02): the ones this window saw finish a turn while they were
+   * not on screen, until the reader opens them. The engine keeps no read state, so a session that
+   * finished while the app was closed is not marked: guessing it from `time.updated`, which a rename
+   * moves too, would claim something nobody checked (P4). Kept on this device across reloads.
+   */
+  const [unseenSessions, setUnseenSessions] = createSignal<string[]>(
+    readStorage<string[]>(STORAGE_KEYS.unseenSessions, []),
+  )
+  createEffect(() => writeStorage(STORAGE_KEYS.unseenSessions, unseenSessions()))
+  const sessionInView = (sessionID: string) =>
+    selected() === sessionID && !screen() && document.visibilityState === "visible"
   const [activityTick, setActivityTick] = createSignal(0)
   // Whether the engine's event stream is carrying this session's run right now. The health check
   // is a separate question: it can answer while the stream is a dead socket nobody noticed.
@@ -272,7 +285,12 @@ export const App: Component = () => {
     idleTimers.delete(sessionID)
     const wasRunning = runState()[sessionID] === true
     setRunState((state) => (state[sessionID] === running ? state : { ...state, [sessionID]: running }))
-    if (wasRunning && !running) turnEnded(sessionID)
+    if (!wasRunning || running) return
+    turnEnded(sessionID)
+    // Only a listed session: a reply suggestion's throwaway turn is nothing the reader could open.
+    const listed = sessionList()?.some((session) => session.id === sessionID)
+    if (listed && !sessionInView(sessionID))
+      setUnseenSessions((ids) => (ids.includes(sessionID) ? ids : [...ids, sessionID]))
   }
   // A session's inbox, read again whenever it moves: the prompts waiting there are the engine's.
   const readInbox = (sessionID: string) =>
@@ -1820,23 +1838,90 @@ export const App: Component = () => {
         ),
     }
   })
-  // Every session's pending permissions, not just the open one's. An agent waiting on one is silent
-  // and looks idle, so without this the reader has no way to know another session is stuck.
+  // Every session's pending permissions and questions, not just the open one's. An agent waiting on
+  // either is silent and looks idle, so without this the reader has no way to know another session
+  // is stuck. 2.x lists its questions apart from its permissions (as forms), so both are asked.
   const [blocked, { refetch: refetchBlocked }] = createResource(
     () => (ready() ? serverUrl() : undefined),
-    async (url) => ({
-      data: await createClient(url)
-        .permission.pending()
-        .then(
+    async (url) => {
+      const engine = createClient(url)
+      const [data, questions] = await Promise.all([
+        engine.permission.pending().then(
           (result) => result.data ?? [],
           () => [],
         ),
-    }),
+        engine.question.pending().then(
+          (result) => result.data ?? [],
+          () => [],
+        ),
+      ])
+      return { data, questions }
+    },
   )
   const blockedSessions = () => [...new Set((blocked()?.data ?? []).map((request) => request.sessionID))]
   const blockedElsewhere = () => blockedSessions().filter((id) => id !== selected())
   /** Sessions with a question to answer, told apart from plain blocked ones (QH-1). */
-  const questionSessions = () => findQuestionSessions((blocked()?.data ?? []) as PendingRequest[])
+  const questionSessions = () => findQuestionSessions((blocked()?.questions ?? []) as PendingRequest[])
+
+  /*
+   * One attention scale for sessions, runs and routines (UX-02), computed here once and drawn by
+   * `AttentionMark` wherever any of them is listed.
+   *
+   * "Finished unseen" for runs is when it finished after the reader last had runs in front of them
+   * — the Runs or the Routines screen — on this device. Unlike a session, a run says when it
+   * finished, so one that ended overnight while the app was closed still counts. The first time
+   * there is no mark yet, and only what finishes from then on is new.
+   */
+  const [runsSeenAt, setRunsSeenAt] = createSignal(readStorage<number>(STORAGE_KEYS.runsSeenAt, Date.now()))
+  createEffect(() => writeStorage(STORAGE_KEYS.runsSeenAt, runsSeenAt()))
+  createEffect(() => {
+    if (!runsOpen() && !routinesOpen()) return
+    // Read so that a run finishing while the screen is open is seen as it lands.
+    runs()
+    setRunsSeenAt(Date.now())
+  })
+  // Opening a session is seeing it; so is coming back to the window it is open in.
+  const seeOpenSession = () => {
+    const id = selected()
+    if (!id || !sessionInView(id)) return
+    setUnseenSessions((ids) => (ids.includes(id) ? ids.filter((entry) => entry !== id) : ids))
+  }
+  createEffect(seeOpenSession)
+  document.addEventListener("visibilitychange", seeOpenSession)
+  onCleanup(() => document.removeEventListener("visibilitychange", seeOpenSession))
+  const sessionAttentionOf = (sessionID: string) =>
+    sessionAttention({
+      approval: blockedSessions().includes(sessionID),
+      answer: questionSessions().includes(sessionID),
+      running: runState()[sessionID] === true,
+      failed: runOutcomes()[sessionID]?.kind === "failed",
+      unseen: unseenSessions().includes(sessionID),
+    })
+  const sessionsAttention = createMemo(() =>
+    Object.fromEntries(
+      (sessionList() ?? []).flatMap((session) => {
+        const level = sessionAttentionOf(session.id)
+        return level ? [[session.id, level] as const] : []
+      }),
+    ),
+  )
+  const runAttentionOf = (run: Run | RoutineRun) =>
+    runAttention(
+      run,
+      { approval: blockedSessions(), answer: questionSessions() },
+      (run.finishedAt ?? 0) <= runsSeenAt(),
+    )
+  const runsAttention = createMemo(() => Object.fromEntries(runs().map((run) => [run.id, runAttentionOf(run)])))
+  // A routine is as urgent as the most urgent of its runs. The run list has the tasks (and so the
+  // sessions a task waits in); a routine's own copy of a run is used only when the list lacks it.
+  const routinesAttention = createMemo(() =>
+    Object.fromEntries(
+      routines().map((routine) => [
+        routine.id,
+        worstAttention(routine.runs.map((run) => runsAttention()[run.id] ?? runAttentionOf(run))),
+      ]),
+    ),
+  )
 
   // What "Allow always" wrote. The engine applies these to every session in the project, so they
   // only become reviewable once something lists them.
@@ -2885,7 +2970,12 @@ export const App: Component = () => {
             cowork: chatClass(session) === "cowork",
             branch: directory ? activity?.branches[directory] : undefined,
             updated: session.time.updated,
-            state: activity?.waiting.has(session.id) ? "waiting" : running ? "busy" : "idle",
+            // The desk's scale (UX-02), with what the phone's own per-folder poll adds.
+            attention: worstAttention([
+              activity?.waiting.has(session.id) && "approval",
+              sessionAttentionOf(session.id),
+              running && "running",
+            ]),
           }
         })
     })
@@ -4933,8 +5023,9 @@ export const App: Component = () => {
             sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
             selectedSession={selected()}
             runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
-            blockedSessions={blockedSessions()}
-            questionSessions={questionSessions()}
+            sessionAttention={sessionsAttention()}
+            runsAttention={tallyAttention(Object.values(runsAttention()))}
+            routineAttention={routinesAttention()}
             pinnedSessions={pinnedSessions()}
             sessionTags={sessionTags()}
             expandedProjects={expanded()}
@@ -5076,6 +5167,7 @@ export const App: Component = () => {
           <RunsPanel
             open={runsOpen()}
             runs={runs()}
+            attention={runsAttention()}
             serverAvailable={routinesServerAvailable()}
             onStop={stopRun}
             onRemove={removeRun}
@@ -5174,6 +5266,8 @@ export const App: Component = () => {
             focus={routineFocus()}
             onFocused={() => setRoutineFocus(undefined)}
             routines={routines()}
+            routineAttention={routinesAttention()}
+            runAttention={(run) => runsAttention()[run.id] ?? runAttentionOf(run)}
             busy={routineBusy()}
             busyRoutineID={routineBusyID()}
             serverAvailable={routinesServerAvailable()}
@@ -5387,6 +5481,7 @@ export const App: Component = () => {
                     loading={sessions.loading}
                     projects={projects()}
                     runs={remoteRuns()}
+                    runAttention={runsAttention()}
                     onOpen={openMobileSession}
                     onOpenRun={openMobileSession}
                     onNew={startMobileSession}

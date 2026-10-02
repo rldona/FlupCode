@@ -10,6 +10,8 @@ import type { Routine } from "../types"
 import type { Screen } from "../screen"
 import { ContextMenu, separator, type MenuItem } from "./ContextMenu"
 import logo from "../assets/flupcode-logo.png"
+import { tallyAttention, type Attention } from "../attention"
+import { AttentionMark } from "./AttentionMark"
 
 /** The sidebar's width until the reader drags it; double-clicking its edge goes back to it. */
 export const SIDEBAR_WIDTH_DEFAULT = 280
@@ -55,10 +57,12 @@ type SidebarProps = {
   selectedSession?: string
   /** Sessions the engine is working on right now. */
   runningSessions: string[]
-  /** Sessions waiting on a permission nobody has answered; they look idle without this. */
-  blockedSessions: string[]
-  /** Sessions with a question to answer: a yellow hand instead of the dot (QH-1). */
-  questionSessions: string[]
+  /** What each session needs from the reader (UX-02), by id; absent when nothing. */
+  sessionAttention: Record<string, Attention>
+  /** The runs' most urgent level and how many are at it (UX-02), on the Runs item. */
+  runsAttention?: { level: Attention; count: number }
+  /** What each routine needs from the reader (UX-02), by id. */
+  routineAttention: Record<string, Attention | undefined>
   pinnedSessions: string[]
   /** The tags a reader put on each session, by session id (H-18). */
   sessionTags: Record<string, string[]>
@@ -344,24 +348,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       {...longPress((point) => openSessionMenu(point, row.session))}
     >
       <button class="fc-session-main" type="button" onClick={() => props.onSelectSession(row.session.id)}>
-        {/* A question beats every dot: it is the one stuck state the reader can clear (QH-1). */}
         <Show
-          when={props.questionSessions.includes(row.session.id)}
-          fallback={
-            <span
-              class="fc-session-dot"
-              classList={{
-                "fc-session-dot-running": props.runningSessions.includes(row.session.id),
-                "fc-session-dot-blocked": props.blockedSessions.includes(row.session.id),
-              }}
-              title={props.blockedSessions.includes(row.session.id) ? t("Waiting for permission") : undefined}
-              aria-hidden="true"
-            />
-          }
+          when={props.sessionAttention[row.session.id]}
+          fallback={<span class="fc-session-dot" aria-hidden="true" />}
         >
-          <span class="fc-session-hand" role="img" aria-label={t("Waiting for answer")} title={t("Waiting for answer")}>
-            ✋
-          </span>
+          {(level) => <AttentionMark level={level()} />}
         </Show>
         <span class="fc-session-title">{sessionTitle(row.session) || t("New session")}</span>
         <Show when={isCoworkSession(row.session)}>
@@ -493,6 +484,14 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               >
                 <span class="fc-nav-icon">⛭</span>
                 {t("Runs")}
+                {/* A gate waiting on the reader shows here from any screen (UX-02). */}
+                <Show when={props.runsAttention}>
+                  {(tally) => (
+                    <span class="fc-nav-attention">
+                      <AttentionMark level={tally().level} count={tally().count} />
+                    </span>
+                  )}
+                </Show>
               </button>
               <button
                 class="fc-nav-item"
@@ -566,7 +565,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                     title={routine.description || routine.prompt}
                     onClick={() => props.onRoutines(routine.id)}
                   >
-                    <span class="fc-sidebar-routine-dot" classList={{ "fc-sidebar-routine-off": !routine.enabled }} />
+                    {/* What it needs from the reader wins over whether it is on (UX-02). */}
+                    <Show
+                      when={props.routineAttention[routine.id]}
+                      fallback={
+                        <span class="fc-sidebar-routine-dot" classList={{ "fc-sidebar-routine-off": !routine.enabled }} />
+                      }
+                    >
+                      {(level) => <AttentionMark level={level()} />}
+                    </Show>
                     <span class="fc-sidebar-routine-name">{routine.name}</span>
                   </button>
                 )}
@@ -681,6 +688,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                       >
                         <button class="fc-project-toggle" type="button" onClick={() => props.onToggleProject(group.id)}>
                           <span class="fc-project-name">{group.name}</span>
+                          {/* Collapsed, the group speaks for its sessions (UX-02). */}
+                          <Show
+                            when={
+                              !isExpanded(group) &&
+                              tallyAttention(group.sessions.map((session) => props.sessionAttention[session.id]))
+                            }
+                          >
+                            {(tally) => <AttentionMark level={tally().level} count={tally().count} />}
+                          </Show>
                         </button>
                         <button
                           class="fc-icon-button fc-project-new"

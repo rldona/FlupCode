@@ -5,10 +5,10 @@ import { RemoteNotifications } from "./RemoteNotifications"
 import { ViewTabs } from "./Topbar"
 import type { AppView } from "../chat"
 import type { ProjectItem, Run } from "../types"
+import type { Attention } from "../attention"
+import { AttentionMark, attentionLabel } from "./AttentionMark"
 
 /** Phone home screen while controlling a computer: devices, sessions and a new-session action. */
-
-export type RemoteSessionState = "busy" | "waiting" | "idle"
 
 export type RemoteSessionItem = {
   id: string
@@ -18,7 +18,8 @@ export type RemoteSessionItem = {
   /** A Cowork conversation, which runs in the project rather than only talking. */
   cowork?: boolean
   updated: number
-  state: RemoteSessionState
+  /** What it needs from the reader (UX-02); nothing when it is idle and seen. */
+  attention?: Attention
 }
 
 type RemoteHomeProps = {
@@ -32,6 +33,8 @@ type RemoteHomeProps = {
   projects: ProjectItem[]
   /** The runs still going, so a phone can see what the harness is working on (H-12). */
   runs: Run[]
+  /** What each run needs from the reader (UX-02), by run id. */
+  runAttention: Record<string, Attention | undefined>
   onOpen: (sessionID: string) => void
   onOpenRun: (sessionID: string) => void
   onNew: (directory: string | undefined) => void
@@ -47,12 +50,6 @@ function ago(timestamp: number, now: number) {
   return `${Math.floor(hours / 24)}d`
 }
 
-const STATE_LABEL: Record<RemoteSessionState, string> = {
-  busy: "Working",
-  waiting: "Needs your input",
-  idle: "Idle",
-}
-
 export const RemoteHome: Component<RemoteHomeProps> = (props) => {
   const [filter, setFilter] = createSignal<"all" | "active">("active")
   const [picking, setPicking] = createSignal(false)
@@ -61,7 +58,7 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
   onCleanup(() => clearInterval(timer))
 
   // Index keeps each card's element while its data refreshes, so taps are not lost to re-renders.
-  const visible = createMemo(() => props.sessions.filter((session) => filter() === "all" || session.state !== "idle"))
+  const visible = createMemo(() => props.sessions.filter((session) => filter() === "all" || !!session.attention))
 
   const hostState = (hostId: string) => {
     if (remote.activeHost()?.hostId !== hostId) return "idle"
@@ -151,6 +148,7 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
                 tasks().find((task) => task.status === "running") ?? tasks().find((task) => task.status === "queued")
               const done = () =>
                 tasks().filter((task) => task.status !== "running" && task.status !== "queued").length
+              const level = () => props.runAttention[run.id] ?? "running"
               return (
                 <button
                   class="fc-remote-card"
@@ -158,15 +156,11 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
                   disabled={!run.sessionID}
                   onClick={() => run.sessionID && props.onOpenRun(run.sessionID)}
                 >
-                  <span
-                    class={`fc-remote-dot fc-remote-dot-${run.status === "awaiting" ? "waiting" : "busy"}`}
-                    role="img"
-                    aria-label={run.status === "awaiting" ? t("Needs your input") : t("Working")}
-                  />
+                  <AttentionMark level={level()} />
                   <span class="fc-remote-card-main">
                     <span class="fc-remote-card-title">{current()?.name ?? t("Run")}</span>
                     <span class="fc-remote-card-meta">
-                      {run.status === "awaiting" ? t("Needs your input") : t("Working")}
+                      {attentionLabel(level())}
                       {tasks().length > 1 ? ` · ${done()}/${tasks().length}` : ""}
                     </span>
                   </span>
@@ -207,11 +201,12 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
             <Index each={visible()}>
               {(session) => (
                 <button class="fc-remote-card" type="button" onClick={() => props.onOpen(session().id)}>
-                  <span
-                    class={`fc-remote-dot fc-remote-dot-${session().state}`}
-                    role="img"
-                    aria-label={t(STATE_LABEL[session().state])}
-                  />
+                  <Show
+                    when={session().attention}
+                    fallback={<span class="fc-remote-dot" role="img" aria-label={t("Idle")} />}
+                  >
+                    {(level) => <AttentionMark level={level()} />}
+                  </Show>
                   <span class="fc-remote-card-main">
                     <span class="fc-remote-card-heading">
                       <span class="fc-remote-card-title">{session().title || t("New session")}</span>

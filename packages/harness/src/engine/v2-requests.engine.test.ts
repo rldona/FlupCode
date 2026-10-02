@@ -111,10 +111,15 @@ describe.skipIf(!run)("forms on the OpenCode 2 adapter", () => {
       ],
       tool: { messageID: expect.any(String), callID: expect.any(String) },
     })
+    // Every session's open questions, which is what marks a session as waiting for an answer in
+    // the sidebar when it is not the open one (UX-02).
+    const listed = (await domains.question.pending()).data.find((item) => item.id === request.id)
+    expect(listed).toMatchObject({ sessionID: session, questions: [{ question: "Pick one" }] })
 
     await domains.session.question.reply({ sessionID: session, requestID: request.id, answers: [["A"]] })
     await domains.session.wait({ sessionID: session })
     expect(await toolAnswers(session)).toEqual([["A"]])
+    expect((await domains.question.pending()).data.map((item) => item.id)).not.toContain(request.id)
   })
 
   test("several picks and a typed answer reach the tool as given", async () => {

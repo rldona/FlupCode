@@ -485,6 +485,15 @@ export type EngineClient = {
             orgID: string;
         }) => Promise<boolean>;
     };
+    /**
+     * Questions across every session (UX-02): a session waiting on an answer is as silent as one
+     * waiting on a permission, and the sidebar has to say so for the sessions that are not open.
+     */
+    question: {
+        pending: (input?: LocationInput | undefined) => Promise<{
+            data: QuestionV2Request[];
+        }>;
+    };
     /** Permissions across every session, and the ones the reader told the engine to remember. */
     permission: {
         /** Everything waiting for an answer, not just the open session's: a blocked agent is silent. */
