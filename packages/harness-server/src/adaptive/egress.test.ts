@@ -5,7 +5,7 @@ import type { DecisionRequest } from "./decision"
 import { createEgressGuard } from "./egress"
 import { createDecisionService } from "./decision-service"
 import { createGovernor } from "./providers/governor"
-import { createJevClient, createJevModel } from "./providers/jev"
+import { createJevClient, createJevModel, jevSettings } from "./providers/jev"
 import { createAuditor } from "../verdict"
 import { SqliteRoutineRepository } from "../repository"
 
@@ -193,7 +193,7 @@ describe("what leaves the machine", () => {
     const egress = createEgressGuard({ config: () => config })
     const client = createJevClient({
       egress,
-      config: () => config.jev,
+      config: () => jevSettings(config.providers.jev),
       // The network boundary: the body is what would cross it.
       fetch: async ({ body }) => {
         bodies.push(body)

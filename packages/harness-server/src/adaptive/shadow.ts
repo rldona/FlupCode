@@ -7,7 +7,7 @@
  * asserts byte by byte.
  *
  * `completion` and `skillRelevance` are decided here; `contextItem` is delegated to the
- * `ContextManager`, which classifies the episode, plans it and asks Jev only about ambiguous items
+ * `ContextManager`, which classifies the episode, plans it and asks a model only about ambiguous items
  * (FH-023). The trigger is the coordinator's terminal callback plus a periodic sweep as a backstop;
  * both are fire-and-forget, and a failure to decide is reported and dropped rather than raised into
  * the close of an episode.
@@ -148,7 +148,7 @@ export function createShadowRunner(deps: {
         deps.trackSelection(selection)
       }
     }
-    // The plan is idempotent by id, but a second plan could spend on Jev again, so it is skipped.
+    // The plan is idempotent by id, but a second plan could spend on a model again, so it is skipped.
     if (
       deps.context !== undefined &&
       config.context.enabled &&
@@ -167,7 +167,7 @@ export function createShadowRunner(deps: {
   const onEpisodeClosed = (episode: SessionEpisode): void => {
     if (inFlight.has(episode.id)) return
     inFlight.add(episode.id)
-    // Enqueue only. Building the request reads skills (filesystem I/O) and, with Jev off, the
+    // Enqueue only. Building the request reads skills (filesystem I/O) and, with no model, the
     // decisions are written synchronously; both belong to this deferred task, never to the
     // coordinator's `writeRun`/`writeSession` path.
     void Promise.resolve()

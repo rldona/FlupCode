@@ -97,6 +97,7 @@ import { decisionFromRow, decisionRowFrom } from "./adaptive/decision-record"
 import type { DecisionRow } from "./adaptive/decision-record"
 import { planFromRow, planRowFrom } from "./adaptive/context-record"
 import type { PlanRow } from "./adaptive/context-record"
+import { LEGACY_PROVIDER, LEGACY_SOURCE } from "./adaptive/legacy"
 import { reflectionJobFromRow, reflectionJobRowFrom } from "./adaptive/learning/reflection-job"
 import type { ReflectionRow } from "./adaptive/learning/reflection-job"
 import { proposalFromRow, proposalRowFrom } from "./adaptive/learning/proposal-record"
@@ -1770,17 +1771,17 @@ export class SqliteRoutineRepository implements RoutineRepository {
   /**
    * The provider-neutral decision audit (AH-C02).
    *
-   * `source` moves from `deterministic | jev | fallback` to `baseline | model | fallback`, and which
-   * model was involved moves to `provider_id`. A `jev` row answered by a model: its id is the one the
-   * row already named (`attempted_provider`, or `provider` before that column existed). A `fallback`
-   * row consulted a model that did not win; its id is only known when `attempted_provider` was
-   * recorded, and is left missing rather than guessed otherwise. Historical cost and tokens were never
+   * `source` moves from `deterministic | <legacy source> | fallback` to `baseline | model | fallback`
+   * (`legacy.ts`), and which model was involved moves to `provider_id`. A legacy-source row was
+   * answered by a model: its id is the one the row already named (`attempted_provider`, or `provider`
+   * before that column existed). A `fallback` row consulted a model that did not win; its id is only
+   * known when `attempted_provider` was recorded, and is left missing rather than guessed otherwise. Historical cost and tokens were never
    * measured, so they stay `NULL`, not zero. A source outside the v1 vocabulary is left as it is: the
    * reader keeps the row and exposes the raw value.
    *
    * A plan's `score_source` is migrated the same way rather than only tolerated on read, so the
-   * stored vocabulary is one; its model is taken from the decision it points at, `jev` otherwise
-   * (the only model that could refine a plan before this version).
+   * stored vocabulary is one; its model is taken from the decision it points at, the legacy provider
+   * otherwise (the only model that could refine a plan before this version).
    */
   private migrateDecisionAudit() {
     this.addColumn("adaptive_decision", "provider_id", "TEXT")
@@ -1795,7 +1796,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
          SET source = 'model',
              provider_id = COALESCE(provider_id, attempted_provider, provider),
              provider_version = COALESCE(provider_version, model_version)
-       WHERE source = 'jev';
+       WHERE source = '${LEGACY_SOURCE}';
       UPDATE adaptive_decision SET source = 'baseline' WHERE source = 'deterministic';
       UPDATE adaptive_decision
          SET provider_id = COALESCE(provider_id, attempted_provider),
@@ -1806,9 +1807,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
              score_provider = COALESCE(
                score_provider,
                (SELECT d.provider_id FROM adaptive_decision d WHERE d.id = adaptive_plan.decision_id AND d.source = 'model'),
-               'jev'
+               '${LEGACY_PROVIDER}'
              )
-       WHERE score_source = 'jev';
+       WHERE score_source = '${LEGACY_SOURCE}';
       UPDATE adaptive_plan SET score_source = 'baseline' WHERE score_source = 'deterministic';
     `)
   }
@@ -4002,7 +4003,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
   // ---- adaptive usage (FH-013) -----------------------------------------------------------------
 
   /**
-   * What the Jev budget spent in a UTC month, or zero when the month has no row yet.
+   * What the predictive models spent in a UTC month, or zero when the month has no row yet.
    *
    * A missing month is not an error: the ledger starts empty, and the governor treats zero as
    * "nothing spent", which is exactly right the first time.
@@ -4018,7 +4019,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     }
   }
 
-  /** Adds to the month's spend; a call that never reached Jev is not written at all. */
+  /** Adds to the month's spend; a call that never reached a model is not written at all. */
   addAdaptiveUsage(month: string, tokens: number, calls: number, now: number): void {
     try {
       this.db

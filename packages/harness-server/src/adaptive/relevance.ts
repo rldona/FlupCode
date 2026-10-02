@@ -66,7 +66,7 @@ export const MAX_DECISION_CACHE = 500
 /**
  * A decision lives for the whole turn, not just `rosterTtlMs`. The current plugin asks once per user
  * turn and pins the answer itself (ADR-0024, "Relevance line"), but an older plugin asked on every
- * step, and a repeated `sessionID:messageID` must still not spend Jev again or rewrite the audit row.
+ * step, and a repeated `sessionID:messageID` must still not spend a model again or rewrite the audit row.
  * The cap, not the clock, is what bounds an engine that never restarts.
  */
 export const DECISION_TTL_MS = 10 * 60 * 1000
@@ -132,7 +132,7 @@ export function createRelevanceService(deps: {
       // Fail-closed on the runtime: with v2/unknown the legacy hooks will not fire anyway, so the line
       // must not be computed as if they would (FH-000, ADR-0021 §6).
       if (!canInject(deps.runtimeProbe.capabilities())) return inert(id, "runtime-not-legacy", startedAt)
-      // An empty objective would only spend on Jev to select nothing; it is the same as no match.
+      // An empty objective would only spend on a model to select nothing; it is the same as no match.
       if (!input.objective.trim()) return inert(id, "no-match", startedAt)
       // The override is read on every call, before the cache. The plugin calls once per user turn and
       // pins that answer for the turn's steps, so a pause or an exclusion lands on the next user turn

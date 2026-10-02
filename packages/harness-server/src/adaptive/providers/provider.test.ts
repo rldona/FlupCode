@@ -58,7 +58,7 @@ describe("the deterministic baseline", () => {
   test("does not apply the request thresholds", () => {
     const strict: DecisionRequest<"completion"> = {
       ...sampleRequests.completion,
-      policy: { allowJev: false, minConfidence: 1, minProbability: 1, timeoutMs: 1 },
+      policy: { allowModel: false, minConfidence: 1, minProbability: 1, timeoutMs: 1 },
     }
     // A baseline that applied thresholds would withhold an answer or mark it degraded; it returns the
     // answer and its rule, nothing else.

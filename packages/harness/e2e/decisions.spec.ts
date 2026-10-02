@@ -70,7 +70,7 @@ async function openApp(page: Page, server: Server) {
           data: { healthy: true, capabilities: ["adaptive-decisions", ...(server.registry ? ["adaptive-config"] : [])] },
         },
       })
-    if (url.pathname === "/harness/adaptive/config") return route.fulfill({ json: { data: { models: REGISTRY } } })
+    if (url.pathname === "/harness/adaptive/config") return route.fulfill({ json: { data: { providers: REGISTRY } } })
     if (url.pathname === "/harness/adaptive/decisions") {
       server.queries.push(url.searchParams)
       return route.fulfill({ json: listDecisions(url.searchParams, server.unpaged ?? false) })

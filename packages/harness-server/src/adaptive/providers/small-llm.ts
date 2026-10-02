@@ -1,8 +1,8 @@
 /**
  * The `small-llm` predictive model: the configured small model, asked through the engine (AH-C04).
  *
- * It exists so the live evaluation pipeline can run without `TYPESAFE_API_KEY`: the global
- * `small_model` answers the same neutral questions Jev does, and Jev later enters on equal terms.
+ * It exists so the live evaluation pipeline can run without a remote provider's key: the
+ * global `small_model` answers the same neutral questions any provider does, on equal terms.
  * `harness-server` has no LLM client of its own (ADR-0016 §2), so every call is a throwaway engine
  * session — the `learning/draft.ts` pattern — created under `NO_TOOLS`, prompted once, read and
  * deleted whatever the outcome, including a timeout or an abort. A deleted session is also what keeps
@@ -67,7 +67,7 @@ export function createSmallLlmModel(input: {
     supports: SMALL_LLM_KINDS,
     async predict(state, questions, options): Promise<Prediction> {
       if (questions.length === 0) throw new DecisionUnavailable("malformed")
-      // Re-checked here, like Jev's client does, so no path reaches the engine without this consent.
+      // Re-checked here, like the HTTP client does, so no path reaches the engine without this consent.
       if (!input.egress.allows(SMALL_LLM, state.kind, state.projectID)) throw new DecisionUnavailable("egress-denied")
       const model = input.model()
       if (!model) throw new DecisionUnavailable("provider-disabled", { message: "no small_model is configured" })

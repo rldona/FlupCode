@@ -965,7 +965,6 @@ export type AdaptiveSettings = {
   }
   relevance: { enabled: boolean }
   guardrails: { enabled: boolean }
-  jev: { enabled: boolean }
   /** The predictive model per kind; `skillReflection`'s decides whose consent learning needs. */
   models?: Record<string, string>
   /** Consent per remote provider (AH-C03), keyed by the predictive model id. */
@@ -1012,20 +1011,23 @@ export type AdaptiveLearningLimitHit = {
   max: number
 }
 
-/** What `/harness/adaptive/model-key` answers: where the key comes from, never the key. */
-export type AdaptiveModelKeyStatus = { source: "env" | "stored" | "none"; storable: boolean }
+/**
+ * What `/harness/adaptive/model-key` answers for one provider: where its key comes from, whether one
+ * can be saved here and the variable that sets it from the environment. Never the key.
+ */
+export type AdaptiveModelKeyStatus = { source: "env" | "stored" | "none"; storable: boolean; env: string }
 
 /** `GET /harness/adaptive/config`: the settings surface as the panel reads it. */
 export type AdaptiveConfigView = {
   effective: AdaptiveSettings
   source: Record<string, AdaptiveProvenance>
+  /** An older server also names its one keyed provider here; `adaptive-legacy.ts` reads that. */
+  env: { adaptiveDisabled: boolean }
   /**
-   * `typesafeKeyPresent` is true when the environment or the vault holds the predictive model's key;
-   * `typesafeKeySource` says which, and is absent from an older server.
+   * Whether the old single switch still assigns the predictive model to every decision the config does
+   * not name. Absent from an older server: read it through `legacySwitchOn`.
    */
-  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean; typesafeKeySource?: "env" | "stored" | "none" }
-  /** Whether the key can be saved on this machine (a vault key exists); absent from an older server. */
-  modelKeyStorable?: boolean
+  legacySwitch?: boolean
   /** `alerts` are the unacknowledged runtime changes (AH-D05); absent from an older server. */
   runtime: {
     runtime: "legacy" | "v2" | "unknown"
@@ -1050,13 +1052,17 @@ export type AdaptiveConfigView = {
   learningLimits?: { reached: AdaptiveLearningLimitHit[] }
   /** The providers a consent row is drawn for: the registered remote models, then any configured. */
   egressProviders?: string[]
-  /** The registered predictive models, with the names a reader is shown; absent from an older server. */
-  models?: AdaptiveModel[]
+  /**
+   * The registered predictive providers, with the names a reader is shown (PI-01). An older server
+   * serves them as `models`: read them through `viewProviders`.
+   */
+  providers?: AdaptiveModel[]
 }
 
 /**
- * One registered predictive model (AH-C01) as the settings view serves it: `name` is what the reader
- * sees, the id only what the config file says. A remote model needs its provider's consent.
+ * One registered predictive provider (AH-C01, PI-01) as the settings view serves it: `name` is what
+ * the reader sees, the id only what the config file says. A remote one needs its consent; one that
+ * needs a key says where that key comes from.
  */
 export type AdaptiveModel = {
   id: string
@@ -1065,6 +1071,7 @@ export type AdaptiveModel = {
   supports: string[]
   needsConsent: boolean
   needsKey: boolean
+  key?: AdaptiveModelKeyStatus
 }
 
 /** Who answered a decision (AH-C02): the rule alone, a model, or the rule after a model did not win. */

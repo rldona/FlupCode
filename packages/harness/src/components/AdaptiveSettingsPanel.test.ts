@@ -41,6 +41,11 @@ import {
 import { AdaptiveConfigError } from "../client"
 import { setLocale, t } from "../i18n"
 import type { AdaptiveConfigView, AdaptiveWritableField, ValueGateSnapshot, ValueGateStatus } from "../types"
+import { legacyKey, legacySwitchOn, viewProviders } from "../adaptive-legacy"
+
+/** A view as a server older than PI-01 served it: the old provider-named fields over a current view. */
+const olderServer = (base: AdaptiveConfigView, fields: Record<string, unknown>): AdaptiveConfigView =>
+  ({ ...base, ...fields }) as AdaptiveConfigView
 
 const WRITABLE: AdaptiveWritableField[] = [
   { path: "enabled", type: "boolean", confirmation: "none", guard: "env-disabled" },
@@ -71,14 +76,13 @@ const view = (over: Partial<AdaptiveConfigView["effective"]> = {}, envDisabled =
     learning: { enabled: false, maxInputChars: 8000 },
     relevance: { enabled: false },
     guardrails: { enabled: false },
-    jev: { enabled: false },
     egress: { providers: { jev: { enabled: false, projects: [], kinds: {} } } },
     retention: { enabled: false },
     budget: { monthlyTokens: 100000, hotReserveFraction: 0.2 },
     ...over,
   },
   source: {},
-  env: { adaptiveDisabled: envDisabled, typesafeKeyPresent: false },
+  env: { adaptiveDisabled: envDisabled },
   runtime: { runtime: "legacy", degraded: false, checkedAt: 0 },
   capabilities: {
     runtime: "legacy",
@@ -828,15 +832,16 @@ const assigning = (
   models: Record<string, string>,
   providers: Record<string, Partial<{ enabled: boolean; projects: string[]; kinds: Record<string, boolean> }>> = {},
   key = false,
-  jevEnabled = false,
+  legacySwitch = false,
 ): AdaptiveConfigView => {
   const base = consenting(providers)
+  const status = { source: key ? "stored" : "none", storable: true, env: "FLUPCODE_TYPESAFE_API_KEY" } as const
   return {
     ...base,
-    models: MODELS,
+    providers: MODELS.map((model) => (model.needsKey ? { ...model, key: status } : model)),
     writable: [...WRITABLE, MODEL_FIELD],
-    env: { adaptiveDisabled: false, typesafeKeyPresent: key },
-    effective: { ...base.effective, models, jev: { enabled: jevEnabled } },
+    legacySwitch,
+    effective: { ...base.effective, models },
   }
 }
 const ALLOWED = { enabled: true, projects: ["/p"], kinds: { completion: true, skillRelevance: true } }
@@ -908,7 +913,7 @@ describe("choosing a model per decision (AH-C01)", () => {
     expect(modelKinds(assigning({}))).toEqual(["completion", "skillRelevance", "contextItem", "skillReflection", "failure"])
     const all = {
       ...assigning({}),
-      models: [{ ...MODELS[0]!, supports: ["futureKind", "failure", "completion"] }],
+      providers: [{ ...MODELS[0]!, supports: ["futureKind", "failure", "completion"] }],
     }
     // A kind this build has no name for yet still gets its row, after the named ones.
     expect(modelKinds(all)).toEqual(["completion", "failure", "futureKind"])
@@ -956,27 +961,17 @@ describe("choosing a model per decision (AH-C01)", () => {
   })
 
   test("a choice writes its own leaf, and null for none", () => {
-    expect(assignmentLeaves(assigning({ completion: "jev" }), "skillRelevance", "small-llm")).toEqual({
-      "models.skillRelevance": "small-llm",
-    })
-    expect(assignmentLeaves(assigning({ completion: "jev" }), "completion", null)).toEqual({ "models.completion": null })
+    expect(assignmentLeaves("skillRelevance", "small-llm")).toEqual({ "models.skillRelevance": "small-llm" })
+    expect(assignmentLeaves("completion", null)).toEqual({ "models.completion": null })
   })
 
-  test("under the legacy switch the first choice writes every assignment explicitly and turns the switch off", () => {
+  test("under the old single switch a choice still writes only its own leaf: the server retires the switch (PI-01)", () => {
     const legacy = assigning({ completion: "jev", skillRelevance: "jev", failure: "jev" }, {}, false, true)
-    const leaves = assignmentLeaves(legacy, "skillRelevance", "small-llm")
-    expect(leaves).toEqual({
-      "models.completion": "jev",
-      "models.skillRelevance": "small-llm",
-      "models.failure": "jev",
-      "jev.enabled": false,
-    })
-    // One patch, with no confirmation: turning a switch off and assigning are not consent.
+    const leaves = assignmentLeaves("skillRelevance", "small-llm")
+    expect(leaves).toEqual({ "models.skillRelevance": "small-llm" })
+    // No confirmation: assigning is not consent.
     expect(Object.entries(leaves).some(([path, value]) => needsConfirmation(path, value, legacy))).toBe(false)
-    expect(patchOf(leaves)).toEqual({
-      models: { completion: "jev", skillRelevance: "small-llm", failure: "jev" },
-      jev: { enabled: false },
-    })
+    expect(patchOf(leaves)).toEqual({ models: { skillRelevance: "small-llm" } })
   })
 
   test("each row says what its model still needs: its provider's project, this decision, sending data, the key", () => {
@@ -998,7 +993,7 @@ describe("choosing a model per decision (AH-C01)", () => {
   })
 
   test("a local model needs no consent", () => {
-    const local = { ...assigning({}), models: [{ id: "local-embed", name: "Local", locality: "local" as const, supports: ["contextItem"], needsConsent: false, needsKey: false }] }
+    const local = { ...assigning({}), providers: [{ id: "local-embed", name: "Local", locality: "local" as const, supports: ["contextItem"], needsConsent: false, needsKey: false }] }
     expect(missingForKind(local, "contextItem", "local-embed")).toEqual([])
   })
 
@@ -1048,8 +1043,9 @@ describe("reading a leaf", () => {
 })
 
 describe("what a blocked switch says is missing", () => {
-  const keyed = (base: AdaptiveConfigView): AdaptiveConfigView => ({
-    ...base,
+  // The single switch is drawn only for a server older than PI-01, which says where its one key is
+  // in `env`; the shim reads it.
+  const keyed = (base: AdaptiveConfigView): AdaptiveConfigView => olderServer(base, {
     env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "stored" },
   })
   const said = (base: AdaptiveConfigView, path: string) => {
@@ -1110,31 +1106,42 @@ describe("what a blocked switch says is missing", () => {
   })
 })
 
-describe("where the predictive model's key stands", () => {
-  const withKey = (env: AdaptiveConfigView["env"], storable?: boolean): AdaptiveConfigView => ({
-    ...view(),
-    env,
-    ...(storable === undefined ? {} : { modelKeyStorable: storable }),
-  })
+describe("where a provider's key stands", () => {
+  const key = (source: "env" | "stored" | "none", storable: boolean) => ({ source, storable, env: "FLUPCODE_TEST_KEY" })
 
   test("set by the environment, saved, missing, or missing where it cannot be saved", () => {
-    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" }, true))).toBe(
-      "env",
-    )
-    expect(
-      modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "stored" }, true)),
-    ).toBe("stored")
-    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" }, true))).toBe(
-      "none",
-    )
-    expect(
-      modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" }, false)),
-    ).toBe("unavailable")
+    expect(modelKeyState(key("env", true))).toBe("env")
+    expect(modelKeyState(key("stored", true))).toBe("stored")
+    expect(modelKeyState(key("none", true))).toBe("none")
+    expect(modelKeyState(key("none", false))).toBe("unavailable")
   })
 
-  test("an older server that only says whether a key exists is read as the environment's, or as unsavable", () => {
-    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: true }))).toBe("env")
-    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: false }))).toBe("unavailable")
+  test("a server older than PI-01 says where its one key is in env, and the shim reads it (PI-01)", () => {
+    const older = (env: Record<string, unknown>, storable?: boolean) =>
+      legacyKey(olderServer(view(), { env, ...(storable === undefined ? {} : { modelKeyStorable: storable }) }))
+    expect(older({ adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "stored" }, true)).toEqual({
+      source: "stored",
+      storable: true,
+      env: "TYPESAFE_API_KEY",
+    })
+    // One that only says whether a key exists is read as the environment's, or as unsavable.
+    expect(modelKeyState(older({ adaptiveDisabled: false, typesafeKeyPresent: true }))).toBe("env")
+    expect(modelKeyState(older({ adaptiveDisabled: false, typesafeKeyPresent: false }))).toBe("unavailable")
+  })
+
+  test("a server older than PI-01 serves its registry as models, with the key on the provider that needs it", () => {
+    const older = olderServer(view(), {
+      models: MODELS,
+      env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" },
+      effective: { ...view().effective, jev: { enabled: true } },
+    })
+    expect(viewProviders(older)?.map((model) => [model.id, model.key?.source])).toEqual([
+      ["jev", "env"],
+      ["small-llm", undefined],
+    ])
+    expect(legacySwitchOn(older)).toBe(true)
+    expect(viewProviders(view())).toBeUndefined()
+    expect(legacySwitchOn(view())).toBe(false)
   })
 
   test("every key message is translated", () => {

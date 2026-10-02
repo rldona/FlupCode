@@ -1,9 +1,9 @@
 /**
  * The context manager: plan a run prompt or an episode, persist the plan, and apply it (FH-022/023).
  *
- * The manager is the only place the deterministic scorer becomes a plan, the only place Jev refines
+ * The manager is the only place the deterministic scorer becomes a plan, the only place a model refines
  * one, and the only place a plan filters parts. Planning is deterministic first: the scorer's plan is
- * the answer. Jev is asked only about items in the ambiguous band, one `contextItem` question that
+ * the answer. A model is asked only about items in the ambiguous band, one `contextItem` question that
  * carries just those items; with none ambiguous there is no call at all and no decision row. On any
  * degradation the deterministic baseline is kept, and on a total failure `plan` is `undefined`, so
  * the caller renders exactly what it would have rendered before selection existed.
@@ -104,7 +104,7 @@ export type ContextManager = {
 export type ContextManagerDeps = {
   config: () => AdaptiveConfig
   repository: ContextManagerRepository
-  /** The Phase 2 decision service: the only way Jev is reached, with its egress gate and audit. */
+  /** The Phase 2 decision service: the only way a model is reached, with its egress gate and audit. */
   service: DecisionService
   /** The install's key for opaque episode ids; never exported or logged. */
   opaqueKey: () => Buffer
@@ -213,9 +213,9 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
   }
 
   /**
-   * The baseline, with the Jev refinement merged per item when the seam answers.
+   * The baseline, with the model's refinement merged per item when the seam answers.
    *
-   * Jev may only move an ambiguous item, and its answer is never trusted blindly: a `drop` on a kind
+   * A model may only move an ambiguous item, and its answer is never trusted blindly: a `drop` on a kind
    * that is not a low-value payload is degraded to `archive` (ADR-0018 §3), and the merged plan is
    * run through the same budget cap as the planner, so an external `keep` can never push the plan
    * past `budget.total` or a per-class budget (ADR-0018 §3).
@@ -233,7 +233,7 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
       if (disposition === undefined) return entry
       const safe: ItemDisposition =
         disposition === "drop" && !DROPPABLE_CONTEXT_KINDS.includes(entry.kind) ? "archive" : disposition
-      // The reason names the model that moved the item, the way it always read "jev" for Jev.
+      // The reason names the model that moved the item.
       return { ...entry, disposition: safe, reason: answer.provider ?? "model" }
     })
     return {

@@ -545,14 +545,14 @@ test("a config patch sends the patch and the confirmation, and keeps the warning
   expect(answer.warnings).toEqual(["skills-still-load"])
 })
 
-test("the model key is written and removed with the bearer and the confirmation, and never read back", async () => {
+test("a provider's key is written and removed with the bearer, the confirmation and the provider, never read back", async () => {
   const calls: AdaptiveCall[] = []
-  recordingAdaptive(calls, { data: { source: "stored", storable: true } })
+  recordingAdaptive(calls, { data: { source: "stored", storable: true, env: "FLUPCODE_TYPESAFE_API_KEY" } })
 
   const answer = await withLoopbackToken(async () => {
     const client = createHarnessClient("http://harness")
-    const saved = await client.adaptive.modelKey.set("test-key-not-real")
-    await client.adaptive.modelKey.remove()
+    const saved = await client.adaptive.modelKey.set("jev", "test-key-not-real")
+    await client.adaptive.modelKey.remove("jev")
     return saved
   })
 
@@ -562,11 +562,17 @@ test("the model key is written and removed with the bearer and the confirmation,
       path: "/harness/adaptive/model-key",
       search: "",
       auth: "Bearer tok",
-      body: { key: "test-key-not-real", confirm: true },
+      body: { provider: "jev", key: "test-key-not-real", confirm: true },
     },
-    { method: "DELETE", path: "/harness/adaptive/model-key", search: "", auth: "Bearer tok", body: { confirm: true } },
+    {
+      method: "DELETE",
+      path: "/harness/adaptive/model-key",
+      search: "",
+      auth: "Bearer tok",
+      body: { provider: "jev", confirm: true },
+    },
   ])
-  expect(answer.data).toEqual({ source: "stored", storable: true })
+  expect(answer.data).toEqual({ source: "stored", storable: true, env: "FLUPCODE_TYPESAFE_API_KEY" })
 })
 
 test("a refused config write keeps the code, the fields and what is missing", async () => {

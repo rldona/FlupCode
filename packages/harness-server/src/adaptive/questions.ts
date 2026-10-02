@@ -4,7 +4,7 @@
  * Both halves are provider-neutral and live together so they stay keyed to the same ids: the plan
  * turns a typed state into `binary`/`choice`/`score` questions, and the reader turns the model's
  * distributions back into the kind's typed answer. No model encodes or decodes a kind: a model only
- * sees neutral questions, and its wire format is its own business (`providers/jev.ts` owns Jev's).
+ * sees neutral questions, and its wire format is its own business (each provider module owns its own).
  *
  * `EgressGuard.prepare` redacts the planned prompts and replaces every caller id with a positional
  * one before any model sees them; `readAnswers` maps the answers back by position.

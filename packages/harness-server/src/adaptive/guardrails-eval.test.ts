@@ -24,7 +24,7 @@ import type { GuardrailReason, GuardrailResult } from "./guardrails"
 import type { LoopObservation } from "./guardrails-detector"
 import { createGovernor } from "./providers/governor"
 import type { GovernorStore } from "./providers/governor"
-import { createJevClient, createJevModel } from "./providers/jev"
+import { createJevClient, createJevModel, jevSettings } from "./providers/jev"
 import type { JevFetch, JevFetchResponse } from "./providers/jev"
 import type { JevAnswer } from "./providers/jev-parse"
 import { createRetryingModel } from "./providers/retry"
@@ -123,7 +123,7 @@ const stack = (fixture: Fixture, options: { degraded?: boolean } = {}) => {
     if (options.degraded) throw recordedTimeout()
     return recordedFetch(fixture)(input)
   }
-  const client = createJevClient({ fetch, egress, config: () => config.jev, now: () => NOW })
+  const client = createJevClient({ fetch, egress, config: () => jevSettings(config.providers.jev), now: () => NOW })
   const jev = createRetryingModel({ model: createJevModel({ client, now: () => NOW }), maxAttempts: 1 })
   const service = createDecisionService({
     repository,

@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test"
-import { DEFAULT_JEV_CONFIG, resolveAdaptiveConfig } from "../config"
+import { resolveAdaptiveConfig } from "../config"
 import { DEFAULT_DECISION_POLICY } from "../decision"
 import type { AnyDecisionRequest, DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
 import { createEgressGuard } from "../egress"
 import type { PredictionState, Question } from "../predictive/model"
 import { questionID, questionsFor, readAnswers } from "../questions"
-import { createJevClient, createJevModel, JEV_USD_PER_INPUT_TOKEN } from "./jev"
+import { JEV_DEFAULTS, createJevClient, createJevModel, JEV_USD_PER_INPUT_TOKEN } from "./jev"
 import type { JevClient, JevFetch, JevFetchResponse } from "./jev"
 import type { JevAnswer } from "./jev-parse"
 import { DecisionUnavailable } from "./provider"
 
 const CANARY = "canary-secret-value-1234567890"
 
-const jevConfig = () => ({ ...DEFAULT_JEV_CONFIG, endpoint: "https://jev.test/v1/systemone" })
+const jevConfig = () => ({ ...JEV_DEFAULTS, endpoint: "https://jev.test/v1/systemone" })
 
 const guard = (block: unknown, secrets: () => string[] = () => []) =>
   createEgressGuard({ config: () => resolveAdaptiveConfig({ block, env: {} }), secrets })
@@ -496,7 +496,7 @@ describe("JevClient failures", () => {
     const client = createJevClient({
       fetch: hanging,
       egress: allowed(),
-      config: () => ({ ...DEFAULT_JEV_CONFIG, timeoutMs: 5 }),
+      config: () => ({ ...JEV_DEFAULTS, timeoutMs: 5 }),
     })
     const failure = await client
       .predictOne(stateOf(completion()), [completionComplete])

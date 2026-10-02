@@ -7,7 +7,7 @@
  * kept "for later", it comes back with its consumer. The seam, the audit and the provider dispatch
  * are all exhaustive: adding a kind to `DecisionSpec` does not compile until every map below lists it.
  *
- * This module is the domain and nothing else: no provider, no network, no Jev. It is also the only
+ * This module is the domain and nothing else: no provider, no network, no model. It is also the only
  * place that reads a decision's answer out of untrusted data, always falling back to a safe value
  * rather than to a guess (the same defensive style `episode.ts` uses).
  */
@@ -59,7 +59,7 @@ export const PROTECTED_CONTEXT_KINDS: readonly ContextItemKind[] = ["objective",
  * The only kinds `drop` may touch; everything else is archived, which is recoverable. A pack's
  * `artifact` and `file` parts are deliberately **not** here: even with `context.apply=true` they can
  * only be archived (recoverable), never dropped, so a reference a person added to a pack is never
- * lost silently. The scorer and the Jev merge both enforce this, and the manager re-checks it.
+ * lost silently. The scorer and the model merge both enforce this, and the manager re-checks it.
  */
 export const DROPPABLE_CONTEXT_KINDS: readonly ContextItemKind[] = ["tool", "message", "history"]
 
@@ -86,7 +86,7 @@ export type ContextItem = {
 
 /**
  * The change a reusable lesson calls for (FH-031). `merge` and `drop` are declared so the vocabulary
- * is closed and the Jev adapter can parse them, but Phase 3b rejects both with a reason: only `add`
+ * is closed and a model adapter can parse them, but Phase 3b rejects both with a reason: only `add`
  * and `patch` are implemented, and `merge`/`drop` are later phases (ADR-0020 §9).
  */
 export const REFLECTION_INTENTS = ["add", "patch", "merge", "drop"] as const
@@ -199,7 +199,7 @@ export function decisionKinds(): DecisionKind[] {
  * recalibration out of the network adapter and out of the inputs hash.
  */
 export type DecisionPolicy = {
-  allowJev: boolean
+  allowModel: boolean
   minConfidence: number
   minProbability: number
   timeoutMs: number
@@ -221,13 +221,13 @@ export type DecisionPolicy = {
 /**
  * Whether the policy lets a predictive model improve the decision, whichever model is assigned.
  *
- * The field keeps its historical name `allowJev` because it is persisted verbatim (the audit's
- * `policy_json`, the `decisions.<kind>` config block); renaming it is a migration, not a refactor.
+ * The field is persisted verbatim (the audit's `policy_json`, the `decisions.<kind>` config block);
+ * rows and files written under its old name are read through `legacy.ts`, never rewritten.
  */
-export const allowsModel = (policy: DecisionPolicy): boolean => policy.allowJev
+export const allowsModel = (policy: DecisionPolicy): boolean => policy.allowModel
 
 export const DEFAULT_DECISION_POLICY: DecisionPolicy = {
-  allowJev: true,
+  allowModel: true,
   minConfidence: 0.6,
   minProbability: 0.5,
   timeoutMs: 400,

@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { DEFAULT_JEV_CONFIG, resolveAdaptiveConfig } from "./config"
+import { resolveAdaptiveConfig } from "./config"
 import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
 import { deterministicBaseline } from "./providers/deterministic"
@@ -19,7 +19,7 @@ import { createRetryingModel } from "./providers/retry"
 import { DecisionUnavailable } from "./providers/provider"
 import { wireQuestions } from "./providers/jev-parse"
 import type { Question } from "./predictive/model"
-import { createJevClient } from "./providers/jev"
+import { JEV_DEFAULTS, createJevClient } from "./providers/jev"
 import type { JevFetch, JevFetchResponse } from "./providers/jev"
 import type { GovernorStore } from "./providers/governor"
 import { createAdaptiveEgressGuard } from "./egress"
@@ -100,7 +100,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
       config: () =>
         resolveAdaptiveConfig({ block: { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { completion: true } } }, env: {} }),
     })
-    const client = createJevClient({ fetch, egress, config: () => ({ ...DEFAULT_JEV_CONFIG, enabled: true }) })
+    const client = createJevClient({ fetch, egress, config: () => JEV_DEFAULTS })
     const prediction = await client.predictOne(
       { kind: "completion", projectID: "/work/project", text: JSON.stringify(SAMPLES.completion.state) },
       questions,

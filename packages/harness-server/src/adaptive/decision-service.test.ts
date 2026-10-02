@@ -749,7 +749,7 @@ describe("the predictive model registry (AH-C01)", () => {
     const forbidden = serviceFor({ models: { completion: "fake-local" } }, model)
     const result = await forbidden.service.predict({
       ...completion(),
-      policy: { ...DEFAULT_DECISION_POLICY, allowJev: false },
+      policy: { ...DEFAULT_DECISION_POLICY, allowModel: false },
     })
     expect(result.source).toBe("baseline")
     forbidden.repository.close()

@@ -43,9 +43,9 @@ import { createSessionOverrides } from "./adaptive/session-override"
 import { createAdaptiveConfigSurface } from "./adaptive/config-surface"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
-import { createRetryingModel } from "./adaptive/providers/retry"
-import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/providers/jev"
-import { createModelKey } from "./adaptive/model-key"
+import { createHttpModel } from "./adaptive/providers/jev"
+import { createModelKeys } from "./adaptive/model-key"
+import type { KeySlot } from "./adaptive/model-key"
 import { createSmallLlmModel } from "./adaptive/providers/small-llm"
 import { createActionApprover } from "./action-approval"
 import { createBrowserPolicy } from "./browser-policy"
@@ -146,7 +146,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // interactive path uses (WA-7), never by a second copy that would drift.
   const engineURL = options.engineURL ?? process.env.FLUPCODE_ENGINE_URL ?? "http://127.0.0.1:4096"
   // The adaptive layer's settings (FH-016), read through a TTL getter so the kill switch takes
-  // effect without a restart. Jev is off by default: without an explicit opt-in, the deterministic
+  // effect without a restart. Every model is off by default: without an explicit opt-in, the deterministic
   // provider answers and nothing leaves the process.
   const adaptive = createAdaptiveConfig({ read: globalAdaptiveBlock, env: process.env })
   // Retention (FH-082, ADR-0022 §2): off by default, so with the switch off no query runs at all.
@@ -171,42 +171,41 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const adaptiveToken = isLoopbackHostname(hostname)
     ? options.adaptiveToken ?? readAdaptiveToken(options.adaptiveTokenFile ?? adaptiveTokenFile())
     : undefined
-  // The predictive model's key (ADR-0017, amended): the environment first, then the vault, where the
-  // panel saves it bound to the Jev endpoint's origin. Read on every request, so saving needs no restart.
-  const modelKey = createModelKey({ env: process.env, vault, endpoint: () => adaptive.current().jev.endpoint })
+  // The predictive models' keys (ADR-0017, amended; per provider since PI-01): the environment first,
+  // then the vault, where the panel saves each under its provider's key reference, bound to that
+  // provider's endpoint origin. Read on every request, so saving needs no restart.
+  const keys = createModelKeys({ env: process.env, vault })
+  // Every registered provider that needs a key, by id, with its slot read from the live settings. Only
+  // called after the registry below is built.
+  const keySlots = (): Record<string, KeySlot> =>
+    Object.fromEntries(models.flatMap((model) => (model.keySlot ? [[model.id, model.keySlot()] as const] : [])))
   // Every secret this process holds is deleted by value from whatever leaves or is persisted: the
-  // harness's own bearers, the model key from the environment and the vault's credentials (a stored
-  // model key among them), the latter decrypted on each call so a credential saved after startup is
+  // harness's own bearers, each model key from the environment and the vault's credentials (the stored
+  // model keys among them), the latter decrypted on each call so a credential saved after startup is
   // covered too.
   const egress = createAdaptiveEgressGuard({
     config: () => adaptive.current(),
     secrets: () =>
-      [browserToken, pluginToken, remoteToken, adaptiveToken, process.env.TYPESAFE_API_KEY?.trim() || undefined, ...(vault?.secrets() ?? [])].filter(
-        (secret) => secret !== undefined,
-      ),
+      [
+        browserToken,
+        pluginToken,
+        remoteToken,
+        adaptiveToken,
+        ...Object.values(keySlots()).map((slot) => keys.fromEnv(slot)),
+        ...(vault?.secrets() ?? []),
+      ].filter((secret) => secret !== undefined),
   })
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
   // AH-C05: the value-of-information gate and answer cache, read from the decision audit's labels.
   const valueGate = createValueGate({ repository, config: () => adaptive.current() })
-  // The key comes from `modelKey`, never from the config block (ADR-0017). The client is built
-  // always; the service only reaches it when a kind is assigned to Jev (by default: `jev.enabled`)
-  // and Jev's own consent (`egress.providers.jev`, or the legacy keys) lists the project and the kind,
-  // so an off install makes no call.
-  // FH-013: the model is wrapped with the strict per-attempt timeout, bounded retries and
-  // `Retry-After`, so they are on the live path and not only in tests; a failure that survives them
-  // is recorded degraded with its reason.
-  const jev = createRetryingModel({
-    model: createJevModel({
-      client: createJevClient({
-        fetch: defaultJevFetch,
-        egress,
-        config: () => adaptive.current().jev,
-        apiKey: modelKey.resolve,
-      }),
-    }),
-  })
+  // The HTTP model's key comes from `keys`, never from the config block (ADR-0017), and its settings
+  // from `providers.<id>`. It is built always; the service only reaches it when a kind is assigned to
+  // it and its own consent lists the project and the kind, so an off install makes no call. FH-013: it
+  // carries the strict per-attempt timeout, bounded retries and `Retry-After` on the live path; a
+  // failure that survives them is recorded degraded with its reason.
+  const http = createHttpModel({ egress, providers: () => adaptive.current().providers, keys })
   // AH-C01: the static predictive-model registry. `adaptive.models.<kind>` picks one of these ids per
-  // kind; without a `models` block every kind asks Jev when it is enabled, as before the registry.
+  // kind; without a `models` block the old single switch still assigns every kind (`legacy.ts`).
   // AH-C03: each remote model is asked only under its own `egress.providers.<id>` consent.
   // AH-C04: `small-llm` is registered only when a `small_model` resolves at startup. It is never
   // assigned by default and is not wrapped in retries: every attempt is a paid throwaway session.
@@ -218,7 +217,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         model: () => parseModelKey(globalSmallModel()),
       })
     : undefined
-  const models = [jev, ...(smallLlm ? [smallLlm] : [])]
+  const models = [http, ...(smallLlm ? [smallLlm] : [])]
   // The per-session override (AH-E02): in memory, read by every capability on its next step.
   const overrides = createSessionOverrides()
   const decisions = createDecisionService({
@@ -231,7 +230,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     paused: overrides.paused,
   })
   // Context selection (FH-022/023 and the FH-024 seam): the manager owns `contextItem` — the scorer
-  // baseline, the Jev refinement of ambiguous items only, and the plan audit. The scheduler hands it
+  // baseline, the model's refinement of ambiguous items only, and the plan audit. The scheduler hands it
   // to every runner, where it plans each run prompt (best-effort) and filters it only when
   // `context.apply` is on (off by default); the shadow still plans closed episodes. Reuse the vault
   // key the server already holds; without one, resolve (and, on first use, create) a restricted
@@ -405,7 +404,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     canWrite: Boolean(browserToken),
     adaptiveTokenPresent: Boolean(adaptiveToken),
     env: process.env,
-    modelKey: modelKey.status,
+    keys: () =>
+      Object.fromEntries(Object.entries(keySlots()).map(([id, slot]) => [id, keys.status(slot)] as const)),
     smallModel: globalSmallModel,
     models,
     // The caps each project has reached (AH-F03), counted live on every read of the view.
@@ -472,7 +472,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       proposalReview: createProposalReview({ repository, curator }),
       learnedSkillActions: curator,
       adaptiveConfig,
-      modelKey,
+      modelKeys: { keys, slots: keySlots },
       overrides,
       ...(adaptiveToken
         ? {
@@ -545,7 +545,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     runtimeProbe,
     decisions,
     egress,
-    modelKey,
+    modelKeys: { keys, slots: keySlots },
     stop: async () => {
       clearInterval(sweep)
       clearInterval(probeInterval)

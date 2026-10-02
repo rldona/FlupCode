@@ -184,3 +184,19 @@ write the legacy `jev.enabled`, which assigns Jev to every kind. The contract no
 - Any egress of state that has not been redacted by the writer.
 - A project-local `.opencode` override for the egress allowlist.
 - Concrete budget numbers: the value is config with a conservative default.
+
+## Amendment (2026-10-03): provider-neutral settings and one key per provider (PI-01)
+
+No config key, persisted field, wire field or UI string names a provider any more:
+
+- Each provider's settings are `adaptive.providers.<id>.{endpoint, model, timeoutMs, maxInputChars,
+  keyRef, budget}`. The input bound is the assigned provider's `maxInputChars`; a provider's
+  `budget.monthlyTokens` lowers the monthly cap for it alone (the ledger stays one per month).
+- A provider's key is stored in the vault under its `keyRef`, bound to its endpoint's origin, and read
+  from `FLUPCODE_<KEYREF>` first. Jev's default `keyRef` is `typesafe-api-key`, the name above, so a
+  saved key is neither moved nor re-encrypted. `/harness/adaptive/model-key` takes the provider's id
+  (`?provider=` on a read, `provider` in a write's body; none means the only keyed provider) and
+  answers `{ source, storable, env }`. The settings view serves each key on its `providers[]` entry.
+- The decision policy's switch is `allowModel`. The `jev` block, `allowJev`, the top-level egress keys
+  and `TYPESAFE_API_KEY` are read, never written, through `adaptive/legacy.ts` for one release;
+  `jev.enabled` is no longer writable.

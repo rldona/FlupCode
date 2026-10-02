@@ -1,12 +1,12 @@
 /**
  * Deterministic context scoring and the class-and-budget planner (FH-021).
  *
- * The scorer is the baseline of the `contextItem` kind: it replaces Phase 2's keep-all, so with Jev
- * off the plan is exactly what this module computes. It is pure and total — no I/O, no clock beyond
+ * The scorer is the baseline of the `contextItem` kind: it replaces Phase 2's keep-all, so with no
+ * model the plan is exactly what this module computes. It is pure and total — no I/O, no clock beyond
  * the `now` it is handed, no model — and every weight, threshold and window is exported so
  * recalibrating never touches the algorithm and a golden test can fix the output.
  *
- * "Ambiguous" is the non-protected band strictly between the two thresholds: exactly the set Jev may
+ * "Ambiguous" is the non-protected band strictly between the two thresholds: exactly the set a model may
  * be asked about (FH-023). Protected kinds are always kept; a low score only drops a low-value
  * payload, everything else is archived, and an archived item referenced by the objective can
  * recover.
@@ -137,7 +137,7 @@ function scoreItem(item: ContextItem, now: number, keepThreshold: number, dropTh
 const isAmbiguousScore = (score: number, keepThreshold: number, dropThreshold: number): boolean =>
   score > dropThreshold && score < keepThreshold
 
-/** Whether an entry is in the non-protected band Jev may be asked about. */
+/** Whether an entry is in the non-protected band a model may be asked about. */
 export function isAmbiguous(
   entry: ContextScore,
   keepThreshold: number = KEEP_THRESHOLD,
@@ -175,7 +175,7 @@ const compareForBudget = (a: ContextScore, b: ContextScore): number => {
  * filtered, not reordered.
  *
  * This is the one budget implementation, shared by the planner and by the manager when it re-applies
- * the cap after a Jev refinement so an external `keep` can never exceed the ceiling.
+ * the cap after a model's refinement so an external `keep` can never exceed the ceiling.
  */
 export function applyContextBudget(scores: readonly ContextScore[], budget: ContextBudget): ContextScore[] {
   const perClass: Record<ContextItemKind, number> = { ...budget.perClass }

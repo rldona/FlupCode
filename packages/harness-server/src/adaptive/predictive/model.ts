@@ -14,6 +14,7 @@
  */
 
 import type { DecisionKind } from "../decision"
+import type { KeySlot } from "../model-key"
 
 /**
  * A question as every model sees it.
@@ -84,12 +85,14 @@ export type PredictiveModel = {
   /** A `remote` model is only asked for kinds and projects the egress guard allows. */
   readonly locality: "local" | "remote"
   /**
-   * The name a reader is shown for it ("Jev", "Small model (through the engine)"); the id is only
-   * what the config file says. The settings view serves it with the registry so no client spells it.
+   * The name a reader is shown for it ("Small model (through the engine)"); the id is only what the
+   * config file says. The settings view serves it with the registry so no client spells it.
    */
   readonly name?: string
-  /** Whether it needs the predictive model key (ADR-0017, amended) before it can answer. */
+  /** Whether it needs an API key (ADR-0017, amended) before it can answer. */
   readonly needsKey?: boolean
+  /** Where that key lives, read live from its settings: set exactly when `needsKey` is (PI-01). */
+  readonly keySlot?: () => KeySlot
   /** The kinds it can answer; a kind assigned to a model that does not support it keeps the baseline. */
   readonly supports: readonly DecisionKind[]
   predict(state: PredictionState, questions: readonly Question[], options: PredictOptions): Promise<Prediction>

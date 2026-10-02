@@ -15,13 +15,43 @@
  */
 
 import { decisionKinds } from "../decision"
-import type { JevConfig } from "../config"
+import type { ProviderSettings } from "../config"
 import { estimateTokens } from "../context"
 import type { EgressGuard } from "../egress"
+import type { KeySlot } from "../model-key"
 import type { Answer, Prediction, PredictionState, PredictiveModel, Question } from "../predictive/model"
 import { parseJevResponse, wireQuestions } from "./jev-parse"
 import type { JevAnswer, JevPrediction } from "./jev-parse"
 import { DecisionUnavailable } from "./provider"
+import { createRetryingModel } from "./retry"
+
+/** Jev's registry id: what `adaptive.models.<kind>`, `providers.<id>` and `egress.providers.<id>` name. */
+export const JEV_ID = "jev"
+
+/** What the client reads: Jev's `providers.jev` settings with its defaults filled in. */
+export type JevSettings = { endpoint: string; model: string; timeoutMs: number; keyRef: string }
+
+/**
+ * Jev's defaults. The key reference is the vault name its key has always been stored under, so a key
+ * saved before PI-01 is the one it still reads, and `TYPESAFE_API_KEY` is its legacy variable.
+ */
+export const JEV_DEFAULTS: JevSettings = {
+  endpoint: "https://api.typesafe.ai/v1/systemone",
+  model: "jev-1.13.0",
+  timeoutMs: 400,
+  keyRef: "typesafe-api-key",
+}
+
+/** Jev's effective settings from its `providers.jev` entry, each field falling back to its default. */
+export const jevSettings = (settings: ProviderSettings | undefined): JevSettings => ({
+  endpoint: settings?.endpoint ?? JEV_DEFAULTS.endpoint,
+  model: settings?.model ?? JEV_DEFAULTS.model,
+  timeoutMs: settings?.timeoutMs ?? JEV_DEFAULTS.timeoutMs,
+  keyRef: settings?.keyRef ?? JEV_DEFAULTS.keyRef,
+})
+
+/** Where Jev's key lives: its key reference, bound to its endpoint's origin. */
+export const jevKeySlot = (settings: JevSettings): KeySlot => ({ ref: settings.keyRef, endpoint: settings.endpoint })
 
 /** The narrow slice of a `fetch` response the adapter uses; a `Response` satisfies it as it is. */
 export type JevFetchResponse = {
@@ -91,12 +121,12 @@ const retryAfterMsFrom = (header: string | null, now: () => number): number | un
 }
 
 /** Jev's identity for the egress guard: the client re-checks Jev's own consent, not anyone else's. */
-const JEV = { id: "jev", locality: "remote" } as const
+const JEV = { id: JEV_ID, locality: "remote" } as const
 
 export function createJevClient(input: {
   fetch: JevFetch
   egress: EgressGuard
-  config: () => JevConfig
+  config: () => JevSettings
   /**
    * Asked on every request, so a key saved or removed after startup is the one the next call carries
    * (ADR-0017, amended). The caller reads the environment first, then the vault; never the config block.
@@ -214,4 +244,31 @@ export function createJevModel(input: { client: JevClient; now?: () => number })
       }
     },
   }
+}
+
+/**
+ * The predictive model served over HTTP, as the server registers it (PI-01): Jev's client on the
+ * process `fetch`, its settings read live from `providers.jev`, its key from `keys` through its own
+ * slot, and the strict per-attempt timeout, bounded retries and `Retry-After` of `retry.ts` (FH-013).
+ * The key never comes from the config block (ADR-0017).
+ */
+export function createHttpModel(input: {
+  egress: EgressGuard
+  providers: () => Record<string, ProviderSettings>
+  keys: { resolve(slot: KeySlot): Promise<string | undefined> }
+  fetch?: JevFetch
+}): PredictiveModel {
+  const settings = () => jevSettings(input.providers()[JEV_ID])
+  const keySlot = () => jevKeySlot(settings())
+  const model = createRetryingModel({
+    model: createJevModel({
+      client: createJevClient({
+        fetch: input.fetch ?? defaultJevFetch,
+        egress: input.egress,
+        config: settings,
+        apiKey: () => input.keys.resolve(keySlot()),
+      }),
+    }),
+  })
+  return { ...model, keySlot }
 }
