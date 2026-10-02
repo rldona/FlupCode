@@ -49,7 +49,14 @@ async function open(page: Page, engine: { permissions?: unknown[]; forms?: unkno
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session")
       return route.fulfill({
-        json: { data: [session("ses_perm", "Allow the shell"), session("ses_ask", "Pick the parser")], cursor: {} },
+        json: {
+          data: [
+            session("ses_perm", "Allow the shell"),
+            session("ses_ask", "Pick the parser"),
+            session("ses_web", "Read the changelog"),
+          ],
+          cursor: {},
+        },
       })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (/\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
@@ -131,6 +138,14 @@ test("the same state looks the same on a session, a run and a routine", async ({
           },
         ],
       },
+      // A browser approval (BU-01) arrives as a form too, but it asks for leave, not for an answer.
+      {
+        id: "frm_2",
+        sessionID: "ses_web",
+        title: "Browser approval",
+        metadata: { flupcode: "browser-approval", origin: "https://example.com", site: "example.com", tier: "read" },
+        fields: [{ key: "q0", title: "Allow?", type: "string", options: [{ value: "once", label: "Allow once" }] }],
+      },
     ],
   })
   await page.locator(".fc-project-toggle").first().click()
@@ -156,7 +171,11 @@ test("the same state looks the same on a session, a run and a routine", async ({
   await expect(questionRow.getByRole("img", { name: "Needs your input" })).toBeVisible()
   expect(await look(questionRow)).not.toBe(await look(permissionRow))
 
+  const browserRow = page.locator(".fc-session-row", { hasText: "Read the changelog" })
+  await expect(browserRow.getByRole("img", { name: "Needs approval" })).toBeVisible()
+  expect(await look(browserRow)).toBe(await look(permissionRow))
+
   // Collapsed, the project says how many of its sessions are at its most urgent level.
   await page.locator(".fc-project-toggle").first().click()
-  await expect(page.locator(".fc-project-toggle").getByRole("img", { name: "Needs approval (1)" })).toBeVisible()
+  await expect(page.locator(".fc-project-toggle").getByRole("img", { name: "Needs approval (2)" })).toBeVisible()
 })
