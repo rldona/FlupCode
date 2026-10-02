@@ -4,9 +4,11 @@ import { join } from "node:path"
 import { CONTRACT_LINE, startEngine, type Engine as ContractEngine } from "@flupcode/engine-contract/engine"
 import { startModel } from "@flupcode/engine-contract/model"
 import { APPROVAL_OPTIONS } from "./action-approval"
+import { createHarnessHandler } from "./api"
 import { CONFINED, Engine, NO_SHELL } from "./engine"
 import { SqliteRoutineRepository } from "./repository"
 import { TaskRunner } from "./runner"
+import { RoutineScheduler } from "./scheduler"
 import type { RunSource } from "./types"
 
 /**
@@ -90,6 +92,67 @@ describe.skipIf(!run)("the task runner on an OpenCode 2 engine", () => {
     expect(repository.listTasks(run.id)[0]?.status).toBe("stopped")
     await until(async () => !(await engine.isBusy(session)) || undefined)
   })
+
+  // TI-01: the scheduler's Stop, not a test calling `engine.interrupt` itself. A run of one task has
+  // no thread of its own, and a run of two has an idle one; either way it is the task's session that
+  // is working, and "stopped" has to mean the engine stopped it.
+  for (const shape of ["one task", "two tasks"] as const) {
+    test(`stopping a run of ${shape} stops the engine working on the live task`, async () => {
+      const repository = open()
+      const scheduler = new RoutineScheduler({
+        repository,
+        engineURL: contract.url,
+        authorization: contract.authorization,
+      })
+      model.push({ type: "hang" })
+      const tasks =
+        shape === "one task"
+          ? [{ name: "long", prompt: "Take your time" }]
+          : [
+              { name: "long", prompt: "Take your time" },
+              { name: "after", prompt: "Then this", dependsOn: ["long"] },
+            ]
+      const run = await scheduler.runTasks({ tasks, directory: contract.project })
+      const session = await until(() => repository.listTasks(run.id)[0]?.sessionID)
+      await until(async () => (await engine.isBusy(session)) || undefined)
+      const asked = model.requests.length
+
+      await scheduler.stopRun(run.id)
+      // The task reads "stopped" only once the engine has let go of its session, and within 5 s.
+      await until(() => repository.listTasks(run.id)[0]?.status === "stopped" || undefined, 5_000)
+      expect(await engine.isBusy(session)).toBe(false)
+      await until(() => repository.getRun(run.id)?.status === "stopped" || undefined, 5_000)
+      expect(repository.listTasks(run.id).map((task) => task.status)).toEqual(tasks.map(() => "stopped"))
+      await Bun.sleep(500)
+      // Nothing more is asked of the model: not the task, and not a closing note for a next task.
+      expect(model.requests.length).toBe(asked)
+    }, 20_000)
+  }
+
+  test("deleting a routine mid-run stops the engine working on its run", async () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({
+      repository,
+      engineURL: contract.url,
+      authorization: contract.authorization,
+    })
+    const handler = createHarnessHandler(repository, scheduler)
+    model.push({ type: "hang" })
+    const routine = repository.create({
+      name: "long",
+      description: "",
+      prompt: "Take your time",
+      schedule: { type: "manual" },
+      projectDirectory: contract.project,
+    })
+    const run = await scheduler.runNow(routine.id)
+    const session = await until(() => repository.listTasks(run.id)[0]?.sessionID)
+    await until(async () => (await engine.isBusy(session)) || undefined)
+
+    const removed = await handler(new Request(`http://localhost/harness/routines/${routine.id}`, { method: "DELETE" }))
+    expect(removed.status).toBe(200)
+    await until(async () => !(await engine.isBusy(session)) || undefined, 5_000)
+  }, 20_000)
 
   test("a failed check is retried with its evidence, and the second attempt fixes it", async () => {
     const repository = open()
@@ -191,8 +254,8 @@ test.skipIf(!run)(
   },
 )
 
-async function until<T>(read: () => T | undefined | Promise<T | undefined>) {
-  const deadline = Date.now() + 30_000
+async function until<T>(read: () => T | undefined | Promise<T | undefined>, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs
   for (;;) {
     const value = await read()
     if (value) return value

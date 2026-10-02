@@ -1912,6 +1912,14 @@ export const createHarnessHandler = (
       return json({ data: repository.update(routineID, input), warnings: routineWarnings(input) })
     }
     if (request.method === "DELETE") {
+      // Its run goes with it (TI-01): a run left going under a deleted routine keeps spending with
+      // nothing in the list to stop it from.
+      await Promise.all(
+        repository
+          .listRunning()
+          .filter((run) => run.source.type === "routine" && run.source.routineID === routineID)
+          .map((run) => scheduler.stopRun(run.id).catch(() => undefined)),
+      )
       repository.remove(routineID)
       return json({ data: true })
     }

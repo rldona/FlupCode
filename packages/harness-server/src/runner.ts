@@ -737,6 +737,8 @@ export class TaskRunner {
         cost: answer?.cost,
       })
       context.directories.set(task.id, directory)
+      // A stopped run has no next task to hand anything to, and a closing note is a turn of its own.
+      if (stopped()) return
       // Over budget: stop and ask, before spending on a closing note that nobody asked for.
       if (this.pauseForBudget(run)) {
         context.pause = "budget"

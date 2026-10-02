@@ -4129,11 +4129,14 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  const stopRun = (id: string) => {
-    void createHarnessClient(harnessServerUrl())
+  const stopRun = (id: string) =>
+    createHarnessClient(harnessServerUrl())
       .runs.stop(id)
-      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
-  }
+      .then(() => undefined)
+      .catch((cause) => {
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+        throw cause
+      })
 
   const removeRun = (id: string) => {
     void createHarnessClient(harnessServerUrl())

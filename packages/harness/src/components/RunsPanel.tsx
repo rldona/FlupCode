@@ -9,7 +9,8 @@ type RunsPanelProps = {
   open: boolean
   runs: Run[]
   serverAvailable: boolean
-  onStop: (id: string) => void
+  /** Resolves once the server has interrupted the run's sessions; rejects when it could not. */
+  onStop: (id: string) => Promise<void>
   onApprove: (id: string) => void
   onClear: () => void
   onStopAll: () => void
@@ -124,6 +125,13 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
   // Which run has been asked about, or ALL for the whole finished list. The question is drawn where
   // the button is: the list scrolls, and a confirmation at the foot of it is one nobody sees.
   const [confirming, setConfirming] = createSignal<string>()
+  // Runs asked to stop that the server has not yet reported as stopped (TI-01): the card stays
+  // "running" until the engine has let go, and the button says so instead of offering Stop again.
+  const [stopping, setStopping] = createSignal<string[]>([])
+  const stop = (id: string) => {
+    setStopping((ids) => [...ids, id])
+    props.onStop(id).catch(() => setStopping((ids) => ids.filter((entry) => entry !== id)))
+  }
   // The task opened in the detail panel (§6.4). Its run is looked up, because a task carries only
   // its run's id.
   const [selectedTask, setSelectedTask] = createSignal<string>()
@@ -305,10 +313,10 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       <button
                         class="fc-run-open fc-run-danger"
                         type="button"
-                        disabled={!props.serverAvailable}
-                        onClick={() => props.onStop(run.id)}
+                        disabled={!props.serverAvailable || stopping().includes(run.id)}
+                        onClick={() => stop(run.id)}
                       >
-                        {t("Stop")}
+                        {stopping().includes(run.id) ? t("Stopping…") : t("Stop")}
                       </button>
                     </Show>
                   </header>

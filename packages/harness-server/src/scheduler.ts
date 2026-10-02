@@ -15,6 +15,8 @@ type Result<T> = { data?: T; error?: unknown }
 type SchedulerOptions = {
   repository: SqliteRoutineRepository
   engineURL: string
+  /** The engine's `authorization` header; defaults to this process's engine credentials. */
+  authorization?: string
   intervalMs?: number
   lockTtlMs?: number
   /** The web actions a scheduled action drives (WA-7). Absent means action routines fail closed. */
@@ -88,7 +90,7 @@ export class RoutineScheduler {
   constructor(options: SchedulerOptions) {
     this.repository = options.repository
     this.engineURL = options.engineURL.replace(/\/$/, "")
-    this.engine = new Engine(this.engineURL)
+    this.engine = new Engine(this.engineURL, options.authorization)
     this.intervalMs = options.intervalMs ?? 30_000
     this.lockTtlMs = options.lockTtlMs ?? 24 * 60 * 60 * 1000
     this.actions = options.actions
@@ -417,8 +419,16 @@ export class RoutineScheduler {
       this.finishRun(runID, "stopped", "Stopped at the gate")
       return this.repository.getRun(runID)
     }
-    if (!run.sessionID) return run
-    await this.engine.interrupt(run.sessionID)
+    // The work is in the tasks' sessions: a run of one task has no thread of its own, and a longer
+    // run's thread sits idle while its tasks run (TI-01). Each live one is interrupted, then the
+    // thread; the runner also interrupts as it notices the flag, so a session created in between is
+    // not missed.
+    const live = this.repository
+      .listTasks(runID)
+      .flatMap((task) => (task.status === "running" && task.sessionID ? [task.sessionID] : []))
+    await Promise.all(
+      [...live, ...(run.sessionID ? [run.sessionID] : [])].map((session) => this.engine.interrupt(session)),
+    )
     return this.repository.getRun(runID)
   }
 

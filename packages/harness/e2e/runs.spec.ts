@@ -184,7 +184,8 @@ test("a finished run is deleted after confirming, and a running one offers Stop 
     if (url.pathname === "/harness/runs" && method === "GET") return route.fulfill({ json: { data: [run, done] } })
     if (/^\/harness\/runs\/[^/]+\/stop$/.test(url.pathname) && method === "POST") {
       stopped.push(url.pathname.split("/")[3]!)
-      return route.fulfill({ json: { data: { ...run, status: "stopped" } } })
+      // The server answers once the engine was interrupted; the run is reported stopped later.
+      return route.fulfill({ json: { data: run } })
     }
     if (/^\/harness\/runs\/[^/]+$/.test(url.pathname) && method === "DELETE") {
       deleted.push(url.pathname.split("/").pop()!)
@@ -206,6 +207,8 @@ test("a finished run is deleted after confirming, and a running one offers Stop 
   await expect(running.getByRole("button", { name: /^(Delete|Eliminar)$/ })).toHaveCount(0)
   await running.getByRole("button", { name: /^(Stop|Detener)$/ }).click()
   await expect.poll(() => stopped).toEqual(["run_1"])
+  // Until the run is reported stopped, the card says it is stopping rather than offering Stop again.
+  await expect(running.getByRole("button", { name: /^(Stopping…|Deteniendo…)$/ })).toBeDisabled()
 
   // The finished one asks first, where the eye already is, and then goes.
   const finished = cards.nth(1)
