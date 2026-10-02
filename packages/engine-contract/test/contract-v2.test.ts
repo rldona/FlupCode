@@ -162,6 +162,53 @@ describe.skipIf(!run)("engine contract on OpenCode 2", () => {
     })
   })
 
+  // TI-04: the terminal FlupCode draws runs on these routes. Text frames are the shell's output, a
+  // binary frame starting with 0 is the engine's own control message, input goes in as text, and the
+  // socket is opened with a one-use ticket because a browser socket cannot carry the password.
+  test("a PTY is created, connected with a ticket, written to, resized and removed", async () => {
+    const query = `location[directory]=${encodeURIComponent(engine.project)}`
+    const created = (await call("POST", `/api/pty?${query}`, { cwd: engine.project, title: "contract" })) as {
+      data: { id: string; status: string; cwd: string }
+    }
+    expect(created.data).toMatchObject({ status: "running", cwd: engine.project })
+    const id = created.data.id
+    // The ticket is refused (403) without this header, which marks the request as a ticket exchange.
+    const token = (await (
+      await fetch(`${engine.url}/api/pty/${id}/connect-token?${query}`, {
+        method: "POST",
+        headers: { ...headers(), "x-opencode-ticket": "1" },
+      })
+    ).json()) as { data: { ticket: string } }
+    const socket = new WebSocket(
+      `${engine.url.replace(/^http/, "ws")}/api/pty/${id}/connect?${query}&ticket=${token.data.ticket}`,
+    )
+    socket.binaryType = "arraybuffer"
+    let output = ""
+    const controls: unknown[] = []
+    socket.onmessage = (event) => {
+      if (typeof event.data === "string") return void (output += event.data)
+      const bytes = new Uint8Array(event.data as ArrayBuffer)
+      if (bytes[0] === 0) controls.push(JSON.parse(new TextDecoder().decode(bytes.slice(1))))
+    }
+    const closed = new Promise((resolve) => (socket.onclose = resolve))
+    await new Promise((resolve, reject) => {
+      socket.onopen = resolve
+      socket.onerror = reject
+    })
+    socket.send("echo contract-$((6 * 7))\r")
+    await until(() => output.includes("contract-42"))
+    expect(controls[0]).toMatchObject({ cursor: expect.any(Number) })
+
+    await call("PUT", `/api/pty/${id}?${query}`, { size: { rows: 31, cols: 101 } })
+    socket.send("stty size\r")
+    await until(() => output.includes("31 101"))
+
+    await call("DELETE", `/api/pty/${id}?${query}`)
+    await closed
+    const listed = (await call("GET", `/api/pty?${query}`)) as { data: Array<{ id: string }> }
+    expect(listed.data.map((pty) => pty.id)).not.toContain(id)
+  })
+
   test("the routes read outside a turn answer for the location", async () => {
     const id = await createSession()
     const mcp = (await call("GET", "/api/mcp")) as { location?: unknown; data?: unknown }
@@ -275,4 +322,12 @@ function shape(messages: Message[]) {
       ? { content: message.content.map((item) => (item.type === "tool" ? `tool:${item.state?.status}` : item.type)) }
       : {}),
   }))
+}
+
+async function until(check: () => boolean) {
+  const deadline = Date.now() + 15_000
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("Timed out")
+    await Bun.sleep(50)
+  }
 }

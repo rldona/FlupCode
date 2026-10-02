@@ -185,3 +185,43 @@ test("the context meter spends what the engine says the session cost", async ({ 
   const spent = page.locator(".fc-context-row").filter({ hasText: /Spent|Gastado/ })
   await expect(spent).toContainText(`$${session.data.cost.toFixed(2)}`)
 })
+
+// TI-04: the terminal on OpenCode 2's own PTY. What a reader does with it: type a command, read
+// what it printed. On the 1.x routes this panel printed a JSON parse error and never connected.
+test("the terminal runs a command typed into it and shows what it printed", async ({ page, request }) => {
+  await openSession(page, request, { mode: "auto" })
+  await page.getByRole("button", { name: "Terminal" }).click()
+  const terminal = page.locator(".fc-terminal")
+  await expect(terminal.locator(".xterm")).toBeVisible()
+  await expect(terminal).not.toContainText("terminal error")
+
+  await terminal.click()
+  // Arithmetic, so what is checked is the shell's answer and not the echo of the line typed.
+  await page.keyboard.type("echo flup-$((6 * 7))")
+  await page.keyboard.press("Enter")
+  await expect(terminal.locator(".xterm-rows")).toContainText("flup-42", { timeout: 15_000 })
+
+  // The panel's size reaches the shell, and a new size does too.
+  const size = async () => {
+    await page.keyboard.type('echo "size=$(stty size | tr " " x)"')
+    await page.keyboard.press("Enter")
+    const rows = terminal.locator(".xterm-rows")
+    await expect(rows).toContainText(/size=\d+x\d+/)
+    return ((await rows.textContent()) ?? "").match(/size=(\d+x\d+)/g)!.at(-1)!
+  }
+  const before = await size()
+  const viewport = page.viewportSize()!
+  await page.setViewportSize({ width: viewport.width - 200, height: viewport.height - 150 })
+  await expect.poll(size).not.toBe(before)
+  await page.setViewportSize(viewport)
+
+  // Closing the panel removes the PTY from the engine.
+  const project = ((await (await request.get(`${CONTROL}/__fixture`)).json()) as { project: string }).project
+  const ptys = async () =>
+    ((await (await request.get(`${ENGINE}/api/pty`, { headers: { "x-opencode-directory": encodeURIComponent(project) } })).json()) as {
+      data: unknown[]
+    }).data.length
+  expect(await ptys()).toBe(1)
+  await page.getByRole("button", { name: "Terminal" }).click()
+  await expect.poll(ptys).toBe(0)
+})
