@@ -3040,7 +3040,8 @@ export default {
  * off through `plan_exit`, and that tool, which asks the reader through harness-server (a plugin's
  * tool cannot ask) and switches to build on a yes; and the permission floor: 2.x merges an agent's
  * rules with the session's, so a session-level `*: allow` (FlupCode's permission modes) would let the
- * plan agent edit. Here an action the agent's own rules deny stays denied, whatever the session says.
+ * plan agent edit. Here an action the agent's own rules deny stays denied, whatever the session says,
+ * and when those rules cannot be read the action is refused rather than let through (RP-05).
  */
 export const AGENTS_PLUGIN_V2 = {
   file: "flupcode-agents.js",
@@ -3129,19 +3130,27 @@ export default {
       })
     })
 
-    // The floor: the agent's own rules, asked of the engine and kept for a moment.
+    // The floor: the agent's own rules, asked of the engine and kept for a moment. A lookup that fails
+    // is not remembered, and it is not read as "no rules": undefined, so the call is refused (RP-05).
     const rules = new Map()
     const agentRules = async (agentID) => {
       const known = rules.get(agentID)
       if (known && Date.now() - known.at < RULES_TTL_MS) return known.rules
       const answer = await ctx.agent.get({ agentID, ...(directory ? { location: { directory } } : {}) }).catch(() => undefined)
-      const fresh = (answer && answer.data && answer.data.permissions) || []
-      rules.set(agentID, { rules: fresh, at: Date.now() })
+      const fresh = answer && answer.data && Array.isArray(answer.data.permissions) ? answer.data.permissions : undefined
+      if (fresh) rules.set(agentID, { rules: fresh, at: Date.now() })
       return fresh
     }
     await ctx.permission.hook("evaluate", async (input) => {
       if (!input.agent || input.effect === "deny") return
       const own = await agentRules(input.agent)
+      // Fails closed: without the agent's rules nobody can say the session's allow is not overriding
+      // one of its denials, so the call is refused and the model is told why.
+      if (!own) {
+        input.effect = "deny"
+        input.message = "Could not read the " + input.agent + " agent's rules, so " + input.action + " is not allowed."
+        return
+      }
       if (!(input.resources || []).some((resource) => effectOf(own, input.action, resource) === "deny")) return
       input.effect = "deny"
       input.message = "The " + input.agent + " agent does not allow " + input.action + "."

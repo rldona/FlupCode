@@ -284,7 +284,7 @@ const conditionFrom = (value: unknown): TaskCondition | undefined => {
  */
 const policyFrom = (value: unknown): RunPolicy | undefined => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
-  const input = value as { models?: unknown; fallback?: unknown; budget?: unknown }
+  const input = value as { models?: unknown; fallback?: unknown; budget?: unknown; unattended?: unknown }
   const models: Record<string, string> = {}
   if (input.models && typeof input.models === "object" && !Array.isArray(input.models)) {
     for (const [role, model] of Object.entries(input.models as Record<string, unknown>)) {
@@ -304,6 +304,7 @@ const policyFrom = (value: unknown): RunPolicy | undefined => {
     ...(Object.keys(models).length > 0 ? { models } : {}),
     ...(typeof input.fallback === "string" && input.fallback.trim() ? { fallback: input.fallback.trim() } : {}),
     ...(budget && Object.keys(budget).length > 0 ? { budget } : {}),
+    ...(input.unattended === "deny" || input.unattended === "gate" ? { unattended: input.unattended } : {}),
   }
   return Object.keys(policy).length > 0 ? policy : undefined
 }
@@ -1251,8 +1252,26 @@ export const createHarnessHandler = (
       const run = repository.getRun(path[2])
       if (!run) return error("Run not found", 404)
       if (run.status !== "awaiting") return error("This run is not waiting at a gate", 409)
+      // Held for a request mid-turn (RP-05): the answer goes to the request, which is what lets it on.
+      if (run.paused === "request") return error("This run waits for an answer to its task's request", 409)
       const resumed = scheduler.approve(run.id)
       return resumed ? json({ data: resumed }) : error("This run is not waiting at a gate", 409)
+    }
+    // What a project's runs do when a task needs a person mid-turn (RP-05), unless the run, its routine
+    // or its workflow says: read for the run card, and picked by the reader there.
+    if (path[1] === "projects" && path[2] === "unattended" && !path[3]) {
+      if (request.method === "GET") {
+        const directory = new URL(request.url).searchParams.get("directory")
+        if (!directory) return error("A project directory is required", 400)
+        return json({ data: { unattended: repository.projectUnattended(directory) ?? "gate" } })
+      }
+      if (request.method === "PUT") {
+        const body = (await readJSON(request)) as { directory?: unknown; unattended?: unknown } | undefined
+        if (typeof body?.directory !== "string" || !body.directory) return error("A project directory is required", 400)
+        if (body.unattended !== "deny" && body.unattended !== "gate") return error("unattended is deny or gate", 400)
+        repository.setProjectUnattended(body.directory, body.unattended)
+        return json({ data: { unattended: body.unattended } })
+      }
     }
     // Picking up a run that failed, was stopped or lost its process (HF-5, RP-04), from a task or
     // from where it broke. What it would do is asked first (GET), because it restores the folder.

@@ -981,16 +981,17 @@ describe("OpenCode 2 agents", () => {
     { action: "edit", resource: "/home/.opencode/plan/*", effect: "allow" },
   ]
 
-  async function agents(approved = true) {
+  async function agents(approved = true, lookup?: (agentID: string) => Promise<unknown>) {
     const calls = await harness({ "/harness/plan-exit": { approved } })
     const plugin_ = await plugin("flupcode-agents.js")
     const recorded = context("/work/demo")
     Object.assign(recorded.ctx, {
       agent: {
         transform: async (callback: Callback) => void (recorded.transforms.agent = callback),
-        get: async (input: { agentID: string }) => ({
-          data: { id: input.agentID, permissions: input.agentID === "plan" ? planRules : [] },
-        }),
+        get: async (input: { agentID: string }) =>
+          lookup
+            ? lookup(input.agentID)
+            : { data: { id: input.agentID, permissions: input.agentID === "plan" ? planRules : [] } },
       },
       permission: {
         hook: async (name: string, callback: Callback) => void recorded.hooks.set(`permission.${name}`, callback),
@@ -1043,6 +1044,32 @@ describe("OpenCode 2 agents", () => {
     const read = { ...edit, action: "read", effect: "ask", message: undefined }
     await evaluate(read as never)
     expect(read.effect).toBe("ask")
+  })
+
+  // RP-05: an agent whose rules cannot be read is not an agent with no rules.
+  test("the floor fails closed when the agent's rules cannot be read, and asks again next time", async () => {
+    let failing = true
+    const { recorded } = await agents(true, async (agentID) => {
+      if (failing) throw new Error("engine unavailable")
+      return { data: { id: agentID, permissions: [] } }
+    })
+    const evaluate = recorded.hooks.get("permission.evaluate")!
+    const edit = { sessionID: "ses_1", agent: "build", action: "edit", resources: ["a.txt"], effect: "allow" } as Record<
+      string,
+      unknown
+    >
+    await evaluate(edit as never)
+    expect(edit).toMatchObject({ effect: "deny", message: "Could not read the build agent's rules, so edit is not allowed." })
+    // The failure is not remembered: once the engine answers, the session's rules decide again.
+    failing = false
+    const again = { ...edit, effect: "allow", message: undefined }
+    await evaluate(again as never)
+    expect(again.effect).toBe("allow")
+    // An answer without a rules list is not read as "no rules" either.
+    const { recorded: empty } = await agents(true, async (agentID) => ({ data: { id: agentID } }))
+    const shapeless = { ...edit, effect: "allow", message: undefined }
+    await empty.hooks.get("permission.evaluate")!(shapeless as never)
+    expect(shapeless.effect).toBe("deny")
   })
 
   test("plan_exit asks through the harness and tells the model what the reader chose", async () => {

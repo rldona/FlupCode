@@ -58,6 +58,7 @@ import type {
   Task,
   TaskCondition,
   TaskInput,
+  Unattended,
   TaskStatus,
   RunStatus,
   ServerEvent,
@@ -1152,7 +1153,9 @@ const decodeOptions = (
       ...(parsed.policy && typeof parsed.policy === "object" && !Array.isArray(parsed.policy)
         ? { policy: parsed.policy as Run["policy"] }
         : {}),
-      ...(parsed.paused === "gate" || parsed.paused === "budget" ? { paused: parsed.paused } : {}),
+      ...(parsed.paused === "gate" || parsed.paused === "budget" || parsed.paused === "request"
+        ? { paused: parsed.paused }
+        : {}),
       ...(parsed.budgetApproved === true ? { budgetApproved: true } : {}),
       ...(allow !== undefined ? { allow } : {}),
     }
@@ -1530,6 +1533,20 @@ export class SqliteRoutineRepository implements RoutineRepository {
         name: "artifact-versions",
         rewrites: true,
         up: () => this.migrateArtifactVersions(),
+      },
+      {
+        // A project's default for a task that needs a person mid-turn (RP-05): fail it, or hold the
+        // run for an answer. A new table: no project has a default yet, and none is read into one,
+        // so every run keeps behaving as `gate` until somebody picks otherwise.
+        version: 12,
+        name: "project-settings",
+        rewrites: true,
+        up: () =>
+          this.db.exec(`CREATE TABLE IF NOT EXISTS project_settings (
+            directory TEXT PRIMARY KEY,
+            unattended TEXT,
+            updated_at INTEGER NOT NULL
+          )`),
       },
     ]
   }
@@ -2113,6 +2130,24 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.patchOptions(runID, { paused })
   }
 
+  /**
+   * A task's session waits on a person mid-turn (RP-05). The run is `awaiting` like at a gate, but its
+   * runner is still waiting on the turn, so letting it go is the engine's answer, not `approve`.
+   */
+  holdForRequest(runID: string) {
+    if (this.db.query("UPDATE runs SET status = 'awaiting' WHERE id = ?1 AND status = 'running'").run(runID).changes === 0)
+      return
+    this.patchOptions(runID, { paused: "request" })
+  }
+
+  /** The request was answered (or the task ended): the run is running again, if it was held for one. */
+  releaseRequest(runID: string) {
+    const run = this.getRun(runID)
+    if (run?.status !== "awaiting" || run.paused !== "request") return
+    this.db.query("UPDATE runs SET status = 'running' WHERE id = ?1 AND status = 'awaiting'").run(runID)
+    this.patchOptions(runID, { paused: undefined })
+  }
+
   /** Somebody said to carry on past the budget (H-30), so it is not checked again. */
   approveBudget(runID: string) {
     this.patchOptions(runID, { budgetApproved: true, paused: undefined })
@@ -2612,6 +2647,23 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   removePack(id: string) {
     return this.db.query("DELETE FROM context_packs WHERE id = ?1").run(id).changes > 0
+  }
+
+  /** What a project's runs do by default when a task needs a person (RP-05); absent when none was picked. */
+  projectUnattended(directory: string): Unattended | undefined {
+    const row = this.db.query("SELECT unattended FROM project_settings WHERE directory = ?1").get(directory) as {
+      unattended: string | null
+    } | null
+    return row?.unattended === "deny" || row?.unattended === "gate" ? row.unattended : undefined
+  }
+
+  setProjectUnattended(directory: string, mode: Unattended, now = Date.now()) {
+    this.db
+      .query(
+        `INSERT INTO project_settings (directory, unattended, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(directory) DO UPDATE SET unattended = excluded.unattended, updated_at = excluded.updated_at`,
+      )
+      .run(directory, mode, now)
   }
 
   /** Keeps a conversation so a link can read it (H-35). */
