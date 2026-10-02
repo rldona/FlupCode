@@ -911,6 +911,7 @@ const ES: Record<string, string> = {
   "Routine stopped": "Rutina detenida",
   "Stop run": "Detener ejecución",
   "Stopping…": "Deteniendo…",
+  "The terminal could not connect to the engine": "El terminal no pudo conectarse al motor",
   "Open run": "Abrir ejecución",
   "Session options": "Opciones de la sesión",
   "Delete this session?": "¿Eliminar esta sesión?",

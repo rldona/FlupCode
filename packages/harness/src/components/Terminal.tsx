@@ -1,36 +1,78 @@
-import { onCleanup, onMount, type Component } from "solid-js"
+import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { Terminal as XTerm } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
-import type { EngineSocket } from "@flupcode/remote"
-import { engineFetch, engineSocket } from "../transport"
+import { createClient } from "../client"
+import { t } from "../i18n"
+import { PanelFailure } from "./PanelBoundary"
 
 type TerminalPanelProps = {
   serverUrl: string
   directory?: string
 }
 
+/** How many times a lost connection is reopened on its own before the reader is asked. */
+const RECONNECTS = 3
+
+/**
+ * A shell on the engine's machine, on OpenCode 2's PTY (TI-04).
+ *
+ * Everything engine-shaped — the routes, the connect ticket, the frames — is the adapter's
+ * (`engine.pty`); this draws the terminal and keeps it connected. A lost socket is reopened against
+ * the same PTY a few times, from a cleared screen because the engine replays what it printed; past
+ * that, or when the PTY cannot be made at all, the panel says so in a sentence with a way to retry.
+ */
 export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let container: HTMLDivElement | undefined
   let term: XTerm | undefined
   let fit: FitAddon | undefined
-  let socket: EngineSocket | undefined
+  let stream: { send: (data: string) => void; close: () => void } | undefined
   let ptyID: string | undefined
+  // What was typed while no stream was open (the first connect, a reconnect): sent once one is.
+  let pending = ""
   let disposed = false
+  const [failure, setFailure] = createSignal<Error>()
 
-  const base = () => props.serverUrl.replace(/\/$/, "")
-  const query = () => (props.directory ? `?directory=${encodeURIComponent(props.directory)}` : "")
+  const engine = () => createClient(props.serverUrl).pty
 
   const sendSize = () => {
-    if (!ptyID) return
-    const cols = term?.cols
-    const rows = term?.rows
-    if (!cols || !rows) return
-    void engineFetch(`${base()}/pty/${ptyID}${query()}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ size: { rows, cols } }),
-    }).catch(() => undefined)
+    if (!ptyID || !term?.cols || !term.rows) return
+    void engine()
+      .resize(ptyID, { rows: term.rows, cols: term.cols }, props.directory)
+      .catch(() => undefined)
+  }
+
+  const connect = async (attempt = 0): Promise<void> => {
+    try {
+      ptyID ??= await engine().create(props.directory)
+      if (disposed) return
+      term?.reset()
+      stream = await engine().connect({
+        id: ptyID,
+        directory: props.directory,
+        onOutput: (data) => term?.write(data),
+        // A dropped socket is reopened after a pause, so a PTY that keeps closing cannot spin.
+        onClose: () => {
+          stream = undefined
+          if (!disposed) setTimeout(() => void connect(), 500)
+        },
+      })
+      if (disposed) return stream.close()
+      if (pending) stream.send(pending)
+      pending = ""
+      setFailure(undefined)
+      sendSize()
+      term?.focus()
+    } catch (cause) {
+      if (disposed) return
+      if (attempt < RECONNECTS && ptyID) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
+        return connect(attempt + 1)
+      }
+      // The PTY is gone or never was: Retry makes a new one.
+      ptyID = undefined
+      setFailure(cause instanceof Error ? cause : new Error(String(cause)))
+    }
   }
 
   // xterm needs concrete colours, so read the palette tokens the app already applies to <html>.
@@ -59,64 +101,42 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)
-    queueMicrotask(() => {
-      fit?.fit()
-      sendSize()
-    })
+    queueMicrotask(() => fit?.fit())
 
-    const observer = new ResizeObserver(() => {
-      fit?.fit()
-      sendSize()
-    })
+    const observer = new ResizeObserver(() => fit?.fit())
     observer.observe(container)
-
+    term.onResize(() => sendSize())
     term.onData((data) => {
-      if (socket?.readyState === 1) socket.send(data)
+      if (stream) return stream.send(data)
+      pending += data
     })
-
-    void (async () => {
-      try {
-        const created = (await engineFetch(`${base()}/pty${query()}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...(props.directory ? { cwd: props.directory } : {}) }),
-        }).then((response) => response.json())) as { id?: string }
-        if (disposed) return
-        if (!created.id) throw new Error("PTY session could not be created")
-        ptyID = created.id
-        const socketUrl = `${base().replace(/^http/, "ws")}/pty/${ptyID}/connect${query()}`
-        socket = engineSocket(socketUrl)
-        socket.binaryType = "arraybuffer"
-        socket.onopen = () => {
-          sendSize()
-          term?.focus()
-        }
-        socket.onmessage = (event) => {
-          if (typeof event.data === "string") {
-            term?.write(event.data)
-            return
-          }
-          const bytes = new Uint8Array(event.data as ArrayBuffer)
-          if (bytes[0] === 0) return
-          term?.write(bytes)
-        }
-        socket.onclose = () => {
-          if (!disposed) term?.write("\r\n[disconnected]\r\n")
-        }
-      } catch (error) {
-        term?.write(`\r\n[terminal error] ${error instanceof Error ? error.message : String(error)}\r\n`)
-      }
-    })()
+    void connect()
 
     onCleanup(() => {
       disposed = true
       observer.disconnect()
       themeObserver.disconnect()
-      socket?.close()
-      if (ptyID) void engineFetch(`${base()}/pty/${ptyID}${query()}`, { method: "DELETE" }).catch(() => undefined)
+      stream?.close()
+      if (ptyID) void engine().remove(ptyID, props.directory).catch(() => undefined)
       term?.dispose()
     })
   })
 
-  return <div class="fc-terminal" ref={container} />
+  return (
+    <>
+      <Show when={failure()}>
+        {(error) => (
+          <PanelFailure
+            title={t("The terminal could not connect to the engine")}
+            error={error()}
+            onRetry={() => {
+              setFailure(undefined)
+              void connect()
+            }}
+          />
+        )}
+      </Show>
+      <div class="fc-terminal" classList={{ "fc-terminal-failed": !!failure() }} ref={container} />
+    </>
+  )
 }

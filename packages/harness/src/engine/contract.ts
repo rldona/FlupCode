@@ -705,6 +705,31 @@ export type EngineClient = {
         }) => Promise<VcsFileDiff[]>;
     };
     /**
+     * A terminal on the engine's machine (TI-04): OpenCode 2's PTY, in `directory`.
+     *
+     * `connect` opens the live stream with a one-use ticket (a browser socket cannot carry the
+     * engine's password) and resolves once it is open; it replays what the terminal printed so far,
+     * so a reconnect after a lost socket starts from a cleared screen. `onClose` is called when the
+     * stream ends, whoever ended it.
+     */
+    pty: {
+        create: (directory?: string) => Promise<string>;
+        resize: (id: string, size: {
+            rows: number;
+            cols: number;
+        }, directory?: string) => Promise<void>;
+        remove: (id: string, directory?: string) => Promise<void>;
+        connect: (input: {
+            id: string;
+            directory?: string;
+            onOutput: (data: string | Uint8Array) => void;
+            onClose: () => void;
+        }) => Promise<{
+            send: (data: string) => void;
+            close: () => void;
+        }>;
+    };
+    /**
      * MCP servers. The engine's `/mcp` routes drive the running instance, while the servers
      * themselves live in the configuration, so adding and removing one writes there as well —
      * otherwise a server added here would be gone the next time the engine started. Every call in

@@ -2,7 +2,7 @@ import { OpenCode } from "@opencode/client"
 import type { EngineClient } from "../client"
 import { openExternalUrl } from "../external-links"
 import { subscribeEvents } from "../event-stream"
-import { engineFetch } from "../transport"
+import { engineFetch, engineSocket } from "../transport"
 import type { MemoryInfo } from "../engine-types"
 import { EngineError, unsupported } from "./error"
 import {
@@ -490,6 +490,7 @@ export function createV2Domains(
     | "migration"
     | "file"
     | "vcs"
+    | "pty"
   > = {
     health: {
       get: async () => ({ healthy: true, version: (await call(client.server.info())).version }),
@@ -607,6 +608,42 @@ export function createV2Domains(
             }),
           )
         ).data,
+    },
+    pty: {
+      create: async (directory?: string) =>
+        (await call(client.pty.create({ ...where(directory), ...(directory ? { cwd: directory } : {}) }))).data.id,
+      resize: async (id: string, size: { rows: number; cols: number }, directory?: string) => {
+        await call(client.pty.update({ ptyID: id, ...where(directory), size }))
+      },
+      remove: async (id: string, directory?: string) => {
+        await call(client.pty.remove({ ptyID: id, ...where(directory) }))
+      },
+      connect: async (input) => {
+        // The header marks the request as a ticket exchange; without it the engine answers 403.
+        const ticket = (
+          await call(client.pty.connect.token({ ptyID: input.id, ...where(input.directory), "x-opencode-ticket": "1" }))
+        ).data.ticket
+        const url = new URL(`api/pty/${encodeURIComponent(input.id)}/connect`, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`)
+        if (input.directory) url.searchParams.set("location[directory]", input.directory)
+        url.searchParams.set("ticket", ticket)
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+        const socket = engineSocket(url.toString())
+        socket.binaryType = "arraybuffer"
+        socket.onmessage = (event) => {
+          if (typeof event.data === "string") return input.onOutput(event.data)
+          // A binary frame that starts with 0 is the engine's own control message (where the replay
+          // ended), not output.
+          const bytes = new Uint8Array(event.data as ArrayBuffer)
+          if (bytes[0] !== 0) input.onOutput(bytes)
+        }
+        await new Promise<void>((resolve, reject) => {
+          socket.onopen = () => resolve()
+          socket.onerror = () => reject(new EngineError("The terminal's connection to the engine failed"))
+          socket.onclose = () => reject(new EngineError("The engine closed the terminal before it opened"))
+        })
+        socket.onclose = () => input.onClose()
+        return { send: (data: string) => socket.send(data), close: () => socket.close() }
+      },
     },
   }
 

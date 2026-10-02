@@ -2473,6 +2473,10 @@ button.fc-status {
   height: 100%;
 }
 
+.fc-terminal-failed {
+  display: none;
+}
+
 .fc-loader-dots {
   display: inline-flex;
   align-items: center;
