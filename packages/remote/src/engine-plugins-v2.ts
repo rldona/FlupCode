@@ -687,13 +687,31 @@ export default {
 `,
 }
 
-/** session-metrics: each step's usage and latency and each tool's output size, for the cost baseline. */
+/**
+ * session-metrics: each step's usage and latency and each tool's output size, for the cost baseline,
+ * and every billable engine event as a row of the usage ledger (UL-02).
+ */
 export const SESSION_METRICS_PLUGIN_V2 = {
   file: "flupcode-session-metrics.js",
-  source: String.raw`// Installed by FlupCode for OpenCode 2. Posts each model step's token usage, cost and latency, each
-// finished tool's output size and each compaction to the loopback harness, which folds them into one
-// row per turn. Only counts, ids, names and timings travel. Regenerated when FlupCode starts the
-// engine; edits here are overwritten.
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Two feeds from one event stream, to the loopback harness:
+// - the adaptive metrics: each model step's usage and latency, each finished tool's output size and
+//   each compaction, which the harness folds into one row per turn (adaptive token);
+// - the usage ledger: one row per billable engine event, queued here and retried until the harness
+//   takes it (plugin token).
+// Only counts, ids, names and timings travel. Regenerated when FlupCode starts the engine; edits here
+// are overwritten.
+//
+// Ledger ids. The reconciler (UL-03) rebuilds the same rows from the engine's message.list, so a row's
+// id names the message or part it comes from, never the bus event, and both sides agree on it:
+//   step         sessionID:step:assistantMessageID          session.step.ended
+//   step_failed  sessionID:step_failed:assistantMessageID   session.step.failed (cost only if reported)
+//   compaction   sessionID:compaction:compactionMessageID   session.compaction.ended / .failed
+//   tool         sessionID:tool:callID                      session.tool.success / .failed (the part id)
+// The compaction message id is the one message.list shows: the started event's inputID, else that
+// event's own id with "evt_" made "msg_" (2.0.18 names it so). A failed compaction that spent nothing
+// has no row. session.usage.recorded is no row: for a compaction it repeats the compaction event's
+// cost, and on 2.0.18 neither it nor the title's usage reaches plugins, so a title has no row yet.
+// engineSeq is the event's durable seq.
 import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -702,10 +720,32 @@ const FETCH_TIMEOUT_MS = (() => {
   const raw = Number(process.env.FLUPCODE_METRICS_FETCH_TIMEOUT_MS)
   return Number.isFinite(raw) && raw > 0 ? raw : 2000
 })()
+// The first wait after a failed delivery; it doubles up to MAX_RETRY_MS.
+const RETRY_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_USAGE_RETRY_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000
+})()
+const MAX_RETRY_MS = 15_000
+const USAGE_FETCH_TIMEOUT_MS = 10_000
+// The ingest route's limit per list. A longer outage than the queue holds loses the oldest rows,
+// which the reconciler recovers from the engine.
+const BATCH = 500
+const MAX_QUEUED = 10_000
 const MAX_TRACKED = 2000
 const MAX_READ_PATHS = 1000
 
 ${ADAPTIVE_HELPERS}
+
+// The plugins' own bearer (TI-10), the one the ledger's ingest takes. Read on every delivery, so a
+// harness that writes it after the engine started is still reached.
+async function readPluginToken() {
+  const fromEnv = process.env.FLUPCODE_PLUGIN_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "plugin-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
 
 function remember(map, key, value) {
   map.delete(key)
@@ -713,8 +753,10 @@ function remember(map, key, value) {
   if (map.size > MAX_TRACKED) map.delete(map.keys().next().value)
 }
 
-const count = (value) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0)
+const number = (value) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined)
+const count = (value) => number(value) ?? 0
 const text = (value) => (typeof value === "string" && value ? value : undefined)
+const present = (key, value) => (value === undefined ? {} : { [key]: value })
 
 function tokensOf(tokens) {
   const cache = tokens && tokens.cache
@@ -742,6 +784,11 @@ const tools = new Map()
 const sent = new Map()
 // A read of a file the session read before its last compaction is a re-read (AH-D04).
 const reads = new Map()
+// What a session's creation said about it, and the compaction each session is running.
+const sessions = new Map()
+const compactions = new Map()
+// Ledger rows not yet taken by the harness, in order.
+const delivery = { events: [], tools: [], busy: false, timer: undefined, wait: 0 }
 
 function once(key) {
   if (sent.has(key)) return false
@@ -765,9 +812,13 @@ function reread(sessionID, tool, file) {
   return again
 }
 
-function firstOutput(stepID) {
+// The adaptive latency is timed here; the ledger's from the engine's own timestamps, which the
+// reconciler reads back too.
+function firstOutput(stepID, created) {
   const step = steps.get(stepID)
-  if (step && step.firstAt === undefined) step.firstAt = Date.now()
+  if (!step) return
+  if (step.firstAt === undefined) step.firstAt = Date.now()
+  if (step.firstCreated === undefined) step.firstCreated = number(created)
 }
 
 function observe(event) {
@@ -787,26 +838,31 @@ function observe(event) {
       const model = data.model || {}
       remember(steps, stepID, {
         turnID: prompts.get(sessionID) || stepID,
+        prompt: prompts.get(sessionID),
         providerID: text(model.providerID),
         modelID: text(model.id),
+        variant: text(model.variant),
         agent: text(data.agent),
         startedAt: Date.now(),
         firstAt: undefined,
+        started: number(data.started) ?? number(event.created),
+        firstCreated: undefined,
       })
       return
     }
     case "session.text.started":
     case "session.reasoning.started":
-      return firstOutput(stepID)
+      return firstOutput(stepID, event.created)
     // The call's name comes as its input starts streaming; its finished input, without the name, after.
     case "session.tool.input.started":
-      firstOutput(stepID)
+      firstOutput(stepID, event.created)
       if (text(data.id) && text(data.name)) remember(tools, data.id, { name: data.name, tool: named(data.name) })
       return
     case "session.tool.called": {
       const tool = text(data.id) ? tools.get(data.id) : undefined
       const input = data.input || {}
       if (!tool) return
+      tool.calledAt = number(event.created)
       if (tool.name === "skill") tool.skill = text(input.name)
       if (tool.name === "read") tool.file = text(input.path)
       return
@@ -862,13 +918,187 @@ function observe(event) {
   }
 }
 
+/** The ledger row an engine event makes, if it is billable: { event } or { tool }. */
+function ledger(event, fallbackDirectory) {
+  const data = (event && event.data) || {}
+  const sessionID = text(data.sessionID)
+  if (!sessionID) return
+  const stepID = text(data.assistantMessageID)
+  switch (event.type) {
+    case "session.created":
+      remember(sessions, sessionID, { parentID: text(data.parentID), projectID: text(data.projectID) })
+      return
+    case "session.compaction.started":
+      remember(compactions, sessionID, {
+        id: text(data.inputID) || messageOf(event.id),
+        started: number(event.created),
+      })
+      return
+    case "session.step.ended":
+    case "session.step.failed": {
+      if (!stepID) return
+      const failed = event.type === "session.step.failed"
+      const step = steps.get(stepID) || {}
+      const row = {
+        id: sessionID + (failed ? ":step_failed:" : ":step:") + stepID,
+        kind: failed ? "step_failed" : "step",
+        ...facts(event, sessionID, fallbackDirectory),
+        messageID: stepID,
+        ...present("turnID", step.prompt),
+        ...present("agent", step.agent),
+        ...present("providerID", step.providerID),
+        ...present("modelID", step.modelID),
+        ...present("variant", step.variant),
+        ...priced(data),
+        ...present("startedAt", step.started),
+        ...present("endedAt", number(event.created)),
+        ...present(
+          "firstTokenMs",
+          step.started !== undefined && step.firstCreated !== undefined
+            ? Math.max(0, step.firstCreated - step.started)
+            : undefined,
+        ),
+        ...present("finish", text(data.finish)),
+        ...present("errorType", failed ? text(data.error && data.error.type) : undefined),
+      }
+      return once("ledger:" + row.id) ? { event: row } : undefined
+    }
+    case "session.compaction.ended":
+    case "session.compaction.failed": {
+      const failed = event.type === "session.compaction.failed"
+      const running = compactions.get(sessionID)
+      compactions.delete(sessionID)
+      // Nothing to compact, or refused before the model was asked: nothing was spent.
+      if (failed && data.cost === undefined && data.tokens === undefined) return
+      const messageID = (running && running.id) || text(data.inputID) || messageOf(event.id)
+      const model = data.model || {}
+      const row = {
+        id: sessionID + ":compaction:" + messageID,
+        kind: "compaction",
+        ...facts(event, sessionID, fallbackDirectory),
+        messageID,
+        ...present("providerID", text(model.providerID)),
+        ...present("modelID", text(model.id)),
+        ...present("variant", text(model.variant)),
+        ...priced(data),
+        ...present("startedAt", running && running.started),
+        ...present("endedAt", number(event.created)),
+        ...present("errorType", failed ? text(data.error && data.error.type) : undefined),
+      }
+      return once("ledger:" + row.id) ? { event: row } : undefined
+    }
+    case "session.tool.success":
+    case "session.tool.failed": {
+      const callID = text(data.id)
+      const tool = callID ? tools.get(callID) : undefined
+      if (!tool) return
+      const ended = number(event.created)
+      const row = {
+        id: sessionID + ":tool:" + callID,
+        sessionID,
+        ...present("messageID", stepID),
+        tool: tool.name,
+        ...present("startedAt", tool.calledAt),
+        ms: tool.calledAt !== undefined && ended !== undefined ? Math.max(0, ended - tool.calledAt) : 0,
+        error: event.type === "session.tool.failed",
+        bytes: contentBytes(data.content),
+      }
+      return once("ledger:" + row.id) ? { tool: row } : undefined
+    }
+  }
+}
+
+// 2.0.18 names a message made from an event after it: the event id with its prefix swapped.
+function messageOf(eventID) {
+  return typeof eventID === "string" ? eventID.replace(/^evt_/, "msg_") : undefined
+}
+
+function facts(event, sessionID, fallbackDirectory) {
+  const session = sessions.get(sessionID) || {}
+  return {
+    sessionID,
+    ...present("parentSessionID", session.parentID),
+    ...present("engineSeq", number(event.durable && event.durable.seq)),
+    ...present("directory", text(event.location && event.location.directory) || fallbackDirectory),
+    ...present("engineProjectID", session.projectID),
+  }
+}
+
+// The cost is the engine's list price; whether that was money spent or a subscription is the
+// harness's to say. A cost the engine did not report stays absent, never $0.
+function priced(data) {
+  return {
+    tokens: tokensOf(data.tokens),
+    ...present("costUSD", number(data.cost)),
+    costBasis: "engine-list-price",
+    billing: "unknown",
+  }
+}
+
+function enqueue(list, row, base) {
+  list.push(row)
+  if (list.length > MAX_QUEUED) list.shift()
+  deliver(base)
+}
+
+function deliver(base) {
+  if (delivery.busy || delivery.timer !== undefined) return
+  delivery.busy = true
+  void send(base).finally(() => {
+    delivery.busy = false
+    if (delivery.timer === undefined && (delivery.events.length > 0 || delivery.tools.length > 0)) deliver(base)
+  })
+}
+
+// A row leaves the queue only once the harness answered 2xx for the batch that carried it.
+async function send(base) {
+  while (delivery.events.length > 0 || delivery.tools.length > 0) {
+    const events = delivery.events.slice(0, BATCH)
+    const tools = delivery.tools.slice(0, BATCH)
+    const token = await readPluginToken()
+    const status =
+      token === undefined
+        ? 0
+        : await fetch(base + "/harness/usage/events", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: "Bearer " + token },
+            body: JSON.stringify({ events, tools }),
+            signal: AbortSignal.timeout(USAGE_FETCH_TIMEOUT_MS),
+          }).then(
+            (response) => {
+              void response.arrayBuffer().catch(() => {})
+              return response.status
+            },
+            () => 0,
+          )
+    // A 400 is a body the route will never take; resending it would only block the rows behind it.
+    // A malformed row inside a 2xx batch comes back named in "rejected", for the same reason.
+    if ((status < 200 || status > 299) && status !== 400) return retry(base)
+    const done = new Set([...events, ...tools])
+    delivery.events = delivery.events.filter((row) => !done.has(row))
+    delivery.tools = delivery.tools.filter((row) => !done.has(row))
+    delivery.wait = 0
+  }
+}
+
+function retry(base) {
+  delivery.wait = Math.min(MAX_RETRY_MS, delivery.wait === 0 ? RETRY_MS : delivery.wait * 2)
+  delivery.timer = setTimeout(() => {
+    delivery.timer = undefined
+    deliver(base)
+  }, delivery.wait)
+  // A queue waiting on the harness must not keep the engine alive.
+  if (delivery.timer.unref) delivery.timer.unref()
+}
+
 export default {
   id: "flupcode-session-metrics",
   setup: async (ctx) => {
     const base = harnessBaseURL()
     if (base === undefined) return
     const token = await readToken()
-    if (token === undefined) return
+    const ledgerOn = (await readPluginToken()) !== undefined
+    if (token === undefined && !ledgerOn) return
     const projectID = ctx.location && ctx.location.directory
     const controller = new AbortController()
     void (async () => {
@@ -876,7 +1106,10 @@ export default {
         // Every location's events, and this plugin runs once per location: only its own count here.
         if (event.location && event.location.directory && event.location.directory !== projectID) continue
         const selected = observe(event)
-        if (!selected || !selected.observation.turnID) continue
+        const row = ledgerOn ? ledger(event, projectID) : undefined
+        if (row && row.event) enqueue(delivery.events, row.event, base)
+        if (row && row.tool) enqueue(delivery.tools, row.tool, base)
+        if (token === undefined || !selected || !selected.observation.turnID) continue
         void fetch(base + "/harness/adaptive/metrics", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: "Bearer " + token },

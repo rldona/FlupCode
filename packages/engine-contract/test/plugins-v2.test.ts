@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, join } from "node:path"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { CONTRACT_LINE, startEngine, type Engine } from "../src/engine"
-import { recordEvents } from "../src/events"
+import { recordEvents, type EngineEvent } from "../src/events"
 import { startModel } from "../src/model"
 
 /**
@@ -23,6 +23,8 @@ let engine: Engine
 let installed: string[] = []
 let sessionID = ""
 let planSession = ""
+let failSession = ""
+let events: EngineEvent[] = []
 
 beforeAll(async () => {
   if (!run) return
@@ -35,9 +37,7 @@ beforeAll(async () => {
       FLUPCODE_PLUGIN_TOKEN: "plugin-token",
     },
     prepare: async (home) => {
-      installed = (await installEnginePlugins(join(home, ".config", "opencode"))).paths.map((file) =>
-        basename(file),
-      )
+      installed = (await installEnginePlugins(join(home, ".config", "opencode"))).paths.map((file) => basename(file))
       // The adaptive plugins only call a loopback harness, and only with the token the harness wrote.
       mkdirSync(join(home, ".config", "flupcode"), { recursive: true })
       writeFileSync(join(home, ".config", "flupcode", "adaptive-token"), "adaptive-token")
@@ -111,6 +111,15 @@ beforeAll(async () => {
       event.data.sessionID === planSession,
     60_000,
   )
+  // A step the provider refuses: the failed step the usage ledger keeps (UL-02).
+  failSession = ((await call("POST", "/api/session", {})) as { data: { id: string } }).data.id
+  model.push({ type: "error", status: 400, message: "Bad request from provider" })
+  await call("POST", `/api/session/${failSession}/prompt`, { text: "fail" })
+  await stream.until(
+    (event) => event.type === "session.execution.failed" && event.data.sessionID === failSession,
+    60_000,
+  )
+  events = stream.events
   stream.close()
 }, 180_000)
 
@@ -174,9 +183,46 @@ const evidence: Record<string, () => Promise<void> | void> = {
     expect(calls).toContainEqual(expect.objectContaining({ kind: "call", tool: "bash" }))
     expect(calls).toContainEqual(expect.objectContaining({ kind: "error", tool: "read" }))
   },
-  "flupcode-session-metrics.js": () => {
+  "flupcode-session-metrics.js": async () => {
     const kinds = harness.hits("POST /harness/adaptive/metrics").map((hit) => JSON.parse(hit.body).observation.kind)
     expect(kinds).toEqual(expect.arrayContaining(["step", "tool"]))
+    // The usage ledger's rows (UL-02), with the plugins' token, keyed as message.list names them.
+    const posts = harness.hits("POST /harness/usage/events")
+    expect(posts.length).toBeGreaterThan(0)
+    expect(posts.every((hit) => hit.authorization === "Bearer plugin-token")).toBe(true)
+    const bodies = posts.map((hit) => JSON.parse(hit.body) as { events: Ledger[]; tools: Ledger[] })
+    const rows = bodies.flatMap((body) => body.events)
+    const tools = bodies.flatMap((body) => body.tools)
+    const messages = (
+      (await call("GET", `/api/session/${sessionID}/message?limit=200`)) as {
+        data: Array<{ id: string; type: string; content?: Array<{ type: string; id?: string }> }>
+      }
+    ).data
+    const steps = messages
+      .filter((message) => message.type === "assistant")
+      .map((message) => `${sessionID}:step:${message.id}`)
+    expect(
+      rows
+        .filter((row) => row.kind === "step" && row.sessionID === sessionID)
+        .map((row) => row.id)
+        .sort(),
+    ).toEqual(steps.sort())
+    const compaction = messages.find((message) => message.type === "compaction")!
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        id: `${sessionID}:compaction:${compaction.id}`,
+        kind: "compaction",
+        errorType: "compaction.failed",
+      }),
+    )
+    const calls = messages.flatMap((message) => message.content ?? []).filter((part) => part.type === "tool")
+    expect(
+      tools
+        .filter((tool) => tool.sessionID === sessionID)
+        .map((tool) => tool.id)
+        .sort(),
+    ).toEqual(calls.map((part) => `${sessionID}:tool:${part.id}`).sort())
+    expect(rows).toContainEqual(expect.objectContaining({ kind: "step_failed", sessionID: failSession }))
   },
   "flupcode-compaction-anchors.js": () => {
     const anchors = harness.hits("POST /harness/adaptive/anchors")
@@ -259,12 +305,51 @@ describe.skipIf(!run)("FlupCode's OpenCode 2 plugins", () => {
     expect(existsSync(join(data(), "events", "undefined.json"))).toBe(false)
   })
 
+  test("billable events reach plugins as the usage ledger expects them (UL-02)", async () => {
+    const mine = (type: string, session = sessionID) =>
+      events.filter((event) => event.type === type && event.data.sessionID === session)
+    // A refused step fails with its error and, on 2.0.18, without a cost.
+    const [failed] = mine("session.step.failed", failSession)
+    expect(failed?.data).toMatchObject({
+      assistantMessageID: expect.any(String),
+      error: { type: "provider.invalid-request" },
+    })
+    expect(failed?.data).not.toHaveProperty("cost")
+    // A step that ends carries its cost and usage.
+    expect(mine("session.step.ended")[0]?.data).toMatchObject({
+      cost: expect.any(Number),
+      tokens: { input: 10, output: 5 },
+    })
+    // A compaction that called the model carries what it spent, failed or not, its second attempt
+    // (the template reminder) included; the message it fills is named by the started event's inputID.
+    const [started] = mine("session.compaction.started")
+    expect(started?.data).toMatchObject({ inputID: expect.stringMatching(/^msg_/) })
+    expect(mine("session.compaction.failed")[0]?.data).toMatchObject({
+      cost: expect.any(Number),
+      tokens: { input: 20, output: 10 },
+    })
+    // session.usage.recorded (the title's and the compaction's) reaches no subscriber, and the
+    // session log replays nothing: the title has no ledger row until a pin changes either.
+    expect(events.some((event) => event.type === "session.usage.recorded")).toBe(false)
+    const log = await fetch(`${engine.url}/api/experimental/session/${sessionID}/log?after=0`, {
+      headers: { authorization: engine.authorization, "x-opencode-directory": encodeURIComponent(engine.project) },
+    })
+    expect(
+      (await log.text())
+        .trim()
+        .split("\n\n")
+        .map((frame) => JSON.parse(frame.replace(/^data: /, "")).type),
+    ).toEqual(["log.synced"])
+  })
+
   test("the adaptive plugins send the harness's token", () => {
     const adaptive = harness.all().filter((hit) => hit.route.includes("/harness/adaptive/"))
     expect(adaptive.length).toBeGreaterThan(0)
     expect(adaptive.every((hit) => hit.authorization === "Bearer adaptive-token")).toBe(true)
   })
 })
+
+type Ledger = { id: string; kind?: string; sessionID: string; errorType?: string }
 
 function data() {
   return join(engine.home, ".local", "share", "flupcode")
@@ -312,7 +397,8 @@ function startHarness() {
             ],
           },
         })
-      if (route === "POST /harness/actions/approve") return Response.json({ data: { approved: true, approval: "apr_1" } })
+      if (route === "POST /harness/actions/approve")
+        return Response.json({ data: { approved: true, approval: "apr_1" } })
       return Response.json({ data: {} })
     },
   })

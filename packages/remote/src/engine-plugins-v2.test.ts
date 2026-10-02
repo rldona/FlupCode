@@ -43,6 +43,7 @@ afterEach(async () => {
     "FLUPCODE_GUARDRAILS_FETCH_TIMEOUT_MS",
     "FLUPCODE_ANCHORS_FETCH_TIMEOUT_MS",
     "FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS",
+    "FLUPCODE_USAGE_RETRY_MS",
   ])
     delete process.env[name]
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
@@ -2564,8 +2565,14 @@ describe("OpenCode 2 session-metrics", () => {
   const success = (content: unknown): End => ({ type: "session.tool.success", data: { content } })
   const failure = (message: string): End => ({ type: "session.tool.failed", data: { error: { message } } })
 
-  async function metrics(events: unknown[], setup: { adaptive?: string | false; url?: string } = {}) {
-    const calls = await loopback(() => Response.json({ data: { recorded: true } }), { adaptive: setup.adaptive })
+  async function metrics(
+    events: unknown[],
+    setup: { adaptive?: string | false; plugin?: string | false; url?: string; answer?: () => Response } = {},
+  ) {
+    const calls = await loopback(setup.answer ?? (() => Response.json({ data: { recorded: true } })), {
+      adaptive: setup.adaptive,
+      plugin: setup.plugin,
+    })
     if (setup.url) process.env.FLUPCODE_HARNESS_SERVER_URL = setup.url
     const metrics_ = await plugin("flupcode-session-metrics.js")
     const recorded = context("/work/project", events)
@@ -2646,7 +2653,7 @@ describe("OpenCode 2 session-metrics", () => {
     expect(JSON.stringify(calls.calls)).not.toContain("/w/")
   })
 
-  test("a step or tool it never saw start and a malformed event send nothing", async () => {
+  test("a step or tool it never saw start and a malformed event send no metric", async () => {
     const { calls } = await metrics([
       at("session.step.ended", { assistantMessageID: "msg_unknown", tokens: { input: 1 } }),
       at("session.tool.success", { assistantMessageID: "msg_unknown", id: "call_unknown", content: "x" }),
@@ -2655,18 +2662,296 @@ describe("OpenCode 2 session-metrics", () => {
       { type: "session.step.ended", data: { sessionID: "ses_1" } },
       at("session.inbox.delivered", { inboxID: 7 }),
     ])
+    await eventually(() => calls.calls.length > 0)
     await settle()
-    expect(calls.calls).toHaveLength(0)
+    expect(calls.on("/harness/adaptive/metrics")).toHaveLength(0)
+    // The ledger still keeps what the step spent; a tool without its name is left to the reconciler.
+    expect(calls.calls.map((call) => call.route)).toEqual(["/harness/usage/events"])
+    expect(calls.calls[0]!.body).toEqual({
+      events: [
+        expect.objectContaining({ id: "ses_1:step:msg_unknown", tokens: expect.objectContaining({ input: 1 }) }),
+      ],
+      tools: [],
+    })
   })
 
   test("registers nothing without a token or a loopback base", async () => {
     const events = [at("session.compaction.ended", { inputID: "msg_c" })]
-    const tokenless = await metrics(events, { adaptive: false })
+    const tokenless = await metrics(events, { adaptive: false, plugin: false })
     const remote = await metrics(events, { url: "https://evil.example" })
     await settle()
     // It never even listens to the events.
     expect(tokenless.subscribed.count + remote.subscribed.count).toBe(0)
     expect([...tokenless.calls.calls, ...remote.calls.calls]).toHaveLength(0)
+  })
+
+  // The ledger rows (UL-02): one per billable engine event, keyed the way the reconciler (UL-03) keys
+  // what it reads back from message.list.
+  // Each test numbers its own events from 1, as a fresh session's log does.
+  const sequence = () => {
+    let seq = 0
+    return (type: string, data: Record<string, unknown>, created = 1000 + seq * 10) => {
+      seq++
+      return {
+        id: `evt_${String(seq).padStart(4, "0")}`,
+        created,
+        type,
+        durable: { aggregateID: "ses_1", seq, version: 1 },
+        location: { directory: "/work/project" },
+        data: { sessionID: "ses_1", ...data },
+      }
+    }
+  }
+  const usage = (calls: { on: (route: string) => Call[] }) => {
+    const posts = calls.on("/harness/usage/events")
+    return {
+      posts,
+      events: posts.flatMap((hit) => (hit.body.events ?? []) as Array<Record<string, unknown>>),
+      tools: posts.flatMap((hit) => (hit.body.tools ?? []) as Array<Record<string, unknown>>),
+    }
+  }
+  const tokens = { input: 100, output: 20, reasoning: 5, cache: { read: 7, write: 3 } }
+  const counted = { input: 100, output: 20, reasoning: 5, cacheRead: 7, cacheWrite: 3 }
+
+  test("a step becomes one ledger row with its model, agent, usage, timings and engine sequence", async () => {
+    const durable = sequence()
+    const { calls } = await metrics([
+      durable("session.created", {
+        projectID: "prj_1",
+        parentID: "ses_parent",
+        location: { directory: "/work/project" },
+      }),
+      durable("session.step.started", {
+        assistantMessageID: "msg_a",
+        agent: "build",
+        model: { providerID: "stub", id: "m", variant: "high" },
+        started: 1005,
+      }),
+      durable("session.text.started", { assistantMessageID: "msg_a" }, 1012),
+      durable("session.text.delta", { assistantMessageID: "msg_a", delta: "secret answer" }),
+      durable("session.step.ended", { assistantMessageID: "msg_a", finish: "stop", cost: 0.01, tokens }, 1050),
+      // The engine may tell the same end twice: one row.
+      durable("session.step.ended", { assistantMessageID: "msg_a", finish: "stop", cost: 0.01, tokens }, 1050),
+    ])
+    await eventually(() => usage(calls).events.length > 0)
+    await settle()
+    expect(usage(calls).posts.map((hit) => hit.authorization)).toEqual(["Bearer plugin-token"])
+    expect(usage(calls).events).toEqual([
+      {
+        id: "ses_1:step:msg_a",
+        kind: "step",
+        sessionID: "ses_1",
+        parentSessionID: "ses_parent",
+        messageID: "msg_a",
+        engineSeq: 5,
+        agent: "build",
+        providerID: "stub",
+        modelID: "m",
+        variant: "high",
+        tokens: counted,
+        costUSD: 0.01,
+        costBasis: "engine-list-price",
+        billing: "unknown",
+        startedAt: 1005,
+        endedAt: 1050,
+        firstTokenMs: 7,
+        finish: "stop",
+        directory: "/work/project",
+        engineProjectID: "prj_1",
+      },
+    ])
+    expect(JSON.stringify(calls.calls)).not.toContain("secret answer")
+  })
+
+  test("a failed step is a row of its own, with its cost only when the engine reported one", async () => {
+    const durable = sequence()
+    const { calls } = await metrics([
+      durable("session.step.started", {
+        assistantMessageID: "msg_a",
+        agent: "build",
+        model: { providerID: "stub", id: "m" },
+      }),
+      durable("session.step.failed", {
+        assistantMessageID: "msg_a",
+        error: { type: "provider.invalid-request", message: "Bad request", status: 400 },
+      }),
+      durable("session.step.started", {
+        assistantMessageID: "msg_b",
+        agent: "build",
+        model: { providerID: "stub", id: "m" },
+      }),
+      durable("session.step.failed", {
+        assistantMessageID: "msg_b",
+        error: { type: "provider.error", message: "cut off" },
+        cost: 0.002,
+        tokens,
+      }),
+    ])
+    await eventually(() => usage(calls).events.length === 2)
+    const [first, second] = usage(calls).events
+    expect(first).toMatchObject({
+      id: "ses_1:step_failed:msg_a",
+      kind: "step_failed",
+      errorType: "provider.invalid-request",
+      tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+    })
+    expect(first).not.toHaveProperty("costUSD")
+    expect(second).toMatchObject({
+      id: "ses_1:step_failed:msg_b",
+      costUSD: 0.002,
+      tokens: counted,
+      errorType: "provider.error",
+    })
+    expect(JSON.stringify(calls.calls)).not.toContain("Bad request")
+  })
+
+  test("a compaction is one row keyed by the compaction message message.list shows", async () => {
+    const durable = sequence()
+    const { calls } = await metrics([
+      // A manual compaction: its message is the inbox item that asked for it.
+      durable("session.compaction.started", { reason: "manual", inputID: "msg_input" }, 2000),
+      durable(
+        "session.compaction.ended",
+        { reason: "manual", model: { providerID: "stub", id: "m" }, text: "summary", cost: 0.003, tokens },
+        2100,
+      ),
+      // An automatic one has no input: 2.x names its message after the started event.
+      durable("session.compaction.started", { reason: "auto" }, 3000),
+      durable("session.compaction.failed", {
+        reason: "auto",
+        error: { type: "compaction.failed", message: "x" },
+        cost: 0.001,
+        tokens,
+      }),
+      // Nothing to compact: no model call, nothing to bill.
+      durable("session.compaction.started", { reason: "manual", inputID: "msg_empty" }),
+      durable("session.compaction.failed", {
+        reason: "manual",
+        error: { type: "compaction.unavailable", message: "x" },
+        inputID: "msg_empty",
+      }),
+    ])
+    await eventually(() => usage(calls).events.length === 2)
+    await settle()
+    expect(usage(calls).events).toEqual([
+      expect.objectContaining({
+        id: "ses_1:compaction:msg_input",
+        kind: "compaction",
+        messageID: "msg_input",
+        engineSeq: 2,
+        providerID: "stub",
+        modelID: "m",
+        costUSD: 0.003,
+        tokens: counted,
+        startedAt: 2000,
+        endedAt: 2100,
+      }),
+      expect.objectContaining({
+        id: "ses_1:compaction:msg_0003",
+        kind: "compaction",
+        messageID: "msg_0003",
+        costUSD: 0.001,
+        errorType: "compaction.failed",
+      }),
+    ])
+    expect(JSON.stringify(calls.calls)).not.toContain("summary")
+  })
+
+  test("a finished tool is a tool row keyed by its call id, timed from the call to its end", async () => {
+    const durable = sequence()
+    const { calls } = await metrics([
+      durable("session.tool.input.started", { assistantMessageID: "msg_a", id: "call_1", name: "shell" }, 100),
+      durable(
+        "session.tool.called",
+        { assistantMessageID: "msg_a", id: "call_1", input: { command: "ls /secret" } },
+        110,
+      ),
+      durable("session.tool.failed", { assistantMessageID: "msg_a", id: "call_1", error: { message: "boom" } }, 150),
+      durable("session.tool.input.started", { assistantMessageID: "msg_a", id: "call_2", name: "read" }, 200),
+      durable("session.tool.called", { assistantMessageID: "msg_a", id: "call_2", input: { path: "/w/a.ts" } }, 205),
+      durable(
+        "session.tool.success",
+        { assistantMessageID: "msg_a", id: "call_2", content: [{ type: "text", text: "héllo" }] },
+        230,
+      ),
+    ])
+    await eventually(() => usage(calls).tools.length === 2)
+    expect(usage(calls).tools).toEqual([
+      {
+        id: "ses_1:tool:call_1",
+        sessionID: "ses_1",
+        messageID: "msg_a",
+        tool: "shell",
+        startedAt: 110,
+        ms: 40,
+        error: true,
+        bytes: 0,
+      },
+      {
+        id: "ses_1:tool:call_2",
+        sessionID: "ses_1",
+        messageID: "msg_a",
+        tool: "read",
+        startedAt: 205,
+        ms: 25,
+        error: false,
+        bytes: 6,
+      },
+    ])
+    expect(JSON.stringify(calls.calls)).not.toContain("/secret")
+  })
+
+  test("rows stay queued while the harness is down and are sent once it answers", async () => {
+    const durable = sequence()
+    process.env.FLUPCODE_USAGE_RETRY_MS = "20"
+    const state = { down: true }
+    const { calls } = await metrics(
+      [
+        durable("session.step.started", { assistantMessageID: "msg_a", model: { providerID: "stub", id: "m" } }),
+        durable("session.step.ended", { assistantMessageID: "msg_a", finish: "stop", cost: 0.01, tokens }),
+      ],
+      { answer: () => (state.down ? new Response("down", { status: 503 }) : Response.json({ data: { stored: {} } })) },
+    )
+    await eventually(() => usage(calls).posts.length >= 3)
+    state.down = false
+    await eventually(() => usage(calls).posts.length >= 4 && !state.down)
+    await Bun.sleep(150)
+    const posts = usage(calls).posts
+    // Every attempt carried the same row, and nothing more was sent after the first answer that took it.
+    expect(posts.every((hit) => JSON.stringify(hit.body.events) === JSON.stringify(posts[0]!.body.events))).toBe(true)
+    expect(posts.length).toBeGreaterThanOrEqual(4)
+    const after = posts.length
+    await Bun.sleep(150)
+    expect(usage(calls).posts.length).toBe(after)
+  })
+
+  test("a backlog goes in batches the ingest route accepts", async () => {
+    const durable = sequence()
+    const many = Array.from({ length: 501 }, (_, index) => [
+      durable("session.tool.input.started", { assistantMessageID: "msg_a", id: `call_${index}`, name: "read" }),
+      durable("session.tool.success", { assistantMessageID: "msg_a", id: `call_${index}`, content: [] }),
+    ]).flat()
+    const { calls } = await metrics(many)
+    await eventually(() => usage(calls).tools.length === 501)
+    expect(usage(calls).posts.every((hit) => ((hit.body.tools ?? []) as unknown[]).length <= 500)).toBe(true)
+    expect(new Set(usage(calls).tools.map((tool) => tool.id)).size).toBe(501)
+  })
+
+  test("the ledger works with only the plugin token, and the adaptive metrics with only theirs", async () => {
+    const durable = sequence()
+    const events = [
+      durable("session.step.started", { assistantMessageID: "msg_a", model: { providerID: "stub", id: "m" } }),
+      durable("session.step.ended", { assistantMessageID: "msg_a", finish: "stop", cost: 0.01, tokens }),
+    ]
+    const ledgerOnly = await metrics(events, { adaptive: false })
+    await eventually(() => usage(ledgerOnly.calls).events.length === 1)
+    expect(usage(ledgerOnly.calls).events).toHaveLength(1)
+    expect(ledgerOnly.calls.on("/harness/adaptive/metrics")).toHaveLength(0)
+    const adaptiveOnly = await metrics(events, { plugin: false })
+    await eventually(() => adaptiveOnly.calls.on("/harness/adaptive/metrics").length === 1)
+    expect(adaptiveOnly.calls.on("/harness/adaptive/metrics")).toHaveLength(1)
+    await settle()
+    expect(usage(adaptiveOnly.calls).posts).toHaveLength(0)
   })
 })
 
