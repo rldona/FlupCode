@@ -46,6 +46,7 @@ import { createModelKey } from "./adaptive/model-key"
 import { createSmallLlmModel } from "./adaptive/providers/small-llm"
 import { createActionApprover } from "./action-approval"
 import { createBrowserPolicy } from "./browser-policy"
+import { createBrowserMcpGate } from "./browser-mcp"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
 import { parseModelKey } from "./policy"
@@ -427,6 +428,11 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
           }
         : {}),
       ...(vault ? { credentials: vault } : {}),
+      // The user's browser through an MCP preset (BU-02): asked by the plugins, under the same policy.
+      browserMcp: createBrowserMcpGate({
+        policy: browserPolicy,
+        ask: (request) => new Engine(engineURL).askChoice(request),
+      }),
       planExit: (sessionID) => planExit(new Engine(engineURL), sessionID),
       runtimeProbe,
       decisions,

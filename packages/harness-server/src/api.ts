@@ -25,6 +25,7 @@ import { bearerFrom, tokenMatches } from "./browser-token"
 import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
 import type { ActionApprover } from "./action-approval"
 import type { BrowserPolicy } from "./browser-policy"
+import { readBrowserMcpCall, type BrowserMcpGate } from "./browser-mcp"
 import { handleActionRequest } from "./action-routes"
 import type { ActionRunner } from "./action-runner"
 import { handleActionProfileRequest } from "./action-profile-routes"
@@ -451,6 +452,11 @@ export type HarnessHandlerOptions = {
   actionApprover?: ActionApprover
   /** The browser policy (BU-01): its standing grants, revoked from the settings, and its audit. */
   browserPolicy?: BrowserPolicy
+  /**
+   * Calls to the user's own browser through an MCP preset (BU-02): the engine plugin asks it before
+   * each call runs and reports what each returned. Behind the plugins' bearer only.
+   */
+  browserMcp?: BrowserMcpGate
   /** The plan's hand-off to build asked in the session, for the OpenCode 2 `plan_exit` tool (V2-33). */
   planExit?: (sessionID: string) => Promise<{ approved: boolean }>
   credentials?: CredentialVault
@@ -574,6 +580,18 @@ export const createHarnessHandler = (
       const body = (await request.json().catch(() => ({}))) as { sessionID?: unknown }
       if (typeof body.sessionID !== "string" || !body.sessionID) return error("A session is required", 400)
       return json({ data: await options.planExit(body.sessionID) })
+    }
+    // The user's browser through an MCP preset (BU-02): the engine's permission hook asks here before
+    // each call, and reports what it returned. Only the plugins make these calls, so only their bearer
+    // is taken; without one the route is an ordinary 404.
+    if (path[1] === "browser-mcp" && path.length === 3 && request.method === "POST" && options.browserMcp && options.pluginToken) {
+      if (!pluginCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      const call = readBrowserMcpCall(await request.json().catch(() => undefined))
+      if (!call) return error("A session, a server, its kind and a tool are required", 400)
+      if (path[2] === "decide") return json({ data: await options.browserMcp.decide(call) })
+      if (path[2] !== "observe") return error("Not found", 404)
+      options.browserMcp.observe(call)
+      return json({ data: { observed: true } })
     }
     // The usage ledger's ingest (UL-01): only the engine's plugins report what the engine spent, so
     // the route takes their token and not the app's. Without a plugin token it is an ordinary 404.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { mcpLatency, mcpToolName, mcpToolUses } from "./mcp"
+import { BROWSER_PRESETS, mcpLatency, mcpToolName, mcpToolUses } from "./mcp"
+import { setLocale, t } from "./i18n"
 import type { McpServer } from "./engine-types"
 
 const server = (name: string) => ({ name, status: { status: "connected" } }) as unknown as McpServer
@@ -59,5 +60,30 @@ describe("mcpLatency", () => {
       { tool: mcpToolName("linear", "create_issue") },
     ]
     expect(mcpLatency(servers, calls)).toEqual([])
+  })
+})
+
+describe("the browser presets (BU-02)", () => {
+  test("each pins an exact version of its server and starts it in the mode that reaches the reader's browser", () => {
+    expect(BROWSER_PRESETS.map((preset) => [preset.name, preset.config.command.at(-1)])).toEqual([
+      ["playwright", "--extension"],
+      ["chrome-devtools", "--autoConnect"],
+    ])
+    for (const preset of BROWSER_PRESETS) {
+      const pkg = preset.config.command.find((part) => part.includes("@") && !part.startsWith("-"))!
+      expect(pkg).toMatch(/@\d+\.\d+\.\d+$/)
+    }
+  })
+
+  test("each says what the agent can reach, and the DevTools route says it is the whole profile", () => {
+    expect(BROWSER_PRESETS.find((preset) => preset.name === "chrome-devtools")!.reach).toContain("whole Chrome profile")
+    expect(BROWSER_PRESETS.find((preset) => preset.name === "playwright")!.reach).toContain("only the tabs you hand over")
+  })
+
+  test("every word a preset shows has a Spanish translation", () => {
+    setLocale("es")
+    const words = BROWSER_PRESETS.flatMap((preset) => [preset.title, preset.reach, ...preset.steps.map((step) => step.text)])
+    expect(words.filter((word) => t(word) === word)).toEqual([])
+    setLocale("en")
   })
 })

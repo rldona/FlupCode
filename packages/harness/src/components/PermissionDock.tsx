@@ -249,7 +249,10 @@ export const BrowserApprovalDock: Component<BrowserApprovalDockProps> = (props) 
       <div class="fc-dock-header">
         <span class="fc-dock-title">{t("Permission required")}</span>
         <span class="fc-permission-browser-head">
-          <span class="fc-chip">{t("Agent browser")}</span>
+          {/* The reader's own browser (BU-02) is not the agent's: the chip says which one it acts in. */}
+          <span class="fc-chip" classList={{ "fc-permission-yours": !!props.approval.yours }}>
+            {props.approval.yours ? t("Your browser") : t("Agent browser")}
+          </span>
           <Show when={sensitive()}>
             <span class="fc-chip fc-permission-sensitive">{t("Sensitive")}</span>
           </Show>

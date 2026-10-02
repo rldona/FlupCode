@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { McpResource, McpServer } from "../engine-types"
 import type { AgentFile, McpConfig, McpScope } from "../types"
 import { mcpAccess } from "../mcp-access"
+import { BROWSER_PRESETS } from "../mcp"
 import { t } from "../i18n"
 
 /** A server added from here goes to the global configuration unless the reader says otherwise. */
@@ -298,6 +299,57 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
           </For>
         </ul>
       </Show>
+
+      {/*
+        The reader's own browser in one click (BU-02). Each preset says what the agent can reach and
+        how to set the browser up; FlupCode asks before each action whatever the server is called.
+      */}
+      <section class="fc-mcp-presets" aria-label={t("Your browser")}>
+        <span class="fc-section-label">{t("Your browser")}</span>
+        <For each={BROWSER_PRESETS}>
+          {(preset) => {
+            const added = () =>
+              props.servers.some((server) => server.name === preset.name) || !!props.configs?.[preset.name]
+            return (
+              <div class="fc-mcp-preset" data-preset={preset.name}>
+                <div class="fc-mcp-line">
+                  <span class="fc-mcp-name">{t(preset.title)}</span>
+                  <Show when={!added()} fallback={<span class="fc-chip">{t("Added")}</span>}>
+                    <button
+                      class="fc-button"
+                      type="button"
+                      disabled={props.busy}
+                      onClick={() => props.onAdd(preset.name, preset.config, DEFAULT_MCP_SCOPE)}
+                    >
+                      {t("Add preset")}
+                    </button>
+                  </Show>
+                </div>
+                <p class="fc-mcp-preset-reach">{t(preset.reach)}</p>
+                <ol class="fc-mcp-preset-steps">
+                  <For each={preset.steps}>
+                    {(step) => (
+                      <li>
+                        {t(step.text)}
+                        <Show when={step.address}>
+                          {(address) => (
+                            <>
+                              {" "}
+                              <bdi class="fc-mcp-preset-address" dir="ltr">
+                                {address()}
+                              </bdi>
+                            </>
+                          )}
+                        </Show>
+                      </li>
+                    )}
+                  </For>
+                </ol>
+              </div>
+            )
+          }}
+        </For>
+      </section>
 
       <Show when={!formOpen()}>
         <div class="fc-mcp-actions">

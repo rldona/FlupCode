@@ -3115,6 +3115,49 @@ button.fc-status {
   margin-top: var(--fc-space-4);
 }
 
+/* The reader's own browser in one click (BU-02): what the agent reaches, then how to set it up. */
+.fc-mcp-presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  margin-top: var(--fc-space-4);
+}
+
+.fc-mcp-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--fc-space-2) var(--fc-space-3);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+}
+
+/* The title says which browser it reaches: it wraps rather than being cut, unlike a server's name. */
+.fc-mcp-preset .fc-mcp-name {
+  white-space: normal;
+}
+
+.fc-mcp-preset-reach {
+  margin: 0;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-mcp-preset-steps {
+  margin: 0;
+  padding-inline-start: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+}
+
+.fc-mcp-preset-address {
+  font-family: var(--fc-font-mono);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 /* The add/edit form is its own dialog, so the list behind it stays where the reader left it. */
 .fc-mcp-modal {
   width: min(640px, 100%);
@@ -8775,6 +8818,12 @@ button.fc-status {
   color: var(--fc-warning);
 }
 
+/* The reader's own browser (BU-02): set apart from the agent's, where the reader's sessions live. */
+.fc-permission-yours {
+  border-color: color-mix(in srgb, var(--fc-accent) 55%, var(--fc-border));
+  color: var(--fc-accent);
+}
+
 .fc-permission-browser-facts {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -9270,7 +9319,7 @@ button.fc-status {
 
 .fc-artifact-file-name {
   flex: 0 0 auto;
-  font-family: var(--fc-font-mono, ui-monospace, monospace);
+  font-family: var(--fc-font-mono);
   font-size: 13px;
 }
 
@@ -9980,7 +10029,7 @@ button.fc-status {
 .fc-workflow-source {
   width: 100%;
   min-height: 240px;
-  font-family: var(--fc-font-mono, ui-monospace, monospace);
+  font-family: var(--fc-font-mono);
   white-space: pre;
   resize: vertical;
 }
