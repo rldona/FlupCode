@@ -80,6 +80,19 @@ export class V2Engine {
     await call(this.client.worktree.remove({ projectID: location.project.id, directory: input.directory, force: true }))
   }
 
+  /**
+   * Every folder the engine knows as a project, and every worktree of one (TI-11). A project's
+   * `sandboxes` stays empty for the worktrees the engine itself creates, so they are listed per
+   * project; a folder that is not a repository has none to list.
+   */
+  async projectRoots() {
+    const projects = await call(this.client.project.list())
+    const worktrees = await Promise.all(
+      projects.map((project) => this.client.worktree.list({ projectID: project.id }).catch(() => [])),
+    )
+    return [...projects.map((project) => project.canonical), ...worktrees.flat().map((worktree) => worktree.directory)]
+  }
+
   /** The 1.x guarantee on 2.x's routes: every server not disabled is connected, or the run fails. */
   async mcpServers(directory: string) {
     return (await call(this.client.mcp.list({ location: { directory } }))).data.map((server) => ({

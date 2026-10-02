@@ -14,7 +14,7 @@ import type {
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
 import { readFileSync } from "node:fs"
-import { resolve, sep } from "node:path"
+import { confinedPath, projectRoots, type ProjectRoots } from "./project-roots"
 import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler, CheckpointNotFoundError } from "./scheduler"
 import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
@@ -70,6 +70,9 @@ const json = (value: unknown, status = 200) =>
   })
 
 const error = (message: string, status: number) => json({ error: message }, status)
+
+/** A folder a caller named that is not inside a project the engine knows (TI-11). */
+const notAProject = () => error("That folder is not a project FlupCode knows", 403)
 
 const inputFrom = (value: unknown): RoutineInput | undefined => {
   if (!value || typeof value !== "object") return undefined
@@ -464,6 +467,8 @@ export type HarnessHandlerOptions = {
   overrides?: SessionOverrides
   /** The address the server listens on, so a `Host` naming it is accepted (AH-A05). */
   hostname?: string
+  /** The folders a caller may name (TI-11); the engine's projects and worktrees when absent. */
+  projectRoots?: ProjectRoots
 }
 
 export const createHarnessHandler = (
@@ -471,6 +476,7 @@ export const createHarnessHandler = (
   scheduler: RoutineScheduler,
   options: HarnessHandlerOptions = {},
 ) => {
+  const roots = options.projectRoots ?? projectRoots(() => scheduler.engine.projectRoots())
   const handle = async (request: Request) => {
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
@@ -1151,7 +1157,7 @@ export const createHarnessHandler = (
       // somebody is looking at this folder's artifacts, which is when it is worth doing (H-14). The
       // same lazy pass indexes the documents the agent produced, including the ones it declared with
       // `artifact_write`, since those are written into the same folder.
-      if (directory) {
+      if (directory && (await roots.within(directory))) {
         try {
           registerPlans(repository, directory)
           registerDocuments(repository, directory)
@@ -1171,6 +1177,8 @@ export const createHarnessHandler = (
     if (path[1] === "artifacts" && request.method === "POST" && !path[2]) {
       const input = artifactFrom(await readJSON(request))
       if (!input) return error("An artifact needs a kind, a title, and content or a path", 400)
+      // One kept by its path is served from disk later, so its folder has to be a project now.
+      if (input.path && !(input.directory && (await roots.within(input.directory)))) return notAProject()
       return json({ data: repository.addArtifact(input) }, 201)
     }
     if (path[1] === "artifacts" && request.method === "GET" && path[2] && !path[3]) {
@@ -1194,9 +1202,11 @@ export const createHarnessHandler = (
       const artifact = repository.getArtifact(path[2])
       if (!artifact) return error("Artifact not found", 404)
       if (artifact.path && artifact.directory) {
-        const root = resolve(artifact.directory)
-        const full = resolve(root, artifact.path)
-        if (!(full === root || full.startsWith(root + sep))) return error("That path is outside the folder", 400)
+        // A caller's own artifact names a folder of its choosing, so it is held to the projects; the
+        // harness's own (a browser frame in its data folder) only to the folder it wrote (TI-11).
+        if (artifact.producer === "user" && !(await roots.within(artifact.directory))) return notAProject()
+        const full = confinedPath(artifact.directory, artifact.path)
+        if (!full) return error("That path is outside the folder", 400)
         try {
           return new Response(readFileSync(full), {
             headers: {
@@ -1577,6 +1587,7 @@ export const createHarnessHandler = (
       if (!directory) return error("A folder is required", 400)
       const file = params.get("path") ?? ""
       if (!file) return error("A path is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       try {
         return json({ data: readProjectFile({ directory, path: file }) })
       } catch (cause) {
@@ -1616,6 +1627,7 @@ export const createHarnessHandler = (
       const body = (await readJSON(request)) as { directory?: unknown; title?: unknown } | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       try {
         const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim() : "Checkpoint"
         return json({ data: repository.addCheckpoint(await take({ directory, title })) })
@@ -1666,6 +1678,7 @@ export const createHarnessHandler = (
         | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       const message = typeof body?.message === "string" ? body.message : ""
       const paths = Array.isArray(body?.paths) ? body.paths.filter((value): value is string => typeof value === "string") : []
       // Per path, the hunk indices to stage; a path absent is staged whole.
@@ -1688,6 +1701,7 @@ export const createHarnessHandler = (
       const body = (await readJSON(request)) as { directory?: unknown; path?: unknown; hunks?: unknown } | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       const file = typeof body?.path === "string" ? body.path : ""
       if (!file) return error("A path is required", 400)
       const hunks = Array.isArray(body?.hunks)
@@ -1707,6 +1721,7 @@ export const createHarnessHandler = (
         | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       const paths = Array.isArray(body?.paths) ? body.paths.filter((value): value is string => typeof value === "string") : []
       if (paths.length === 0) return error("Nothing was selected", 400)
       try {
@@ -1728,6 +1743,7 @@ export const createHarnessHandler = (
       const body = (await readJSON(request)) as { directory?: unknown; name?: unknown } | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       try {
         return json({ data: await gitBranch({ directory, name: typeof body?.name === "string" ? body.name : "" }) })
       } catch (cause) {
@@ -1740,6 +1756,7 @@ export const createHarnessHandler = (
     if (path[1] === "git" && path[2] === "pr" && !path[3] && request.method === "GET") {
       const directory = new URL(request.url).searchParams.get("directory") ?? ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       return json({ data: await branchState(directory) })
     }
     // Why a check failed. A network call per job, so it is asked for rather than polled with the
@@ -1749,6 +1766,7 @@ export const createHarnessHandler = (
       const directory = params.get("directory") ?? ""
       const job = params.get("job") ?? ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       try {
         return json({ data: await checkLog(directory, job) })
       } catch (cause) {
@@ -1762,6 +1780,7 @@ export const createHarnessHandler = (
         | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       try {
         return json({
           data: await createPullRequest({
@@ -1780,6 +1799,7 @@ export const createHarnessHandler = (
     if (path[1] === "git" && path[2] === "branch" && request.method === "GET") {
       const directory = new URL(request.url).searchParams.get("directory") ?? ""
       if (!directory) return error("A folder is required", 400)
+      if (!(await roots.within(directory))) return notAProject()
       return json({ data: { branch: await currentBranch(directory) } })
     }
 
