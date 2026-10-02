@@ -168,6 +168,11 @@ export function createV2Domains(
         )
       },
     },
+    stats: async (input) => {
+      // `tools: "none"` skips the engine's per-tool tally, which nothing here reads.
+      const stats = await call(client.session.stats({ from: input.from, timezone: input.timezone, tools: "none" }))
+      return { sessions: stats.sessions, activeDays: stats.activeDays, streak: stats.streak, activity: stats.activity }
+    },
     /** A session is busy while its execution runs; 2.x reports that for every location at once. */
     status: async () => new Set(Object.keys(await call(client.session.active()))),
     abort: async (input) => {

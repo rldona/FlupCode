@@ -67,6 +67,21 @@ export type HistoryImportStatus = {
     status: "error";
     error: string;
 };
+/**
+ * What the home card reads from the engine (UL-09). `streak` is the most days in a row with work in the
+ * period (the engine's "best streak", not the current one), and `activity` has only the days with model
+ * calls (`steps`), as `YYYY-MM-DD` in the timezone asked for. Title calls are not steps, so neither is
+ * counted here, the same as in the usage ledger.
+ */
+export type SessionStats = {
+    sessions: number;
+    activeDays: number;
+    streak: number;
+    activity: Array<{
+        date: string;
+        steps: number;
+    }>;
+};
 /** A prompt the engine admitted and holds until the session can take it (V2-41). */
 export type InboxPrompt = {
     id: string;
@@ -244,6 +259,14 @@ export type EngineClient = {
                 delivery: "queue" | "steer";
             }) => Promise<void>;
         };
+        /**
+         * The engine's own count of the work across every session (UL-09), from `from` on, with its
+         * days in `timezone`. The route is experimental upstream; `engine-contract` pins its shape.
+         */
+        stats: (input: {
+            from?: number | undefined;
+            timezone: string;
+        }) => Promise<SessionStats>;
         /** Which sessions of a folder the engine is working on (on 2.x, the active ones). */
         status: (input: {
             directory: string;

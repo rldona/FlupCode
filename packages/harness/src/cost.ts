@@ -1,5 +1,5 @@
 import { t } from "./i18n"
-import type { LedgerTokens, MoneyLine, UsageBucket } from "./types"
+import type { LedgerTokens, MoneyLine, UsageBucket, UsageGroup } from "./types"
 
 /**
  * How every cost in the app is written (UL-06, audit §8.4). One module, so the same ledger figure
@@ -130,3 +130,25 @@ export function costText(bucket: UsageBucket | undefined) {
 
 /** What a bucket's priced money adds up to, used only to rank and to scale bars, never shown. */
 export const rankOf = (bucket: UsageBucket) => bucket.money.reduce((sum, line) => sum + line.usd, 0)
+
+/**
+ * The model that did the most of the work: the most tokens, cache included, the same count the Cost
+ * screen shows. Not the costliest, which is how the ledger ranks its groups.
+ */
+export function favoriteModel(groups: UsageGroup[]) {
+  return groups
+    .filter((group) => group.key !== null)
+    .reduce<UsageGroup | undefined>(
+      (best, group) => (!best || tokenCount(group.tokens) > tokenCount(best.tokens) ? group : best),
+      undefined,
+    )
+}
+
+/** Where a period of days starts: midnight of the first of its days, so the first day is a whole one. */
+export function periodStart(days: number, now: number) {
+  const today = new Date(now)
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1)).getTime()
+}
+
+/** What a slice is of the whole, as a percentage, with nothing divided by nothing. */
+export const share = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0)

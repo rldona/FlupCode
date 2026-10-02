@@ -1,16 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ModelInfo, SessionInfo, SessionMessageInfo } from "./engine-types"
-import {
-  compactionAt,
-  compactionNear,
-  computeMetrics,
-  contextFigures,
-  filterByRange,
-  formatTokens,
-  activityByDay,
-} from "./metrics"
-
-const DAY = 86_400_000
+import { activityDays, compactionAt, compactionNear, contextFigures, formatTokens } from "./metrics"
 
 function session(created: number, tokens = 0, model?: string): SessionInfo {
   return {
@@ -25,45 +15,6 @@ function session(created: number, tokens = 0, model?: string): SessionInfo {
   }
 }
 
-describe("computeMetrics", () => {
-  test("sums tokens and counts sessions", () => {
-    const now = Date.now()
-    const metrics = computeMetrics([session(now, 100), session(now, 200, "model-a"), session(now, 300, "model-a")])
-    expect(metrics.sessions).toBe(3)
-    expect(metrics.tokens).toBe(600)
-    expect(metrics.activeDays).toBe(1)
-    expect(metrics.favoriteModel).toBe("model-a")
-  })
-
-  test("computes current and longest streaks across consecutive days", () => {
-    const midnight = Math.floor(Date.now() / DAY) * DAY
-    const metrics = computeMetrics([
-      session(midnight),
-      session(midnight - DAY),
-      session(midnight - 2 * DAY),
-      session(midnight - 10 * DAY),
-    ])
-    expect(metrics.longestStreak).toBe(3)
-    expect(metrics.currentStreak).toBe(3)
-  })
-
-  test("picks the peak hour", () => {
-    const base = new Date(2026, 0, 15, 9, 0, 0).getTime()
-    const metrics = computeMetrics([session(base), session(base + 60_000), session(base + 3 * 3600_000)])
-    expect(metrics.peakHour).toBe("9:00")
-  })
-})
-
-describe("filterByRange", () => {
-  test("keeps only sessions inside the range", () => {
-    const now = Date.now()
-    const sessions = [session(now), session(now - 3 * DAY), session(now - 20 * DAY)]
-    expect(filterByRange(sessions, "7d")).toHaveLength(2)
-    expect(filterByRange(sessions, "30d")).toHaveLength(3)
-    expect(filterByRange(sessions, "all")).toHaveLength(3)
-  })
-})
-
 describe("formatTokens", () => {
   test("formats thousands and millions", () => {
     expect(formatTokens(500)).toBe("500")
@@ -72,12 +23,27 @@ describe("formatTokens", () => {
   })
 })
 
-describe("activityByDay", () => {
-  test("returns one entry per day ending today", () => {
-    const now = Date.now()
-    const days = activityByDay([session(now)], 7)
-    expect(days).toHaveLength(7)
-    expect(days.at(-1)?.count).toBe(1)
+describe("activityDays", () => {
+  test("lays the engine's days over the last local days, oldest first, with the missing ones at zero", () => {
+    const now = new Date(2026, 9, 3, 0, 30).getTime()
+    const days = activityDays(
+      [
+        { date: "2026-09-27", steps: 4 },
+        { date: "2026-10-02", steps: 1 },
+        { date: "2026-10-03", steps: 7 },
+      ],
+      7,
+      now,
+    )
+    expect(days.map((day) => day.count)).toEqual([4, 0, 0, 0, 0, 1, 7])
+    // One number per day, in a row, today's being the days from the epoch to its local date.
+    expect(days.at(-1)?.day).toBe(Date.UTC(2026, 9, 3) / 86_400_000)
+    expect(days.map((day, index) => day.day - index)).toEqual(Array(7).fill(days[0]!.day))
+  })
+
+  test("a day the engine lists outside the window is left out", () => {
+    const now = new Date(2026, 9, 3, 12).getTime()
+    expect(activityDays([{ date: "2026-09-01", steps: 3 }], 3, now).map((day) => day.count)).toEqual([0, 0, 0])
   })
 })
 

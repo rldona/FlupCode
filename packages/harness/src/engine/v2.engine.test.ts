@@ -42,6 +42,40 @@ afterAll(async () => {
 })
 
 describe.skipIf(!run)("the OpenCode 2 adapter", () => {
+  // The home card's sessions, days and streak (UL-09). Every test here shares the engine, so this
+  // one reads what its own turn added.
+  test("reads the engine's stats of a period, with its days in the timezone asked for", async () => {
+    const ahead = "Pacific/Kiritimati"
+    const behind = "Pacific/Pago_Pago"
+    const today = (timeZone: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date())
+    const steps = (stats: { activity: Array<{ date: string; steps: number }> }, date: string) =>
+      stats.activity.find((day) => day.date === date)?.steps ?? 0
+    const before = await domains.session.stats({ timezone: ahead })
+
+    const session = await domains.session.create({ location: { directory: engine.project } })
+    model.push({ type: "text", text: "ok" })
+    await domains.session.send({ sessionID: session.id, directory: engine.project, text: "count me" })
+    await domains.session.wait({ sessionID: session.id })
+
+    const after = await domains.session.stats({ timezone: ahead })
+    expect(after.sessions).toBe(before.sessions + 1)
+    expect(steps(after, today(ahead))).toBe(steps(before, today(ahead)) + 1)
+    expect(after.activeDays).toBeGreaterThanOrEqual(1)
+    expect(after.streak).toBeGreaterThanOrEqual(1)
+    // The same call, a day apart: 25 hours separate these two zones, so the days never match.
+    const elsewhere = await domains.session.stats({ timezone: behind })
+    expect(steps(elsewhere, today(behind))).toBeGreaterThanOrEqual(1)
+    expect(elsewhere.activity.map((day) => day.date)).not.toContain(today(ahead))
+    // A period that starts after the turn has nothing in it.
+    await Bun.sleep(1100)
+    expect(await domains.session.stats({ from: Date.now() - 1000, timezone: ahead })).toEqual({
+      sessions: 0,
+      activeDays: 0,
+      streak: 0,
+      activity: [],
+    })
+  })
+
   test("creates a session in a folder and lists it in the app's shape", async () => {
     const created = await domains.session.create({ location: { directory: engine.project } })
     expect(created).toMatchObject({ title: "", location: { directory: engine.project } })

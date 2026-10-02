@@ -13,7 +13,9 @@ import {
   lensName,
   lensTotals,
   money,
+  periodStart,
   purposeName,
+  share,
   rankOf,
   tokenCount,
 } from "../cost"
@@ -52,9 +54,6 @@ export function duration(ms: number) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`
 }
 
-/** What a slice is of the whole, as a percentage, with nothing divided by nothing. */
-export const share = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0)
-
 const folderName = (directory: string) => directory.split("/").filter(Boolean).at(-1) ?? directory
 
 /** The dimensions the group-by switch offers. Runs and sessions have their own top lists below. */
@@ -85,12 +84,6 @@ export function dayKeys(from: number, now: number) {
     const at = midnight(first, index)
     return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`
   })
-}
-
-/** Where a period starts: midnight of the first of its days, so the first bar is a whole day. */
-export function periodStart(days: number, now: number) {
-  const today = new Date(now)
-  return new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1)).getTime()
 }
 
 /**

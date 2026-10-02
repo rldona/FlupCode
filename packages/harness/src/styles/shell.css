@@ -798,8 +798,8 @@ button.fc-status {
   background: color-mix(in srgb, var(--fc-border) 35%, transparent);
 }
 
-/* The favorite model name is the longest value: it takes two columns so it is not squeezed
-   into broken lines while a slot sits empty. */
+/* The favorite model name and the cost are the longest values: they take two columns each so they
+   are not squeezed into broken lines, and the four short figures fill a row of their own. */
 .fc-stat-wide {
   grid-column: span 2;
 }
@@ -811,6 +811,12 @@ button.fc-status {
 
 .fc-stat-label {
   font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+}
+
+/* What a figure counts, where it could be read two ways: the tokens say they include the cache. */
+.fc-stat-note {
+  font-size: 11px;
   color: var(--fc-text-muted);
 }
 
@@ -3286,67 +3292,6 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
-.fc-model-usage {
-  display: flex;
-  flex-direction: column;
-}
-
-.fc-chart {
-  display: flex;
-  gap: 8px;
-  height: 180px;
-}
-
-.fc-chart-y {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 40px;
-  font-size: 11px;
-  color: var(--fc-text-muted);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.fc-chart-plot {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  border-bottom: 1px solid var(--fc-border);
-}
-
-.fc-chart-col {
-  flex: 1;
-  min-width: 4px;
-  height: 100%;
-  display: flex;
-  flex-direction: column-reverse;
-  border-radius: 4px 4px 0 0;
-  overflow: hidden;
-}
-
-.fc-chart-seg {
-  width: 100%;
-  flex-shrink: 0;
-}
-
-.fc-chart-x {
-  display: flex;
-  gap: 6px;
-  margin-left: 48px;
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--fc-text-muted);
-}
-
-.fc-chart-x span {
-  flex: 1;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
 .fc-model-legend {
   list-style: none;
   margin: 14px 0 0;
@@ -3358,20 +3303,17 @@ button.fc-status {
 
 .fc-model-legend-row {
   display: grid;
-  grid-template-columns: 10px 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 10px;
   font-size: 12.5px;
 }
 
-.fc-legend-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-}
-
 .fc-legend-name {
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fc-legend-tokens {
@@ -3384,6 +3326,11 @@ button.fc-status {
   text-align: right;
   color: var(--fc-text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.fc-legend-cost {
+  min-width: 56px;
+  text-align: right;
 }
 
 .fc-heatmap {

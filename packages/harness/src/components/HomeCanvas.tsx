@@ -1,75 +1,70 @@
-import { For, Show, createSignal, type Component } from "solid-js"
-import { formatTokens, modelColor, type ActivityDay, type UsageMetrics, type UsageRange } from "../metrics"
+import { For, Show, createSignal, type Component, type JSX } from "solid-js"
+import { formatTokens, type ActivityDay } from "../metrics"
+import { UNKNOWN, favoriteModel, known, share, tokenCount } from "../cost"
 import { t } from "../i18n"
 import { sessionTitle } from "../session-title"
 import type { SessionInfo } from "../engine-types"
+import type { SessionStats } from "../engine/contract"
+import type { UsageSummary } from "../types"
 import { ActivityHeatmap } from "./ActivityHeatmap"
+import { CostFigure } from "./CostFigure"
 
 type HomeCanvasProps = {
   displayName: string
-  range: UsageRange
-  metrics: UsageMetrics
+  /** The period in days, or all of it; the same periods as the Cost screen. */
+  range: number | undefined
+  /** The usage ledger's figures for the period, grouped by model: what the Cost screen reads. */
+  usage: UsageSummary | undefined
+  /** The engine's stats for the period: sessions, active days and the longest streak. */
+  stats: SessionStats | undefined
+  /** The last year, a day per cell, counted in model calls. */
   activity: ActivityDay[]
   /** The sessions working right now. Empty renders nothing; the list has no heading of its own. */
   activeSessions: SessionInfo[]
   onOpenSession: (sessionID: string) => void
   error: string | undefined
-  onRangeChange: (range: UsageRange) => void
+  onRangeChange: (range: number | undefined) => void
 }
 
-const RANGES: Array<{ id: UsageRange; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "30d", label: "30d" },
-  { id: "7d", label: "7d" },
-]
+/** The Cost screen's periods, in its order and with its words. */
+const RANGES = [7, 30, undefined] as const
 
-const ModelUsage: Component<{ metrics: UsageMetrics }> = (props) => {
-  const order = () => props.metrics.modelUsage.map((model) => model.name)
-  const color = (name: string) => modelColor(Math.max(0, order().indexOf(name)))
-  const max = () => Math.max(...props.metrics.weeks.map((week) => week.total), 1)
-  const ticks = () => [max(), (max() * 2) / 3, max() / 3, 0]
-
+/** Every model the ledger saw in the period, by tokens (cache included) and what it cost. */
+const ModelUsage: Component<{ usage: UsageSummary }> = (props) => {
+  const total = () => tokenCount(props.usage.total.tokens)
+  const models = () =>
+    props.usage.groups
+      .filter((group) => group.key !== null)
+      .toSorted((a, b) => tokenCount(b.tokens) - tokenCount(a.tokens))
   return (
-    <div class="fc-model-usage">
-      <div class="fc-chart">
-        <div class="fc-chart-y">
-          <For each={ticks()}>{(tick) => <span>{formatTokens(Math.round(tick))}</span>}</For>
-        </div>
-        <div class="fc-chart-plot">
-          <For each={props.metrics.weeks}>
-            {(week) => (
-              <div class="fc-chart-col" title={`${week.label} · ${formatTokens(week.total)}`}>
-                <For each={week.segments}>
-                  {(segment) => (
-                    <div
-                      class="fc-chart-seg"
-                      style={{ height: `${(segment.tokens / max()) * 100}%`, background: color(segment.name) }}
-                    />
-                  )}
-                </For>
-              </div>
-            )}
-          </For>
-        </div>
-      </div>
-      <div class="fc-chart-x">
-        <For each={props.metrics.weeks}>{(week, index) => <span>{index() % 2 === 0 ? week.label : ""}</span>}</For>
-      </div>
-      <ul class="fc-model-legend">
-        <For each={props.metrics.modelUsage}>
-          {(model) => (
-            <li class="fc-model-legend-row">
-              <span class="fc-legend-swatch" style={{ background: color(model.name) }} />
-              <span class="fc-legend-name">{model.name}</span>
-              <span class="fc-legend-tokens">
-                {formatTokens(model.input)} in · {formatTokens(model.output)} out
-              </span>
-              <span class="fc-legend-share">{(model.share * 100).toFixed(1)}%</span>
-            </li>
-          )}
-        </For>
-      </ul>
-    </div>
+    <ul class="fc-model-legend">
+      <For each={models()}>
+        {(model) => (
+          <li class="fc-model-legend-row">
+            <span class="fc-legend-name" title={model.key!}>
+              {model.key}
+            </span>
+            <span class="fc-legend-tokens">{t("{n} tokens", { n: formatTokens(tokenCount(model.tokens)) })}</span>
+            <span class="fc-legend-share">{share(tokenCount(model.tokens), total())}%</span>
+            <span class="fc-legend-cost">
+              <CostFigure bucket={model} />
+            </span>
+          </li>
+        )}
+      </For>
+      <Show when={props.usage.rest}>
+        {(rest) => (
+          <li class="fc-model-legend-row">
+            <span class="fc-legend-name">{t("{n} more", { n: rest().groups })}</span>
+            <span class="fc-legend-tokens">{t("{n} tokens", { n: formatTokens(tokenCount(rest().tokens)) })}</span>
+            <span class="fc-legend-share">{share(tokenCount(rest().tokens), total())}%</span>
+            <span class="fc-legend-cost">
+              <CostFigure bucket={rest()} />
+            </span>
+          </li>
+        )}
+      </Show>
+    </ul>
   )
 }
 
@@ -78,14 +73,25 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
   const greeting = () =>
     props.displayName.trim() ? t("What's next, {name}?", { name: props.displayName.trim() }) : t("What's next?")
 
-  const stats = (): Array<{ label: string; value: string; wide?: boolean }> => [
-    { label: t("Sessions"), value: String(props.metrics.sessions) },
-    { label: t("Total tokens"), value: formatTokens(props.metrics.tokens) },
-    { label: t("Active days"), value: String(props.metrics.activeDays) },
-    { label: t("Current streak"), value: `${props.metrics.currentStreak}d` },
-    { label: t("Longest streak"), value: `${props.metrics.longestStreak}d` },
-    { label: t("Peak hour"), value: props.metrics.peakHour },
-    { label: t("Favorite model"), value: props.metrics.favoriteModel, wide: true },
+  const total = () => props.usage?.total
+  const cache = () => (total() ? total()!.tokens.cacheRead + total()!.tokens.cacheWrite : 0)
+  const count = (value: number | undefined, suffix = "") => (value === undefined ? UNKNOWN : `${value}${suffix}`)
+  // The tokens, cost and favorite model are the ledger's; the rest, the engine's. A dash is a figure
+  // that could not be read, never a zero.
+  const stats = (): Array<{ label: string; value: JSX.Element; note?: string; wide?: boolean }> => [
+    { label: t("Sessions"), value: count(props.stats?.sessions) },
+    { label: t("Active days"), value: count(props.stats?.activeDays) },
+    { label: t("Longest streak"), value: count(props.stats?.streak, "d") },
+    {
+      label: t("Tokens"),
+      value: total() ? formatTokens(tokenCount(total()!.tokens)) : UNKNOWN,
+      note: total()
+        ? t("Cache included: {cache} read or written from cache", { cache: formatTokens(cache()) })
+        : undefined,
+    },
+    // Wide, like the model: a cost can be several lenses side by side.
+    { label: t("Cost"), value: <CostFigure bucket={total()} />, wide: true },
+    { label: t("Favorite model"), value: favoriteModel(props.usage?.groups ?? [])?.key ?? UNKNOWN, wide: true },
   ]
 
   return (
@@ -119,14 +125,14 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           </div>
           <div class="fc-range">
             <For each={RANGES}>
-              {(item) => (
+              {(days) => (
                 <button
                   class="fc-range-button"
-                  classList={{ "fc-range-button-active": props.range === item.id }}
+                  classList={{ "fc-range-button-active": props.range === days }}
                   type="button"
-                  onClick={() => props.onRangeChange(item.id)}
+                  onClick={() => props.onRangeChange(days)}
                 >
-                  {t(item.label)}
+                  {days === undefined ? t("All") : t("{n} days", { n: days })}
                 </button>
               )}
             </For>
@@ -137,14 +143,14 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           when={tab() === "summary"}
           fallback={
             <Show
-              when={props.metrics.modelUsage.length > 0}
+              when={known(props.usage?.total) ? props.usage : undefined}
               fallback={
                 <div class="fc-empty-state">
-                  <span class="fc-empty-title">{t("No model data")}</span>
+                  <span class="fc-empty-title">{props.usage ? t("Nothing recorded in this period.") : UNKNOWN}</span>
                 </div>
               }
             >
-              <ModelUsage metrics={props.metrics} />
+              {(usage) => <ModelUsage usage={usage()} />}
             </Show>
           }
         >
@@ -154,6 +160,9 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
                 <div class="fc-stat" classList={{ "fc-stat-wide": stat.wide }}>
                   <span class="fc-stat-value">{stat.value}</span>
                   <span class="fc-stat-label">{stat.label}</span>
+                  <Show when={stat.note}>
+                    <span class="fc-stat-note">{stat.note}</span>
+                  </Show>
                 </div>
               )}
             </For>
