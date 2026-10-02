@@ -157,53 +157,9 @@ export function computeMetrics(filtered: SessionInfo[]): UsageMetrics {
   }
 }
 
-/**
- * What an assistant step cost, priced like the legacy engine: per million tokens, with the largest
- * context tier the step went over, and reasoning at the output rate.
- */
-export function stepCost(tokens: NonNullable<SessionMessageAssistant["tokens"]>, prices: ModelInfo["cost"] = []) {
-  const context = tokens.input + tokens.cache.read + tokens.cache.write
-  const price =
-    prices.filter((entry) => entry.tier && context > entry.tier.size).sort((a, b) => b.tier!.size - a.tier!.size)[0] ??
-    prices.find((entry) => !entry.tier)
-  if (!price) return 0
-  return (
-    (tokens.input * price.input +
-      (tokens.output + tokens.reasoning) * price.output +
-      tokens.cache.read * price.cache.read +
-      tokens.cache.write * price.cache.write) /
-    1_000_000
-  )
-}
-
-/**
- * What a session has spent (TI-05).
- *
- * The engine prices every step it can and keeps the total on the session, including requests that
- * are no step of the transcript (the title it asks the model for), so that total is the figure:
- * adding the steps to it again counted them twice. A step the engine left unpriced is priced here
- * from its model's catalog price, and then the figure is an estimate and says so.
- */
-export function sessionCost(session: SessionInfo | undefined, messages: SessionMessageInfo[], models: ModelInfo[]) {
-  const steps = messages.flatMap((message) =>
-    message.type === "assistant" && message.tokens ? [message as SessionMessageAssistant] : [],
-  )
-  const counted = session?.cost ?? steps.reduce((sum, step) => sum + (step.cost ?? 0), 0)
-  const estimate = steps
-    .filter((step) => !step.cost)
-    .reduce((sum, step) => {
-      const model = models.find((entry) => entry.providerID === step.model?.providerID && entry.id === step.model?.id)
-      return sum + stepCost(step.tokens!, model?.cost)
-    }, 0)
-  return { cost: counted + estimate, estimated: estimate > 0 }
-}
-
 export type ContextFigures = {
   used: number
   limit: number
-  cost: number
-  /** Some of `cost` was priced here because the engine left a step unpriced (TI-05). */
-  costEstimated?: boolean
   tokens?: { input: number; output: number; reasoning: number }
   /**
    * The figure sizes the text the engine will send next instead of a finished step. It is set
@@ -274,7 +230,7 @@ const isCompaction = (message: SessionMessageInfo) =>
   (message.type === "assistant" && (message as { summary?: boolean }).summary === true)
 
 /**
- * The context window in use and the session's spend. The step that is still running carries no
+ * The context window in use. What the session spent is the usage ledger's (UL-06), not this. The step that is still running carries no
  * tokens yet, so the latest step that reported them is used instead: the figure stays put while the
  * model thinks instead of dropping to zero, and grows as new steps finish.
  *
@@ -287,7 +243,6 @@ const isCompaction = (message: SessionMessageInfo) =>
 export function contextFigures(
   session: SessionInfo | undefined,
   messages: SessionMessageInfo[],
-  models: ModelInfo[],
   model: ModelInfo | undefined,
   compaction?: CompactionConfig,
 ): ContextFigures {
@@ -300,17 +255,12 @@ export function contextFigures(
     .findLast(
       (message): message is SessionMessageAssistant => message.type === "assistant" && hasTokens(message.tokens),
     )
-  const spent = sessionCost(session, messages, models)
-  const cost = spent.cost
-  const costEstimated = spent.estimated ? { costEstimated: true } : {}
   if (measured) {
     const tokens = measured.tokens!
     const at = compactionAt(model, compaction)
     return {
       used: tokens.input + tokens.cache.read,
       limit,
-      cost,
-      ...costEstimated,
       tokens: { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning },
       ...(at !== undefined ? { compaction: { at, count: overflowCount(tokens) } } : {}),
     }
@@ -319,15 +269,11 @@ export function contextFigures(
     return {
       used: standingTokens(messages) + sentTokens(messages.slice(boundary)),
       limit,
-      cost,
-      ...costEstimated,
       estimated: true,
     }
   return {
     used: (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0),
     limit,
-    cost,
-    ...costEstimated,
   }
 }
 
@@ -387,18 +333,6 @@ type ToolPartState = {
   output?: string
   error?: string | { message?: string }
   content?: Array<{ text?: string }>
-}
-
-/**
- * Money, to the cent when it is money and to four places when it is not yet.
- *
- * A run that cost $0.0034 shows as $0.00 at two places, which reads as free. It was not free — it
- * is the number that turns into real money once it happens two hundred times. Every cost the app
- * prints goes through here, so the same value reads the same on every screen (TI-05).
- */
-export function money(value: number) {
-  if (value === 0) return "$0"
-  return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
 }
 
 export function formatTokens(value: number) {

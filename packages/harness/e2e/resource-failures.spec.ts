@@ -28,15 +28,18 @@ const patch = [
   "",
 ].join("\n")
 
-const report = {
-  totals: { runs: 2, tasks: 6, tokens: 14_000, cost: 1.5, ms: 60_000 },
-  retries: { tasks: 0, tokens: 0, cost: 0 },
-  byModel: [{ key: "openai/gpt-5.6", tasks: 6, tokens: 14_000, cost: 1.5 }],
-  byAgent: [{ key: "build", tasks: 6, tokens: 14_000, cost: 1.5 }],
-  byProject: [{ key: "/work/demo", tasks: 6, tokens: 14_000, cost: 1.5, runs: 2 }],
-  byDay: [{ day: "2026-09-30", tokens: 14_000, cost: 1.5 }],
-  slowest: [],
-}
+const tokens = { input: 10_000, output: 4_000, reasoning: 0, cacheRead: 0, cacheWrite: 0 }
+/** The ledger's summary (UL-06), whatever it is grouped by: $1.50 at list price, paid per use. */
+const summary = (groupBy: string | null) => ({
+  groupBy,
+  total: {
+    events: 6,
+    tokens,
+    money: [{ basis: "engine-list-price", billing: "metered", usd: 1.5, events: 6 }],
+    unpriced: { events: 0, tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 } },
+  },
+  groups: [],
+})
 
 /**
  * What each failing route answers right now; `undefined` answers normally. Tests flip these.
@@ -58,9 +61,9 @@ async function openApp(page: Page, failing: Failing, path: string) {
     const url = new URL(route.request().url())
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
     if (failing.refused) return route.fulfill({ status: 403, json: refusal })
-    if (url.pathname === "/harness/usage")
+    if (url.pathname === "/harness/usage/summary")
       return failing.usage === undefined
-        ? route.fulfill({ json: { data: report } })
+        ? route.fulfill({ json: { data: summary(url.searchParams.get("groupBy")) } })
         : route.fulfill({
             status: failing.usage,
             json: failing.usage === 403 ? refusal : { error: "usage is away" },
@@ -129,20 +132,21 @@ test("a failed refresh on Changes keeps the diff it had", async ({ page }) => {
 test("a 500 on Cost is said there, keeps the last report, and trying again recovers", async ({ page }) => {
   const failing: Failing = {}
   await openApp(page, failing, "/usage")
-  const spent = page.locator(".fc-usage-tile").first()
-  await expect(spent).toContainText("$1.50")
+  const spent = page.locator('.fc-usage-tile[data-lens="estimated"]')
+  await expect(spent).toContainText("~$1.50")
 
   failing.usage = 500
   await page.getByRole("button", { name: "7 days" }).click()
-  const alert = page.getByRole("alert").filter({ hasText: "The cost report could not be read" })
+  // The figures it had stay, and the screen says they are the last ones read.
+  const alert = page.getByRole("alert").filter({ hasText: "Refresh failed: these are the last figures read." })
   await expect(alert).toBeVisible()
   await expect(alert).toContainText("usage is away")
-  await expect(spent).toContainText("$1.50")
+  await expect(spent).toContainText("~$1.50")
 
   failing.usage = undefined
   await alert.getByRole("button", { name: "Try again" }).click()
   await expect(alert).toHaveCount(0)
-  await expect(spent).toContainText("$1.50")
+  await expect(spent).toContainText("~$1.50")
 })
 
 test("a refused token on Cost says it needs the desktop app or pairing, not that the server is away", async ({
@@ -167,12 +171,12 @@ test("a harness that refuses this page's token says so on Cost, and trying again
   await expect(alert).toContainText("needs the desktop app or a paired device")
   await expect(page.getByText("The harness server is not reachable")).toHaveCount(0)
   // Nothing was read, so nothing is claimed about the window either.
-  await expect(page.getByText("Nothing has run in this window.")).toHaveCount(0)
+  await expect(page.getByText("Nothing recorded in this period.")).toHaveCount(0)
 
   failing.refused = false
   await alert.getByRole("button", { name: "Try again" }).click()
   await expect(alert).toHaveCount(0)
-  await expect(page.locator(".fc-usage-tile").first()).toContainText("$1.50")
+  await expect(page.locator('.fc-usage-tile[data-lens="estimated"]')).toContainText("~$1.50")
 })
 
 test("a harness that refuses this page's token says so on Changes, and the diff still shows", async ({ page }) => {

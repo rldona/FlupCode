@@ -198,6 +198,7 @@ test("the usage ledger reads ask the harness for the summary, a session and a ru
   await client.usageSummary({ groupBy: "tag", tag: "feature", from: 1_000, to: 2_000, directory: "/work/demo", limit: 10 })
   await client.usageSummary()
   await client.sessionUsage("ses/1")
+  await client.sessionUsage("ses_1", { from: 5_000 })
   await client.runUsage("run_1")
 
   expect(calls).toEqual([
@@ -209,6 +210,7 @@ test("the usage ledger reads ask the harness for the summary, a session and a ru
     },
     { method: "GET", path: "/harness/usage/summary", search: "", body: undefined },
     { method: "GET", path: "/harness/usage/sessions/ses%2F1", search: "", body: undefined },
+    { method: "GET", path: "/harness/usage/sessions/ses_1", search: "?from=5000", body: undefined },
     { method: "GET", path: "/harness/usage/runs/run_1", search: "", body: undefined },
   ])
 })
@@ -602,8 +604,6 @@ test("the audits are asked for under their own paths, with the filter and the be
     await client.adaptive.learnedSkills.list({ projectID: "/work/demo" })
     await client.adaptive.guardrails.status("ses_1")
     await client.adaptive.metrics.session("ses_1")
-    await client.adaptive.metrics.sessions({ since: 1000, directory: "/work/demo", limit: 20 })
-    await client.adaptive.metrics.sessions()
   })
 
   expect(calls.map((call) => `${call.method} ${call.path}${call.search}`)).toEqual([
@@ -615,8 +615,6 @@ test("the audits are asked for under their own paths, with the filter and the be
     "GET /harness/adaptive/learned-skills?projectID=%2Fwork%2Fdemo",
     "GET /harness/adaptive/guardrails/status?sessionID=ses_1",
     "GET /harness/adaptive/metrics?sessionID=ses_1",
-    "GET /harness/adaptive/metrics/sessions?since=1000&directory=%2Fwork%2Fdemo&limit=20",
-    "GET /harness/adaptive/metrics/sessions",
   ])
   expect(calls.every((call) => call.auth === "Bearer tok")).toBe(true)
 })

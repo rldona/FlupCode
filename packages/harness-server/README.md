@@ -71,7 +71,9 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `PATCH /harness/findings/:id/resolved` | set one aside, or bring it back |
 | `GET /harness/runs/:id/activity` | which tool each running task is inside, and since when |
 | `GET /harness/runs/:id/files` | what each task changed on disk, from the checkpoints around it |
-| `GET /harness/usage` | what the runs cost, filtered by `directory` and `days` |
+| `GET /harness/usage/summary` | the usage ledger added up: `groupBy` one dimension, `from`, `to`, `directory`, `limit` |
+| `GET /harness/usage/sessions/:id` | a session with its subagents and its cost by agent; `from` adds what the tree spent since then |
+| `GET /harness/usage/runs/:id` | a run's cost by task, purpose, agent and model |
 | `POST /harness/usage/events` | the usage ledger's ingest: `{ events, tools }`, at most 500 of each, stored once by `id`; plugin token only |
 | `GET`/`POST /harness/checkpoints` | the ones for `?directory=`, or take one now |
 | `GET /harness/checkpoints/:id/plan` | which files restoring would write, and which it would delete |

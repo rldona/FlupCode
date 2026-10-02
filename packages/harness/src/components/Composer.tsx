@@ -6,7 +6,7 @@ import { ModeMenu } from "./ModeMenu"
 import { DeliveryMenu } from "./DeliveryMenu"
 import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
-import { ContextMeter } from "./ContextMeter"
+import { ContextMeter, type SessionSpend } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { ComposerMenu } from "./ComposerMenu"
@@ -44,11 +44,11 @@ type ComposerProps = {
   modelLabel: string
   variants: ModelVariant[]
   variantKey: string | undefined
+  /** What the session spent, from the usage ledger (UL-06); absent where the harness cannot be asked. */
+  spend?: SessionSpend
   usage: {
     used: number
     limit: number
-    cost?: number
-    costEstimated?: boolean
     tokens?: { input: number; output: number; reasoning: number }
     estimated?: boolean
     compaction?: { at: number; count: number }
@@ -624,8 +624,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               <ContextMeter
                 used={props.usage.used}
                 limit={props.usage.limit}
-                cost={props.usage.cost}
-                costEstimated={props.usage.costEstimated}
+                spend={props.spend}
                 tokens={props.usage.tokens}
                 estimated={props.usage.estimated}
                 compaction={props.usage.compaction}

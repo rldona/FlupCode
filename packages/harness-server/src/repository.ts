@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite"
-import type { UsageDimension, UsageRow, UsageTotalRow } from "./usage"
+import type { UsageDimension, UsageTotalRow } from "./usage"
 import { KIND_PURPOSE, repositoryRoot } from "./usage-ledger"
 import type {
   Billing,
@@ -533,7 +533,7 @@ const BACKUPS_KEPT = 3
 
 /**
  * The ledger's columns behind each summary dimension but `tag` (UL-05, audit §8.4), named as the
- * summary's `fields`. A day is the local one, as `dayOf` counts it, of when the fact happened.
+ * summary's `fields`. A day is the reader's local one (SQLite's `localtime`) of when the fact happened.
  */
 const USAGE_COLUMNS: Record<Exclude<UsageDimension, "tag">, Record<string, string>> = {
   run: { runID: "run_id" },
@@ -2288,64 +2288,6 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const removed = this.db.query("DELETE FROM checkpoints WHERE id = ?1").run(id).changes > 0
     if (removed) this.append({ type: "checkpoint.removed", checkpointID: id })
     return removed
-  }
-
-  /**
-   * Every task with the run it belonged to (H-16).
-   *
-   * One query rather than walking runs and asking for each one's tasks: the adding up happens in
-   * `summarise`, and this only has to hand it rows.
-   *
-   * A view of the usage ledger since UL-05: a task's tokens and cost are its ledger rows' (its
-   * session, its subagents and its retried steps), no longer the last answer's input and output the
-   * task kept. Tokens are input, output and reasoning, without the cache, as before. A task whose
-   * rows have no price at all has no cost; the old shape has no word for unpriced, so its sums add
-   * it as nothing. The summary (`usageTotals`) is what says unpriced.
-   */
-  usageRows(filter: { directory?: string; since?: number } = {}): UsageRow[] {
-    const where: string[] = []
-    const values: unknown[] = []
-    if (filter.directory) {
-      values.push(filter.directory)
-      where.push(`runs.directory = ?${values.length}`)
-    }
-    if (filter.since !== undefined) {
-      values.push(filter.since)
-      where.push(`runs.started_at >= ?${values.length}`)
-    }
-    const rows = this.db
-      .query(
-        // Per task through the run index, so the ledger is not grouped whole for every read.
-        `SELECT tasks.*, runs.directory AS run_directory,
-           (SELECT SUM(tokens_input + tokens_output + tokens_reasoning) FROM usage_event e
-             WHERE e.run_id = tasks.run_id AND e.task_id = tasks.id) AS ledger_tokens,
-           (SELECT SUM(CASE WHEN cost_basis != 'unpriced' THEN cost_usd END) FROM usage_event e
-             WHERE e.run_id = tasks.run_id AND e.task_id = tasks.id) AS ledger_cost
-         FROM tasks JOIN runs ON runs.id = tasks.run_id
-         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
-      )
-      .all(...(values as never[])) as Array<
-      TaskRow & { run_directory: string | null; ledger_tokens: number | null; ledger_cost: number | null }
-    >
-    return rows.map((row) => {
-      const model = row.model_json ? (JSON.parse(row.model_json) as { providerID: string; id: string }) : undefined
-      return {
-        runID: row.run_id,
-        taskID: row.id,
-        name: row.name,
-        // Old rows predate both columns, and their defaults are what they would have had.
-        kind: row.kind ?? "agent",
-        attempt: row.attempt ?? 1,
-        status: row.status,
-        ...(row.run_directory ? { directory: row.run_directory } : {}),
-        ...(row.agent ? { agent: row.agent } : {}),
-        ...(model ? { model } : {}),
-        ...(row.started_at ? { startedAt: row.started_at } : {}),
-        ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
-        ...(row.ledger_tokens !== null ? { tokens: row.ledger_tokens } : {}),
-        ...(row.ledger_cost !== null ? { cost: row.ledger_cost } : {}),
-      }
-    })
   }
 
   /** Findings (H-32). Anchored to a file and usually to a line, so the diff can carry them. */

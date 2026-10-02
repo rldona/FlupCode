@@ -838,92 +838,6 @@ describe("harness git API", () => {
   })
 })
 
-describe("harness usage API", () => {
-  test("adds up the tasks the runs actually recorded, retries apart", async () => {
-    const { handler, repository } = open()
-    const run = repository.startRun({ type: "manual" }, 1_000, "/work/app")
-    repository.addTasks(run.id, [
-      { name: "write", prompt: "p", agent: "build", model: { providerID: "anthropic", id: "opus" } },
-      { name: "write", prompt: "p", agent: "build", model: { providerID: "anthropic", id: "opus" }, attempt: 2 },
-      { name: "verify", prompt: "", kind: "verify" },
-    ])
-    const tasks = repository.listTasks(run.id)
-    repository.startTask(tasks[0]!.id, 1_000)
-    // What the task kept itself (the last answer) is no longer read: the ledger's rows are (UL-05).
-    repository.finishTask(tasks[0]!.id, "success", { tokens: 1, cost: 9 })
-    repository.startTask(tasks[1]!.id, 2_000)
-    repository.finishTask(tasks[1]!.id, "success", { tokens: 1, cost: 9 })
-    repository.attachTaskSession(tasks[0]!.id, "ses_first")
-    repository.attachTaskSession(tasks[1]!.id, "ses_retry")
-    const step = (sessionID: string, input: number, costUSD: number) => ({
-      id: `${sessionID}:step:${input}`,
-      kind: "step" as const,
-      sessionID,
-      // Input, output and reasoning count; the cache does not, as before.
-      tokens: { input, output: 10, reasoning: 10, cacheRead: 5000, cacheWrite: 50 },
-      costUSD,
-      costBasis: "engine-list-price" as const,
-      billing: "metered" as const,
-    })
-    repository.recordUsage({ events: [step("ses_first", 40, 0.3), step("ses_first", 20, 0.2), step("ses_retry", 60, 0.4)], tools: [] })
-
-    const response = await handler(new Request("http://x/harness/usage"))
-    const report = (await response.json()).data
-
-    // Kept for the screen that reads it, and marked as replaced by the summary.
-    expect(response.headers.get("deprecation")).toBe("true")
-    expect(response.headers.get("link")).toBe('</harness/usage/summary>; rel="successor-version"')
-    expect(report.totals).toMatchObject({ runs: 1, tasks: 3, tokens: 180 })
-    expect(report.totals.cost).toBeCloseTo(0.9, 5)
-    // The second attempt is a second bill, and it is the number nobody could see before.
-    expect(report.retries).toMatchObject({ tasks: 1, tokens: 80 })
-    expect(report.retries.cost).toBeCloseTo(0.4, 5)
-    // The verify task ran no model, so it is filed under none.
-    expect(report.byModel).toHaveLength(1)
-    expect(report.byModel[0].key).toBe("anthropic/opus")
-    expect(report.byProject[0]).toMatchObject({ key: "/work/app", runs: 1 })
-    repository.close()
-  })
-
-  test("a folder filter answers about that folder alone", async () => {
-    const { handler, repository } = open()
-    for (const directory of ["/work/a", "/work/b"]) {
-      const run = repository.startRun({ type: "manual" }, 1_000, directory)
-      repository.addTasks(run.id, [{ name: "t", prompt: "p", agent: "build" }])
-      const task = repository.listTasks(run.id)[0]!
-      repository.startTask(task.id, 1_000)
-      repository.finishTask(task.id, "success", { tokens: 10, cost: 0.1 })
-    }
-    // A task whose rows have no price is handed to the old sums without a cost. The old shape has no
-    // word for unpriced, so its totals still add it as nothing; the summary says unpriced (UL-05).
-    const unpriced = repository.listRuns().find((run) => run.directory === "/work/a")!
-    const task = repository.listTasks(unpriced.id)[0]!
-    repository.attachTaskSession(task.id, "ses_local")
-    repository.recordUsage({
-      events: [
-        {
-          id: "ses_local:step:1",
-          kind: "step",
-          sessionID: "ses_local",
-          tokens: { input: 7, output: 3, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
-          costBasis: "unpriced",
-          billing: "local",
-        },
-      ],
-      tools: [],
-    })
-
-    const response = await handler(new Request(`http://x/harness/usage?directory=${encodeURIComponent("/work/a")}`))
-    const report = (await response.json()).data
-
-    expect(report.totals.tasks).toBe(1)
-    expect(report.totals.tokens).toBe(10)
-    expect(report.byDay[0]).toMatchObject({ tokens: 10, cost: 0 })
-    expect(report.byProject.map((entry: { key: string }) => entry.key)).toEqual(["/work/a"])
-    repository.close()
-  })
-})
-
 // The one part of the context the engine cannot report: FlupCode's own engine plugin records it as
 // the request goes out, and these are the two ways that can go wrong from a browser's point of view.
 describe("the captured system prompt", () => {
@@ -1657,7 +1571,7 @@ describe("the bearer on every other route (AH-A05)", () => {
     ["GET", "/harness/memory?directory=/tmp"],
     ["POST", "/harness/memory"],
     ["DELETE", "/harness/memory/note_1"],
-    ["GET", "/harness/usage"],
+    ["GET", "/harness/usage/summary"],
     ["GET", "/harness/context?directory=/tmp"],
     ["GET", "/harness/context/file?directory=/tmp&path=AGENTS.md"],
     ["GET", "/harness/context/system-prompt?sessionID=ses_1"],

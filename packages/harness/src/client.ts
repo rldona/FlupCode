@@ -41,12 +41,10 @@ import type {
   TaskActivity,
   TaskTools,
   TouchedFiles,
-  UsageReport,
   UsageDimension,
   UsageRunReport,
   UsageSessionReport,
   UsageSummary,
-  SessionCostReport,
   SessionMetricTurn,
   Workflow,
   WorkflowFile,
@@ -848,22 +846,18 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== "") search.set(key, String(value))
       return harnessRequest<UsageSummary>(baseUrl, `/harness/usage/summary${search.size ? `?${search}` : ""}`)
     },
-    /** A session's cost with every subagent under it (UL-05). */
-    sessionUsage: (sessionID: string) =>
-      harnessRequest<UsageSessionReport>(baseUrl, `/harness/usage/sessions/${encodeURIComponent(sessionID)}`),
+    /**
+     * A session's cost with every subagent under it (UL-05); with `from`, also what the tree spent
+     * since then (`since`), which is how the composer reads the turn in progress (UL-06).
+     */
+    sessionUsage: (sessionID: string, input: { from?: number } = {}) =>
+      harnessRequest<UsageSessionReport>(
+        baseUrl,
+        `/harness/usage/sessions/${encodeURIComponent(sessionID)}${input.from !== undefined ? `?from=${input.from}` : ""}`,
+      ),
     /** A run's cost by task, purpose, agent and model (UL-05). */
     runUsage: (runID: string) =>
       harnessRequest<UsageRunReport>(baseUrl, `/harness/usage/runs/${encodeURIComponent(runID)}`),
-    /**
-     * What the runs cost (H-16), in its old shape. Deprecated: a view of the ledger since UL-05, kept
-     * for the screen that reads it until UL-06 moves it to `usageSummary`.
-     */
-    usage: (input: { directory?: string; days?: number } = {}) => {
-      const search = new URLSearchParams()
-      if (input.directory) search.set("directory", input.directory)
-      if (input.days) search.set("days", String(input.days))
-      return harnessRequest<UsageReport>(baseUrl, `/harness/usage${search.size ? `?${search}` : ""}`)
-    },
     /**
      * Checkpoints (H-15): a way back from what a run did.
      *
@@ -1111,15 +1105,13 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
             { method: "POST", body: JSON.stringify({ projectID, confirm: true }) },
           ),
       },
-      /** The cost baseline (AH-B01/B02): one session's turns, or every session summed in one read. */
+      /** The adaptive baseline (AH-B01): one session's turns. Costs come from the usage ledger (UL-06). */
       metrics: {
         session: (sessionID: string) =>
           harnessAuthorizedJson<SessionMetricTurn[]>(
             baseUrl,
             `/harness/adaptive/metrics?sessionID=${encodeURIComponent(sessionID)}`,
           ),
-        sessions: (filter: { since?: number; directory?: string; limit?: number } = {}) =>
-          harnessAuthorizedJson<SessionCostReport>(baseUrl, `/harness/adaptive/metrics/sessions${adaptiveQuery(filter)}`),
       },
       /** The composer chip's session (AH-E02): its latest turn, and the pause and exclusions a person set. */
       sessions: {

@@ -1,140 +1,252 @@
+import { spawn, type ChildProcess } from "node:child_process"
+import { createServer, type AddressInfo } from "node:net"
+import { fileURLToPath } from "node:url"
 import { expect, test, type Page } from "@playwright/test"
 
-const report = {
-  totals: { runs: 20, tasks: 66, tokens: 143_920, cost: 1.222, ms: 7_841_004 },
-  retries: { tasks: 6, tokens: 30_720, cost: 0.222 },
-  byModel: [
-    { key: "openai/gpt-5.6", tasks: 20, tokens: 72_400, cost: 0.634 },
-    { key: "anthropic/claude-opus-5", tasks: 20, tokens: 71_520, cost: 0.588 },
-  ],
-  byAgent: [
-    { key: "build", tasks: 26, tokens: 96_300, cost: 0.762 },
-    { key: "plan", tasks: 20, tokens: 47_620, cost: 0.46 },
-  ],
-  byProject: [
-    { key: "/work/flupcode", tasks: 33, tokens: 71_960, cost: 0.611, runs: 10 },
-    { key: "/work/landing", tasks: 33, tokens: 71_960, cost: 0.611, runs: 10 },
-  ],
-  byDay: [
-    { day: "2026-09-16", tokens: 7_000, cost: 0.05 },
-    { day: "2026-09-17", tokens: 28_000, cost: 0.2 },
-  ],
-  slowest: [{ taskID: "t1", runID: "r1", name: "verify", ms: 241_000 }],
+/**
+ * The Cost screen and the disclosure ladder (UL-06) against a fixture ledger: the real harness-server
+ * routes over the rows `usage-ledger.fixture.ts` writes, so every figure checked here is what the
+ * summary, session and run reads answer. The engine is mocked: only the sessions the composer needs.
+ */
+
+let harness: ChildProcess | undefined
+let harnessUrl = ""
+
+const now = Date.now()
+const yesterday = (() => {
+  const at = new Date(now)
+  return new Date(at.getFullYear(), at.getMonth(), at.getDate() - 1, 11).getTime()
+})()
+
+const session = (id: string, title: string) => ({
+  id,
+  projectID: "p",
+  title,
+  cost: 0,
+  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  time: { created: yesterday, updated: yesterday },
+  location: { directory: "/work/flupcode" },
+})
+const sessions = [session("ses_task_a", "Write the login"), session("ses_unmeasured", "Nothing measured")]
+const transcript = (sessionID: string) => [
+  { id: `${sessionID}_u1`, sessionID, type: "user", text: "Write it", time: { created: yesterday, completed: yesterday } },
+  {
+    id: `${sessionID}_a1`,
+    sessionID,
+    type: "assistant",
+    agent: "build",
+    model: { providerID: "anthropic", id: "sonnet" },
+    cost: 0,
+    tokens: { input: 1200, output: 300, reasoning: 0, cache: { read: 4000, write: 0 } },
+    time: { created: yesterday + 1, completed: yesterday + 2 },
+    content: [{ type: "text", id: `${sessionID}_p`, text: "Done." }],
+  },
+]
+
+async function freePort() {
+  const probe = createServer()
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve))
+  const port = (probe.address() as AddressInfo).port
+  await new Promise((resolve) => probe.close(resolve))
+  return port
 }
 
-type Seen = { days: (string | null)[]; directories: (string | null)[] }
+test.beforeAll(async () => {
+  const port = await freePort()
+  harnessUrl = `http://127.0.0.1:${port}`
+  harness = spawn("bun", [fileURLToPath(new URL("./usage-ledger.fixture.ts", import.meta.url))], {
+    env: { ...process.env, PORT: String(port) },
+    stdio: "ignore",
+  })
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const answer = await fetch(`${harnessUrl}/harness/health`).catch(() => undefined)
+    if (answer?.ok) return
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  throw new Error("the fixture ledger did not start")
+})
 
-async function open(page: Page, over: Record<string, unknown> = {}) {
-  const seen: Seen = { days: [], directories: [] }
-  await page.addInitScript(() => {
-    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
-    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
-    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+test.afterAll(() => {
+  harness?.kill()
+})
+
+/** The app on `path`, with the fixture ledger as its harness and a mocked engine. */
+async function open(page: Page, path: string, selected?: string) {
+  const asked: URL[] = []
+  page.on("request", (request) => {
+    const url = new URL(request.url())
+    if (url.pathname.startsWith("/harness/usage")) asked.push(url)
   })
-  await page.route("http://127.0.0.1:9097/**", (route) => {
-    const url = new URL(route.request().url())
-    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
-    if (url.pathname === "/harness/usage") {
-      seen.days.push(url.searchParams.get("days"))
-      seen.directories.push(url.searchParams.get("directory"))
-      return route.fulfill({ json: { data: { ...report, ...over } } })
-    }
-    if (url.pathname === "/harness/events") return new Promise(() => {})
-    return route.fulfill({ json: { data: [] } })
-  })
+  await page.addInitScript(
+    (values) => {
+      window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+      window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+      window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify(values.harness))
+      window.localStorage.setItem("flupcode.selectedModel", JSON.stringify({ providerID: "anthropic", id: "sonnet" }))
+      if (values.selected) window.localStorage.setItem("flupcode.selectedSession", JSON.stringify(values.selected))
+    },
+    { harness: harnessUrl, selected },
+  )
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
-    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: sessions, cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/model")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "sonnet",
+              providerID: "anthropic",
+              name: "Sonnet",
+              limit: { context: 200_000, output: 8_000 },
+              cost: [],
+              status: "active",
+              enabled: true,
+              variants: [],
+            },
+          ],
+        },
+      })
+    const messages = /^\/api\/session\/([^/]+)\/message$/.exec(url.pathname)
+    if (messages) return route.fulfill({ json: { data: [...transcript(messages[1]!)].reverse(), cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
   })
-  await page.goto("/usage")
-  // Wait for the screen to have answered before handing back what the server was asked, or every
-  // assertion about `seen` races the first request.
-  await expect(page.getByRole("heading", { name: /^(Cost|Coste)$/ })).toBeVisible()
-  await expect.poll(() => seen.days.length).toBeGreaterThan(0)
-  return seen
+  await page.goto(path)
+  return asked
 }
 
-test("shows what it cost, which nothing else in the app has ever shown", async ({ page }) => {
-  await open(page)
+const tile = (page: Page, lens: string) => page.locator(`.fc-usage-tile[data-lens="${lens}"]`)
 
-  const tiles = page.locator(".fc-usage-tile")
-  await expect(tiles.first()).toContainText("$1.22")
-  await expect(page.locator(".fc-usage")).toContainText("143.9k")
-  await expect(page.locator(".fc-usage")).toContainText("20")
-  // A duration a person reads, not a count of milliseconds.
-  await expect(page.locator(".fc-usage")).toContainText("2h 10m")
+test("the three money lenses read apart, what had no price is counted apart, and nothing is a dash", async ({
+  page,
+}) => {
+  await open(page, "/usage")
+
+  // Thirty days: every pay-per-use row ($0.30 + $0.05 + $0.08 + $0.50 + $0.02 + $1.00), as an estimate.
+  await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$1.95")
+  // The tile is named Notional, so its figure is the money alone, drawn the notional way.
+  await expect(tile(page, "notional").locator(".fc-usage-tile-value")).toHaveText("$0.12")
+  await expect(tile(page, "notional").locator(".fc-usage-tile-label")).toHaveText("Notional")
+  // No provider reported a charge: a dash, never $0.
+  await expect(tile(page, "measured").locator(".fc-usage-tile-value")).toHaveText("—")
+  await expect(tile(page, "unpriced").locator(".fc-usage-tile-value")).toHaveText("3 model calls")
+  for (const lens of ["estimated", "measured", "notional", "unpriced"])
+    await expect(tile(page, lens).locator(".fc-usage-tile-value")).not.toHaveText(/^\$0$/)
+
+  // Told apart by how they look, not only by what they say.
+  const style = (lens: string) =>
+    tile(page, lens)
+      .locator(".fc-usage-tile-value")
+      .evaluate((node) => {
+        const computed = getComputedStyle(node)
+        return `${computed.color}|${computed.fontStyle}|${computed.borderTopStyle}`
+      })
+  const looks = new Set([await style("estimated"), await style("notional"), await style("unpriced")])
+  expect(looks.size).toBe(3)
 })
 
-test("calls out what was paid for twice", async ({ page }) => {
-  await open(page)
-
-  // A retry is a new task by design, so this money was spent doing something a second time. It was
-  // inside the total and invisible; that is the whole reason this screen exists.
-  const retries = page.locator(".fc-usage-tile-warn")
-  await expect(retries).toContainText("$0.22")
-  await expect(retries).toContainText("18%")
-})
-
-test("nothing retried is not painted as a problem", async ({ page }) => {
-  await open(page, { retries: { tasks: 0, tokens: 0, cost: 0 } })
-
-  await expect(page.locator(".fc-usage-tile-warn")).toHaveClass(/fc-usage-tile-quiet/)
-  await expect(page.locator(".fc-usage-tile-warn")).toContainText("$0")
-})
-
-test("breaks the bill down by model, by agent and by project", async ({ page }) => {
-  await open(page)
-
-  const blocks = page.locator(".fc-usage-block")
-  await expect(blocks.filter({ hasText: "By model" })).toContainText("openai/gpt-5.6")
-  await expect(blocks.filter({ hasText: "By agent" })).toContainText("build")
-  // A project is named by its folder, not by its whole path.
-  await expect(blocks.filter({ hasText: "By project" })).toContainText("flupcode")
-  await expect(blocks.filter({ hasText: "By project" })).not.toContainText("/work/flupcode")
-})
-
-test("the day chart is drawn against its own biggest day", async ({ page }) => {
-  await open(page)
-
-  // With a floor of 1 and costs in pennies, every bar came out a few per cent tall.
-  const heights = await page
-    .locator(".fc-usage-day-bar")
-    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).style.height))
-  expect(heights).toEqual(["25%", "100%"])
-})
-
-test("the window is a choice, and it reaches the server", async ({ page }) => {
-  const seen = await open(page)
-  expect(seen.days).toEqual(["30"])
+test("the period is a choice, and it reaches the ledger", async ({ page }) => {
+  const asked = await open(page, "/usage")
+  await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$1.95")
 
   await page.getByRole("button", { name: /^(7 days|7 días)$/ }).click()
 
-  await expect.poll(() => seen.days).toEqual(["30", "7"])
+  // The old chat of 20 days ago is out.
+  await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$0.95")
+  expect(asked.some((url) => url.searchParams.get("groupBy") === "model" && url.searchParams.has("from"))).toBe(true)
 })
 
-test("says plainly which part is runs and which part is every session", async ({ page }) => {
-  await open(page)
-  // The tiles are runs only; chats are counted in the Sessions section below. The subtitle says both.
-  await expect(page.locator(".fc-routines-header p")).toHaveText(
-    /^(What your work cost: the runs the harness started, and below, every session, chats included\.|Lo que ha costado tu trabajo: las ejecuciones que lanzó el harness y, debajo, cada sesión, chats incluidos\.)$/,
-  )
+test("the project selector narrows every figure to that project", async ({ page }) => {
+  await open(page, "/usage")
+  await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$1.95")
+
+  await page.locator(".fc-usage-toolbar select").selectOption("/work/landing")
+
+  // The chat in /work/landing: $0.50 and the $0.02 compaction, with its two unpriced calls.
+  await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$0.52")
+  await expect(tile(page, "notional").locator(".fc-usage-tile-value")).toHaveText("—")
+  await expect(tile(page, "unpriced").locator(".fc-usage-tile-value")).toHaveText("2 model calls")
 })
 
-test("nothing run in the window says so, rather than showing a page of zeroes", async ({ page }) => {
-  await open(page, {
-    totals: { runs: 0, tasks: 0, tokens: 0, cost: 0, ms: 0 },
-    byModel: [],
-    byAgent: [],
-    byProject: [],
-    byDay: [],
-    slowest: [],
-  })
+test("the group-by switch asks the ledger by that dimension, and every row's figure opens its basis", async ({
+  page,
+}) => {
+  const asked = await open(page, "/usage")
+  const grouped = page.locator(".fc-usage-block").filter({ has: page.locator("#fc-usage-grouped") })
+  await expect(grouped.locator(".fc-usage-row").first()).toContainText("anthropic/sonnet")
 
-  await expect(page.getByText(/Nothing has run in this window|No se ha ejecutado nada/)).toBeVisible()
-  await expect(page.locator(".fc-usage-tiles")).toHaveCount(0)
+  await grouped.getByRole("combobox").selectOption("agent")
+  await expect.poll(() => asked.some((url) => url.searchParams.get("groupBy") === "agent")).toBe(true)
+  const build = grouped.locator(".fc-usage-row").filter({ hasText: /^build/ })
+  await expect(build).toBeVisible()
+  await expect(grouped.locator(".fc-usage-row").filter({ hasText: "explore" })).toBeVisible()
+
+  // One interaction from the figure to whose price it is and how it was paid for.
+  await build.locator(".fc-cost-figure").click()
+  const basis = build.getByRole("note")
+  await expect(basis).toContainText("Engine list price · pay per use")
+  await expect(basis).toContainText("Engine list price · subscription")
+  await page.keyboard.press("Escape")
+  await expect(basis).toHaveCount(0)
+})
+
+test("the daily series draws money per lens, and a day opens its figure with its basis", async ({ page }) => {
+  await open(page, "/usage")
+
+  const days = page.locator(".fc-usage-day")
+  await expect(days).toHaveCount(30)
+  // Yesterday had pay-per-use and subscription money: two segments, never one merged bar.
+  const yesterdayBar = days.nth(28)
+  await expect(yesterdayBar.locator('.fc-usage-day-bar[data-lens="estimated"]')).toHaveCount(1)
+  await expect(yesterdayBar.locator('.fc-usage-day-bar[data-lens="notional"]')).toHaveCount(1)
+  // Today had unpriced calls, marked as such.
+  await expect(days.nth(29).locator(".fc-usage-day-mark-on")).toHaveCount(1)
+
+  await yesterdayBar.click()
+  const detail = page.locator(".fc-usage-day-detail")
+  await expect(detail).toContainText("Notional · Engine list price · subscription")
+  await expect(detail).toContainText("Estimated · Engine list price · pay per use")
+})
+
+test("the same run costs the same on its card, in the Center and in its session", async ({ page }) => {
+  await open(page, "/usage", "ses_task_a")
+  const center = page
+    .locator(".fc-usage-block")
+    .filter({ has: page.locator("#fc-usage-runs") })
+    .locator(".fc-usage-row")
+    .filter({ hasText: "feature" })
+    .locator(".fc-cost-figure")
+  await expect(center).toHaveText("~$0.35$0.12 notional")
+  const figure = (await center.textContent()) ?? ""
+
+  await page.goto("/runs")
+  const card = page.locator(".fc-run-card").filter({ hasText: "feature" })
+  await expect(card.locator(".fc-run-head .fc-cost-figure")).toHaveText(figure)
+  // The task line carries the same bill: the run had one task and nothing else.
+  await expect(card.locator(".fc-run-task .fc-cost-figure")).toHaveText(figure)
+
+  await page.goto("/")
+  await page.locator(".fc-context-button").click()
+  const sessionRow = page.locator(".fc-context-spend .fc-context-row").filter({ hasText: /Session and 1 subagents|Sesión y 1 subagentes/ })
+  await expect(sessionRow.locator(".fc-cost-figure")).toHaveText(figure)
+  // The turn is the ledger's too: the turn's prompt was yesterday, so it is the whole session here.
+  const turn = page.locator(".fc-context-spend .fc-context-row").filter({ hasText: /This turn|Este turno/ })
+  await expect(turn.locator(".fc-cost-figure")).toHaveText(figure)
+  // By agent, the subagent's share apart.
+  await expect(page.locator(".fc-context-agent").filter({ hasText: "explore" })).toContainText("~$0.05")
+})
+
+test("a session the ledger has not heard of shows a dash, not $0", async ({ page }) => {
+  await open(page, "/", "ses_unmeasured")
+  await page.locator(".fc-context-button").click()
+  const spend = page.locator(".fc-context-spend")
+  await expect(spend.locator(".fc-context-row").filter({ hasText: /This turn|Este turno/ })).toContainText("—")
+  await expect(spend.locator(".fc-context-row").filter({ hasText: /^(Session|Sesión)/ })).toContainText("—")
+  await expect(spend).not.toContainText("$0")
 })

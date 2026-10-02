@@ -1,10 +1,8 @@
 import { Show, createSignal, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
-import { money } from "../metrics"
 
 type LoaderProps = {
   tokens?: { input: number; output: number; reasoning: number }
-  cost?: number
   startedAt?: number
   class?: string
   label?: string
@@ -63,10 +61,6 @@ export const Loader: Component<LoaderProps> = (props) => {
         <span class="fc-loader-meta">
           {props.tasks === 1 ? t("1 running task") : t("{n} running tasks", { n: props.tasks ?? 0 })}
         </span>
-      </Show>
-      <Show when={props.cost !== undefined && props.cost > 0}>
-        <span class="fc-loader-sep">·</span>
-        <span class="fc-loader-meta">{money(props.cost!)}</span>
       </Show>
       <Show when={label()}>
         <span class="fc-loader-sep">·</span>

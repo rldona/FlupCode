@@ -419,7 +419,7 @@ import { drop, dropAll, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
 import { registerDocuments } from "./documents"
-import { handleUsageRead, summarise } from "./usage"
+import { handleUsageRead } from "./usage"
 import { handleUsageIngest } from "./usage-ledger"
 import type { createUsagePricing } from "./usage-pricing"
 import { FINDINGS_INSTRUCTION } from "./findings"
@@ -1413,17 +1413,6 @@ export const createHarnessHandler = (
     // and a run, every figure with its basis. The UI's bearer, never the plugins'.
     const usage = handleUsageRead(request, path, repository)
     if (usage) return usage
-    // What the runs cost (H-16), in its old shape for the screen that still reads it. A view of the
-    // ledger since UL-05 and deprecated: UL-06 moves that screen to `/harness/usage/summary`.
-    if (path[1] === "usage" && path.length === 2 && request.method === "GET") {
-      const params = new URL(request.url).searchParams
-      const days = Number(params.get("days"))
-      const since = Number.isFinite(days) && days > 0 ? Date.now() - days * 86_400_000 : undefined
-      return deprecate(
-        json({ data: summarise(repository.usageRows({ directory: params.get("directory") ?? undefined, since })) }),
-        "/harness/usage/summary",
-      )
-    }
 
     // What the model was given (H-17): which instruction files a turn in this folder would load.
     // Read from disk by the engine's own rules, because the engine does not report them.
