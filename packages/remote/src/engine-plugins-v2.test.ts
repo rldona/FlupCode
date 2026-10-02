@@ -2796,9 +2796,11 @@ describe("OpenCode 2 session-metrics", () => {
       tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
     })
     expect(first).not.toHaveProperty("costUSD")
+    expect(first?.costBasis).toBe("unpriced")
     expect(second).toMatchObject({
       id: "ses_1:step_failed:msg_b",
       costUSD: 0.002,
+      costBasis: "engine-list-price",
       tokens: counted,
       errorType: "provider.error",
     })

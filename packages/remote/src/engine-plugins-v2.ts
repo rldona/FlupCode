@@ -1025,12 +1025,14 @@ function facts(event, sessionID, fallbackDirectory) {
 }
 
 // The cost is the engine's list price; whether that was money spent or a subscription is the
-// harness's to say. A cost the engine did not report stays absent, never $0.
+// harness's to say. A cost the engine did not report stays absent and unpriced, never $0, as the
+// reconciler stores the same fact.
 function priced(data) {
+  const cost = number(data.cost)
   return {
     tokens: tokensOf(data.tokens),
-    ...present("costUSD", number(data.cost)),
-    costBasis: "engine-list-price",
+    ...present("costUSD", cost),
+    costBasis: cost === undefined ? "unpriced" : "engine-list-price",
     billing: "unknown",
   }
 }
