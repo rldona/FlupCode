@@ -140,6 +140,7 @@ import { WorkflowLaunchDialog, type WorkflowLaunch } from "./components/Workflow
 import { BestOfNDialog, type BestOfNLaunch } from "./components/BestOfNDialog"
 import { ComparePanel } from "./components/ComparePanel"
 import { DecisionsPanel } from "./components/DecisionsPanel"
+import { ChildBanner } from "./components/ChildBanner"
 import { GuardrailBanner, guardrailFor, type GuardrailReading } from "./components/GuardrailBanner"
 import { AdaptiveChip } from "./components/AdaptiveChip"
 import { runSnapshot } from "./compare"
@@ -694,6 +695,9 @@ export const App: Component = () => {
   // The engine answers but refuses the call: it was started with `OPENCODE_SERVER_PASSWORD`, and a
   // browser page has no credentials to send (only the desktop app injects any). Named apart from a
   // stopped engine so the banner can point at the fix instead of "start it".
+  // An engine or harness server the desktop app is restarting, or gave up on (HE-03): its own banner
+  // says so, in place of the "start it" one, which is meant for a browser tab.
+  const [childTrouble, setChildTrouble] = createSignal(false)
   const serverAuthRequired = () => health()?.authRequired === true
   // A memo, not a plain accessor: the health poll writes a fresh resource value every 10s, and a
   // plain accessor would pass that on to every effect and resource source reading it — dropping and
@@ -5133,13 +5137,16 @@ export const App: Component = () => {
             </div>
           )}
         </Show>
+        <ChildBanner onRecovered={() => void refetchHealth()} onTrouble={setChildTrouble} />
         <Show
           when={
             onboarded() &&
             !remote.activeHost() &&
             localNetworkReady() &&
             !health.loading &&
-            health()?.healthy !== true
+            health()?.healthy !== true &&
+            // The desktop's own banner already says the engine is restarting, and why.
+            !childTrouble()
           }
         >
           <div class="fc-offline-banner">

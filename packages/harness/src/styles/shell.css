@@ -4375,6 +4375,36 @@ button.fc-status {
   flex-shrink: 0;
 }
 
+/* HE-03: the engine or the harness server is restarting (a warning: nothing is blocked) or the
+   supervisor gave up on it (the same red as the offline banner). */
+.fc-child-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fc-space-2) var(--fc-space-3);
+  padding: 8px var(--fc-space-4);
+  background: color-mix(in srgb, var(--fc-warning) 12%, transparent);
+  color: color-mix(in srgb, var(--fc-text) 70%, var(--fc-warning));
+  font-size: var(--fc-text-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--fc-warning) 30%, var(--fc-border));
+}
+
+.fc-child-banner-failed {
+  background: color-mix(in srgb, var(--fc-danger) 12%, transparent);
+  color: var(--fc-danger);
+  border-bottom-color: color-mix(in srgb, var(--fc-danger) 30%, var(--fc-border));
+}
+
+.fc-child-banner-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fc-child-banner .fc-button {
+  flex-shrink: 0;
+}
+
 /* The advisory guardrail banner (FH-062): a live loop is called out above the conversation, and the
    reader may open the decision, stop the turn or dismiss it. It warns; it never stops the turn on
    its own. `--fc-text-muted` is too faint on the warning tint in some palettes (sublime dark falls

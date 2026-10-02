@@ -524,6 +524,12 @@ const ES: Record<string, string> = {
   "Checking the server…": "Comprobando el servidor…",
   "Server connected": "Servidor conectado",
   "Server offline": "Sin conexión al servidor",
+  // HE-03: the desktop app's supervisor
+  "The engine": "El motor",
+  "The harness server": "El servidor del harness",
+  "{name} stopped ({reason}) and is restarting…": "{name} se detuvo ({reason}) y se está reiniciando…",
+  "{name} stopped and could not be restarted: {reason}": "{name} se detuvo y no se pudo reiniciar: {reason}",
+  "Copy diagnostics": "Copiar diagnóstico",
   "Connection blocked by the browser": "Conexión bloqueada por el navegador",
   "Authentication required": "Autenticación requerida",
   "The engine is asking for authentication": "El motor pide autenticación",

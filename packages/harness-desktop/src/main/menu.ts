@@ -5,6 +5,7 @@ type MenuHandlers = {
   onCheckUpdates: () => void
   onImportV1History: () => void
   onUndoV1Import: () => void
+  onCopyDiagnostics: () => void
 }
 
 export function setApplicationMenu(handlers: MenuHandlers) {
@@ -70,6 +71,9 @@ export function setApplicationMenu(handlers: MenuHandlers) {
               { label: "Check for Updates…", click: () => handlers.onCheckUpdates() } as MenuItemConstructorOptions,
               { type: "separator" } as MenuItemConstructorOptions,
             ]),
+        // HE-03: versions, ports, the engine's and the harness's state and logs, secrets taken out.
+        { label: "Copy Diagnostics", click: () => handlers.onCopyDiagnostics() },
+        { type: "separator" },
         {
           label: "FlupCode on GitHub",
           click: () => void shell.openExternal("https://github.com/rldona/FlupCode"),
