@@ -90,6 +90,8 @@ import type {
 } from "./types"
 import { VERDICTS } from "./types"
 import { runVerdict } from "./verdict"
+import { FAILED_IN_A_ROW_NOTICE, failedInARow, nextRunAt } from "./schedule"
+import { normalizeRoutineRetry } from "./validation"
 import { decisionFromRow, decisionRowFrom } from "./adaptive/decision-record"
 import type { DecisionRow } from "./adaptive/decision-record"
 import { planFromRow, planRowFrom } from "./adaptive/context-record"
@@ -566,6 +568,9 @@ type RoutineRow = {
   enabled: number
   created_at: number
   last_run_at: number | null
+  /** RP-07 (migration 13); absent on a database that has not reached it yet. */
+  missed?: string | null
+  retry_json?: string | null
 }
 
 type RunRow = {
@@ -981,7 +986,8 @@ const decodeWhen = (value: string | null): TaskCondition | undefined => {
   }
 }
 
-const decodeRoutine = (row: RoutineRow, runs: Run[]): Routine => ({
+const decodeRoutine = (row: RoutineRow, runs: Run[]): Routine =>
+  withStatus({
   id: row.id,
   name: row.name,
   description: row.description,
@@ -998,7 +1004,36 @@ const decodeRoutine = (row: RoutineRow, runs: Run[]): Routine => ({
   createdAt: row.created_at,
   lastRunAt: row.last_run_at ?? undefined,
   runs,
-})
+  ...(row.missed === "skip" ? { missed: "skip" as const } : {}),
+  ...decodeRoutineRetry(row.retry_json ?? null),
+  })
+
+/**
+ * A routine with what is derived from it on every read (RP-07): when it fires next, as the scheduler
+ * reckons it, and how it has been failing. Derived rather than stored, so the app never computes a
+ * schedule of its own and nothing goes stale when a run lands.
+ */
+const withStatus = (routine: Routine, now = Date.now()): Routine => {
+  const next = nextRunAt(routine, now)
+  const failures = failedInARow(routine.runs)
+  return {
+    ...routine,
+    ...(next !== undefined ? { nextRunAt: next } : {}),
+    failedInARow: failures,
+    failing: failures >= FAILED_IN_A_ROW_NOTICE,
+  }
+}
+
+/** A routine's retry (RP-07); unreadable means none. */
+function decodeRoutineRetry(value: string | null): Pick<Routine, "retry"> {
+  if (!value) return {}
+  try {
+    const retry = normalizeRoutineRetry(JSON.parse(value))
+    return retry ? { retry } : {}
+  } catch {
+    return {}
+  }
+}
 
 /**
  * An action a routine or task runs (WA-7), or nothing when the row predates the column.
@@ -1126,7 +1161,7 @@ const decodeOptions = (
   value: string | null,
 ): Pick<
   Run,
-  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow"
+  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow" | "attempt"
 > => {
   if (!value) return {}
   try {
@@ -1140,6 +1175,7 @@ const decodeOptions = (
       paused?: unknown
       budgetApproved?: unknown
       allow?: unknown
+      attempt?: unknown
     }
     const allow = parseAllow(parsed.allow)
     return {
@@ -1158,6 +1194,7 @@ const decodeOptions = (
         : {}),
       ...(parsed.budgetApproved === true ? { budgetApproved: true } : {}),
       ...(allow !== undefined ? { allow } : {}),
+      ...(typeof parsed.attempt === "number" && parsed.attempt > 1 ? { attempt: parsed.attempt } : {}),
     }
   } catch {
     return {}
@@ -1167,10 +1204,11 @@ const decodeOptions = (
 const encodeOptions = (
   run: Pick<
     Run,
-    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow"
+    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow" | "attempt"
   >,
 ) => {
   const options = {
+    ...(run.attempt && run.attempt > 1 ? { attempt: run.attempt } : {}),
     ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
     ...(run.outside ? { outside: true } : {}),
     ...(run.shell === false ? { shell: false } : {}),
@@ -1548,6 +1586,18 @@ export class SqliteRoutineRepository implements RoutineRepository {
             updated_at INTEGER NOT NULL
           )`),
       },
+      {
+        // What a routine does about beats it missed and about a failed run (RP-07). Routines from
+        // before keep what they did: catch up once, and wait for the next beat after a failure. Its
+        // time zone and cron pattern live in `schedule_json`, which already takes any shape.
+        version: 13,
+        name: "routine-reliability",
+        rewrites: true,
+        up: () => {
+          this.addColumn("routines", "missed", "TEXT")
+          this.addColumn("routines", "retry_json", "TEXT")
+        },
+      },
     ]
   }
 
@@ -1830,8 +1880,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
       this.db
         .query(
           `INSERT INTO routines
-            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, workflow_json, policy_json, action_json, allow_json, enabled, created_at, last_run_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, workflow_json, policy_json, action_json, allow_json, enabled, created_at, last_run_at, missed, retry_json)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
         )
         .run(
           routine.id,
@@ -1849,11 +1899,14 @@ export class SqliteRoutineRepository implements RoutineRepository {
           routine.enabled ? 1 : 0,
           routine.createdAt,
           routine.lastRunAt ?? null,
+          routine.missed === "skip" ? "skip" : null,
+          routine.retry ? JSON.stringify(routine.retry) : null,
         )
       for (const run of routine.runs) this.insertRun(run)
     })()
-    this.append({ type: "routine.changed", routine })
-    return routine
+    const created = this.get(id)!
+    this.append({ type: "routine.changed", routine: created })
+    return created
   }
 
   update(id: string, input: RoutineInput) {
@@ -1861,8 +1914,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.db
       .query(
         `UPDATE routines
-         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7, workflow_json = ?8, policy_json = ?9, action_json = ?10, allow_json = ?11
-         WHERE id = ?12`,
+         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7, workflow_json = ?8, policy_json = ?9, action_json = ?10, allow_json = ?11, missed = ?12, retry_json = ?13
+         WHERE id = ?14`,
       )
       .run(
         input.name,
@@ -1876,6 +1929,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         input.policy ? JSON.stringify(input.policy) : null,
         encodeAction(input.action),
         encodeAllow(input.allow),
+        input.missed === "skip" ? "skip" : null,
+        input.retry ? JSON.stringify(input.retry) : null,
         id,
       )
     const routine = this.get(id)
@@ -1939,15 +1994,35 @@ export class SqliteRoutineRepository implements RoutineRepository {
     source: RunSource,
     now: number,
     directory?: string,
-    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "allow" | "workflow"> = {},
+    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "allow" | "workflow" | "attempt"> = {},
   ) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
       this.insertRun(run)
-      if (source.type === "routine") this.markRun(source.routineID, now)
+      // A retry is not a beat: the schedule keeps counting from the run it retries (RP-07).
+      if (source.type === "routine" && (run.attempt ?? 1) === 1) this.markRun(source.routineID, now)
     })()
     this.append({ type: "run.started", run })
+    if (source.type === "routine") this.appendRoutineStatus(source.routineID)
     return run
+  }
+
+  /**
+   * When a routine fires next and how it has been failing, after one of its runs started or ended
+   * (RP-07). Its own small event rather than the whole routine: a routine carries its newest runs,
+   * and two copies of them per run would fill the event log.
+   */
+  private appendRoutineStatus(routineID: string) {
+    const routine = this.get(routineID)
+    if (!routine) return
+    this.append({
+      type: "routine.status",
+      routineID,
+      ...(routine.lastRunAt !== undefined ? { lastRunAt: routine.lastRunAt } : {}),
+      ...(routine.nextRunAt !== undefined ? { nextRunAt: routine.nextRunAt } : {}),
+      failedInARow: routine.failedInARow ?? 0,
+      failing: routine.failing ?? false,
+    })
   }
 
   /**
@@ -2099,6 +2174,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
       .run(status, now, error ?? null, runID)
     const run = this.getRun(runID)
     if (run) this.append({ type: "run.changed", run })
+    if (run?.source.type === "routine") this.appendRoutineStatus(run.source.routineID)
   }
 
   removeRun(runID: string) {

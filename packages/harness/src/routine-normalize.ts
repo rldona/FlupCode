@@ -6,8 +6,41 @@
  */
 
 import { t } from "./i18n"
-import { normalizeRoutineSchedule } from "./routine-schedule"
-import type { ActionTaskInput, BrowserAllowRule, Routine, RoutineRun } from "./types"
+import type { ActionTaskInput, BrowserAllowRule, Routine, RoutineRetry, RoutineRun, RoutineSchedule } from "./types"
+
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object"
+
+/**
+ * A schedule as the server sent it. Only its shape is read here: when it fires is the server's to
+ * say (`nextRunAt`, RP-07), so the app keeps no schedule logic of its own.
+ */
+export const normalizeRoutineSchedule = (value: unknown, fallbackInterval: number): RoutineSchedule => {
+  if (!isRecord(value) || typeof value.type !== "string") return { type: "interval", intervalMinutes: fallbackInterval }
+  const zone = typeof value.timezone === "string" && value.timezone ? { timezone: value.timezone } : {}
+  const time = typeof value.time === "string" ? value.time : "09:00"
+  if (value.type === "manual" || value.type === "hourly") return { type: value.type, ...zone }
+  if (value.type === "daily" || value.type === "weekdays") return { type: value.type, time, ...zone }
+  if (value.type === "weekly") {
+    return { type: "weekly", day: typeof value.day === "number" && value.day >= 0 && value.day <= 6 ? value.day : 1, time, ...zone }
+  }
+  if (value.type === "cron") return { type: "cron", expression: typeof value.expression === "string" ? value.expression : "", ...zone }
+  if (value.type === "interval") {
+    return {
+      type: "interval",
+      intervalMinutes:
+        typeof value.intervalMinutes === "number" && Number.isFinite(value.intervalMinutes) && value.intervalMinutes > 0
+          ? Math.max(1, Math.round(value.intervalMinutes))
+          : fallbackInterval,
+      ...zone,
+    }
+  }
+  return { type: "interval", intervalMinutes: fallbackInterval }
+}
+
+const normalizeRetry = (value: unknown): RoutineRetry | undefined =>
+  isRecord(value) && typeof value.count === "number" && value.count > 0 && typeof value.backoffMinutes === "number"
+    ? { count: value.count, backoffMinutes: value.backoffMinutes }
+    : undefined
 
 const normalizeAction = (value: unknown): ActionTaskInput | undefined => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
@@ -77,6 +110,7 @@ export const normalizeRoutine = (value: unknown): Routine | undefined => {
                   : undefined,
             // How it was judged (RP-06), which decides what a finished run needs (UX-02).
             verdict: runVerdictOf(entry.verdict),
+            ...(typeof entry.attempt === "number" && entry.attempt > 1 ? { attempt: entry.attempt } : {}),
           } satisfies RoutineRun,
         ]
       })
@@ -102,10 +136,15 @@ export const normalizeRoutine = (value: unknown): Routine | undefined => {
     policy: (item.policy ?? undefined) as Routine["policy"],
     action: normalizeAction(item.action),
     allow: normalizeAllow(item.allow),
+    ...(item.missed === "skip" ? { missed: "skip" as const } : {}),
+    retry: normalizeRetry(item.retry),
     enabled: item.enabled !== false,
     createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
     lastRunAt: typeof item.lastRunAt === "number" ? item.lastRunAt : undefined,
     runs,
+    nextRunAt: typeof item.nextRunAt === "number" ? item.nextRunAt : undefined,
+    failedInARow: typeof item.failedInARow === "number" ? item.failedInARow : 0,
+    failing: item.failing === true,
   }
 }
 

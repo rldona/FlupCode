@@ -39,3 +39,32 @@ describe("normalizeRoutine run status", () => {
     expect(routine?.runs[1]?.verdict).toBeUndefined()
   })
 })
+
+describe("normalizeRoutine schedule and status (RP-07)", () => {
+  test("keeps the zone, the cron pattern and what the server says about when it runs and how it fails", () => {
+    const routine = normalizeRoutine({
+      ...payload([{ id: "run_2", startedAt: 2000, status: "failed", attempt: 2 }]),
+      schedule: { type: "cron", expression: "30 9 * * 1-5", timezone: "Asia/Tokyo" },
+      missed: "skip",
+      retry: { count: 2, backoffMinutes: 10 },
+      nextRunAt: 5000,
+      failedInARow: 3,
+      failing: true,
+    })
+    expect(routine).toMatchObject({
+      schedule: { type: "cron", expression: "30 9 * * 1-5", timezone: "Asia/Tokyo" },
+      missed: "skip",
+      retry: { count: 2, backoffMinutes: 10 },
+      nextRunAt: 5000,
+      failedInARow: 3,
+      failing: true,
+    })
+    expect(routine?.runs[0]?.attempt).toBe(2)
+  })
+
+  test("a routine from a server that says nothing of it has not failed and has no next run of its own", () => {
+    const routine = normalizeRoutine({ ...payload([]), schedule: { type: "daily", time: "08:15" } })
+    expect(routine).toMatchObject({ failedInARow: 0, failing: false })
+    expect(routine?.nextRunAt).toBeUndefined()
+  })
+})

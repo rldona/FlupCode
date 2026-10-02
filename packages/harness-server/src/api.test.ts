@@ -2501,3 +2501,49 @@ describe("a run's workflow identity (RP-01)", () => {
     repository.close()
   })
 })
+
+describe("a routine's schedule, missed beats and retries (RP-07)", () => {
+  const post = (handler: ReturnType<typeof open>["handler"], schedule: unknown, extra: Record<string, unknown> = {}) =>
+    handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({ name: "Morning", description: "", prompt: "Check it", schedule, ...extra }),
+      }),
+    )
+
+  test("keeps the time zone, the missed policy and the retry, and says when it runs next", async () => {
+    const { handler, repository } = open()
+    const response = await post(
+      handler,
+      { type: "daily", time: "08:15", timezone: "Europe/Madrid" },
+      { missed: "skip", retry: { count: 2, backoffMinutes: 10 } },
+    )
+    expect(response.status).toBe(201)
+    const routine = (await response.json()).data
+    expect(routine).toMatchObject({
+      schedule: { type: "daily", time: "08:15", timezone: "Europe/Madrid" },
+      missed: "skip",
+      retry: { count: 2, backoffMinutes: 10 },
+      failedInARow: 0,
+      failing: false,
+    })
+    // The server's own reckoning, read in Madrid: 08:15 there, whatever zone this machine is in.
+    const local = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit" })
+    expect(local.format(routine.nextRunAt)).toBe("08:15")
+    const listed = (await (await handler(new Request("http://x/harness/routines"))).json()).data
+    expect(listed[0].nextRunAt).toBe(routine.nextRunAt)
+    repository.close()
+  })
+
+  test("refuses a schedule that cannot run, saying why", async () => {
+    const { handler, repository } = open()
+    const zone = await post(handler, { type: "daily", time: "08:15", timezone: "Mars/Olympus" })
+    expect(zone.status).toBe(400)
+    expect((await zone.json()).error).toBe("Unknown time zone: Mars/Olympus")
+    const cron = await post(handler, { type: "cron", expression: "0 0 30 2 *" })
+    expect(cron.status).toBe(400)
+    expect((await cron.json()).error).toBe("This schedule never runs")
+    expect(repository.list()).toEqual([])
+    repository.close()
+  })
+})

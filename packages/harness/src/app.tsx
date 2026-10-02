@@ -2034,7 +2034,12 @@ export const App: Component = () => {
     Object.fromEntries(
       routines().map((routine) => [
         routine.id,
-        worstAttention(routine.runs.map((run) => runsAttention()[run.id] ?? runAttentionOf(run))),
+        // A routine failing run after run is a failure on the scale until a run does not fail (RP-07),
+        // seen or not: it is what the routine is, not one outcome the reader may have looked at.
+        worstAttention([
+          routine.failing && "failed",
+          ...routine.runs.map((run) => runsAttention()[run.id] ?? runAttentionOf(run)),
+        ]),
       ]),
     ),
   )
@@ -3735,6 +3740,11 @@ export const App: Component = () => {
     prefs?: unknown
     prompt?: unknown
     promptID?: unknown
+    name?: unknown
+    lastRunAt?: unknown
+    nextRunAt?: unknown
+    failedInARow?: unknown
+    failing?: unknown
   }) => {
       // What a reader keeps about a session, and their stash (H-18). The whole thing travels in the
       // event, so a pin on the phone is a pin on the desk without either asking again.
@@ -3782,6 +3792,26 @@ export const App: Component = () => {
             ? current.map((entry) => (entry.id === routine.id ? routine : entry))
             : [routine, ...current],
         )
+      }
+      // When it fires next and how it has been failing, after one of its runs started or ended (RP-07).
+      if (event.type === "routine.status" && typeof event.routineID === "string") {
+        return setRoutineState(
+          routines().map((routine) =>
+            routine.id === event.routineID
+              ? {
+                  ...routine,
+                  lastRunAt: typeof event.lastRunAt === "number" ? event.lastRunAt : routine.lastRunAt,
+                  nextRunAt: typeof event.nextRunAt === "number" ? event.nextRunAt : undefined,
+                  failedInARow: typeof event.failedInARow === "number" ? event.failedInARow : 0,
+                  failing: event.failing === true,
+                }
+              : routine,
+          ),
+        )
+      }
+      // The notice a routine raises once per streak of failures (RP-07); the phone gets it as a push.
+      if (event.type === "routine.failing" && typeof event.name === "string") {
+        return toast(t("{name} failed {count} times in a row", { name: event.name, count: Number(event.failedInARow) }), "error")
       }
       if (event.type === "routine.removed" && typeof event.routineID === "string") {
         const removed = event.routineID
@@ -3896,7 +3926,8 @@ export const App: Component = () => {
     void createHarnessClient(harnessServerUrl())
       .routines.create(input)
       .then(({ data: routine, warnings }) => {
-        setRoutineState([routine, ...routines()])
+        // The stream may have brought it already (`routine.changed`), so it is not added twice.
+        setRoutineState([routine, ...routines().filter((entry) => entry.id !== routine.id)])
         showRoutineWarnings(warnings)
         toast(t("Routine created"), "success")
       })
@@ -5425,6 +5456,7 @@ export const App: Component = () => {
             agents={agents()?.data ?? []}
             actions={actionProfiles()}
             artifacts={artifactList()}
+            loadWorkflows={(directory) => createHarnessClient(harnessServerUrl()).workflows.list(directory)}
             onAdd={addRoutine}
             onUpdate={updateRoutine}
             onToggle={toggleRoutine}

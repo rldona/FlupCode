@@ -1,4 +1,5 @@
-import { normalizeRoutineSchedule } from "./validation"
+import { normalizeRoutineRetry, normalizeRoutineSchedule } from "./validation"
+import { scheduleProblem } from "./schedule"
 import { ARTIFACT_KINDS } from "./types"
 import type {
   ActionTaskInput,
@@ -93,6 +94,7 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
   // A routine says something: a prompt for a model turn, or an action for a deterministic run.
   // An action task has nothing to say to a model, so it is allowed to leave the prompt empty (WA-7).
   if (!prompt && !action) return undefined
+  const retry = normalizeRoutineRetry(input.retry)
   return {
     name: input.name.trim(),
     description: typeof input.description === "string" ? input.description.trim() : "",
@@ -113,6 +115,8 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
     policy: policyFrom((input as Record<string, unknown>).policy),
     ...(action ? { action } : {}),
     allow: allowFrom(input.allow),
+    ...(input.missed === "skip" ? { missed: "skip" as const } : {}),
+    ...(retry ? { retry } : {}),
   }
 }
 
@@ -2077,6 +2081,9 @@ export const createHarnessHandler = (
       const body = await readJSON(request)
       const input = inputFrom(body)
       if (!input) return error("Invalid routine", 400)
+      // A schedule that cannot fire is refused here with its reason, not left to never run (RP-07).
+      const scheduling = scheduleProblem(input.schedule)
+      if (scheduling) return error(scheduling, 400)
       const problem = await routineWorkflowProblem(input)
       if (problem) return error(problem.message, problem.status)
       const actionProblem = routineActionProblem(input, options.actions)
@@ -2124,6 +2131,9 @@ export const createHarnessHandler = (
     if (request.method === "PATCH") {
       const input = inputFrom(await readJSON(request))
       if (!input) return error("Invalid routine", 400)
+      // A schedule that cannot fire is refused here with its reason, not left to never run (RP-07).
+      const scheduling = scheduleProblem(input.schedule)
+      if (scheduling) return error(scheduling, 400)
       const problem = await routineWorkflowProblem(input)
       if (problem) return error(problem.message, problem.status)
       const actionProblem = routineActionProblem(input, options.actions)

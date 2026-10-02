@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { Engine } from "./engine"
 import { parseModelKey } from "./policy"
 import { TaskRunner, resumePoint } from "./runner"
-import { isDue } from "./schedule"
+import { FAILED_IN_A_ROW_NOTICE, nextFiring } from "./schedule"
 import { readWorkflow, tasksFor } from "./workflow"
 import type { WorkflowFile } from "./workflow"
 import { planRestore, restore } from "./checkpoint"
@@ -519,9 +519,12 @@ export class RoutineScheduler {
     try {
       // Every routine that is due, not the first one (TI-07): one whose last run still holds its lock
       // is skipped by `begin`, and must not keep the others from firing.
+      // A firing is a beat of the schedule or the retry a failed run earned (RP-07).
       const now = Date.now()
-      for (const routine of this.repository.list().filter((entry) => isDue(entry, now))) {
-        const run = await this.begin(routine.id, now)
+      for (const routine of this.repository.list()) {
+        const firing = nextFiring(routine, now)
+        if (!firing || firing.at > now) continue
+        const run = await this.begin(routine.id, now, undefined, firing.retry?.attempt)
         if (run?.status === "running") void this.execute(run)
       }
     } finally {
@@ -529,10 +532,12 @@ export class RoutineScheduler {
     }
   }
 
-  private async begin(routineID: string, now: number, overrides?: Record<string, string>) {
+  private async begin(routineID: string, now: number, overrides?: Record<string, string>, attempt?: number) {
     const key = routineLockKey(routineID)
     if (!this.repository.acquire(key, this.owner, now, this.lockTtlMs)) return undefined
     const source: RunSource = { type: "routine", routineID }
+    // A retry says which try it is, so the next one knows how long to wait and when to give up.
+    const tries = attempt && attempt > 1 ? { attempt } : {}
     const routine = this.repository.get(routineID)
     if (!routine) {
       this.repository.release(key, this.owner)
@@ -546,6 +551,7 @@ export class RoutineScheduler {
       const run = this.repository.startRun(source, now, routine.projectDirectory, {
         ...(routine.policy ? { policy: routine.policy } : {}),
         ...(routine.allow && routine.allow.length > 0 ? { allow: routine.allow } : {}),
+        ...tries,
       })
       this.repository.addTasks(run.id, [
         {
@@ -562,6 +568,7 @@ export class RoutineScheduler {
     if (!routine.workflow) {
       const run = this.repository.startRun(source, now, routine.projectDirectory, {
         ...(routine.policy ? { policy: routine.policy } : {}),
+        ...tries,
       })
       this.repository.addTasks(run.id, [
         { name: routine.name, prompt: routine.prompt, agent: routine.agent, model: routine.model },
@@ -576,6 +583,7 @@ export class RoutineScheduler {
     const run = this.repository.startRun(source, now, routine.projectDirectory, {
       ...(policy ? { policy } : {}),
       ...(file ? { workflow: this.identify(file, filled) } : {}),
+      ...tries,
     })
     try {
       if (!file) throw new UnknownWorkflowError(routine.workflow.name)
@@ -601,6 +609,7 @@ export class RoutineScheduler {
       this.repository.finishRun(run.id, "failed", cause instanceof Error ? cause.message : String(cause), now)
       this.episodes?.captureRun(run.id)
       this.repository.release(key, this.owner)
+      this.noticeFailures(routineID)
     }
     // Read back rather than the object made above: a start that failed is `failed` in the store, and
     // handing on the stale `running` copy had it executed with no tasks and overwritten as a success.
@@ -653,6 +662,29 @@ export class RoutineScheduler {
     this.episodes?.captureRun(run.id)
     if (run.source.type === "routine") this.repository.release(routineLockKey(run.source.routineID), this.owner)
     this.stopping.delete(run.id)
+    if (run.source.type === "routine") this.noticeFailures(run.source.routineID)
+  }
+
+  /**
+   * Say so when a routine has failed often enough in a row (RP-07): once per streak, on the run that
+   * reaches the notice, so a routine that keeps failing does not say it again with every run. The
+   * remote host pushes it to the phone; the app shows it too.
+   */
+  private noticeFailures(routineID: string) {
+    const routine = this.repository.get(routineID)
+    if (!routine || routine.failedInARow !== FAILED_IN_A_ROW_NOTICE) return
+    // The newest of the failed runs that has a session to open; a run that failed to start has none.
+    const sessionID = routine.runs
+      .filter((run) => run.status === "success" || run.status === "failed")
+      .slice(0, FAILED_IN_A_ROW_NOTICE)
+      .find((run) => run.sessionID)?.sessionID
+    this.repository.append({
+      type: "routine.failing",
+      routineID,
+      name: routine.name,
+      failedInARow: routine.failedInARow,
+      ...(sessionID ? { sessionID } : {}),
+    })
   }
 }
 

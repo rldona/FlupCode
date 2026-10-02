@@ -64,6 +64,10 @@ export type {
   StoredSkillProposalInput,
 }
 
+/**
+ * When a routine fires. `timezone` is an IANA zone the wall-clock schedules (daily, weekdays,
+ * weekly, cron) are read in (RP-07); absent means the server's own. `cron` is a five-field pattern.
+ */
 export type RoutineSchedule =
   | { type: "manual"; timezone?: string }
   | { type: "hourly"; timezone?: string }
@@ -71,6 +75,10 @@ export type RoutineSchedule =
   | { type: "weekdays"; time: string; timezone?: string }
   | { type: "weekly"; day: number; time: string; timezone?: string }
   | { type: "interval"; intervalMinutes: number; timezone?: string }
+  | { type: "cron"; expression: string; timezone?: string }
+
+/** A failed run tried again `count` times, the first after `backoffMinutes`, doubling each time (RP-07). */
+export type RoutineRetry = { count: number; backoffMinutes: number }
 
 /** What asked for a run. */
 export type RunSource = { type: "routine"; routineID: string } | { type: "manual" }
@@ -189,6 +197,8 @@ export type Run = {
    * check upgrades a task or a retry supersedes one. Absent while no task has been judged.
    */
   verdict?: RunVerdict
+  /** Which try of a routine's beat this run is, from 1; a retry of a failed run is the next (RP-07). */
+  attempt?: number
 }
 
 /**
@@ -306,6 +316,13 @@ export type RoutineInput = {
   action?: ActionTaskInput
   /** The allow rules the action above needs; without them a browser action is refused (WA-7). */
   allow?: BrowserAllowRule[]
+  /**
+   * What to do about beats the server was not running for (RP-07): run once for all of them
+   * (`catch-up`, the default) or wait for the next one (`skip`).
+   */
+  missed?: "catch-up" | "skip"
+  /** Try a failed run again (RP-07). Absent means a failure waits for the next beat. */
+  retry?: RoutineRetry
 }
 
 export type Routine = RoutineInput & {
@@ -314,6 +331,12 @@ export type Routine = RoutineInput & {
   createdAt: number
   lastRunAt?: number
   runs: Run[]
+  /** When it fires next, beat or retry, as the scheduler reckons it (RP-07). Derived on every read. */
+  nextRunAt?: number
+  /** How many of its newest runs failed one after the other (RP-07). Derived on every read. */
+  failedInARow?: number
+  /** It failed often enough in a row to raise its notice (RP-07). Derived on every read. */
+  failing?: boolean
 }
 
 export type RoutineCreateOptions = {
@@ -532,6 +555,10 @@ export type ServerEvent =
   | { type: "task.changed"; task: Task }
   | { type: "routine.changed"; routine: Routine }
   | { type: "routine.removed"; routineID: string }
+  /** A routine's run started or ended, so when it fires next and how it has been failing changed (RP-07). */
+  | { type: "routine.status"; routineID: string; lastRunAt?: number; nextRunAt?: number; failedInARow: number; failing: boolean }
+  /** A routine failed `failedInARow` times in a row: raised once per streak, when it reaches the notice (RP-07). */
+  | { type: "routine.failing"; routineID: string; name: string; failedInARow: number; sessionID?: string }
   | { type: "artifact.created"; artifact: Artifact }
   | { type: "artifact.changed"; artifact: Artifact }
   | { type: "checkpoint.added"; checkpoint: Checkpoint }

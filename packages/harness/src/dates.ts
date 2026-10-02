@@ -7,12 +7,13 @@ import { getLocale } from "./i18n"
  * artifact that is hours old, and the reader can ask the tooltip when they need it. The parts come
  * from `Intl` in the app's own locale, so English reads `Mon 28 Sep 13:03`.
  */
-export function formatDateTime(value: number): string {
+export function formatDateTime(value: number, timeZone?: string): string {
   const date = new Date(value)
   const locale = getLocale()
-  const weekday = new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date)
-  const day = new Intl.DateTimeFormat(locale, { day: "numeric" }).format(date)
-  const month = new Intl.DateTimeFormat(locale, { month: "short" }).format(date)
-  const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(date)
+  // A routine's next run is read in its own zone (RP-07); everything else in the reader's.
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone }).format(date)
+  const day = new Intl.DateTimeFormat(locale, { day: "numeric", timeZone }).format(date)
+  const month = new Intl.DateTimeFormat(locale, { month: "short", timeZone }).format(date)
+  const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone }).format(date)
   return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${day} ${month} ${time}`
 }
