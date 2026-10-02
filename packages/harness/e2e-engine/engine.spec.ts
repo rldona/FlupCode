@@ -6,6 +6,8 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
  * next replies each spec scripts.
  */
 const ENGINE = "http://127.0.0.1:4187"
+/** The harness's usage ledger, filled from the engine's transcripts (UL-06). */
+const LEDGER = "http://127.0.0.1:4188"
 /** The fixture's side door: the project's folder and the stub model's next replies. */
 const CONTROL = "http://127.0.0.1:4189"
 
@@ -164,10 +166,15 @@ test("what OpenCode 2 removed is not offered", async ({ page, request }) => {
   await expect(menu.getByRole("menuitem", { name: /Share|Compartir|Stop sharing|Dejar de compartir/ })).toHaveCount(0)
 })
 
-// TI-05: the meter's "Spent" is the engine's session cost. The session's cost already holds every
-// step the engine priced (and the title it asked the model for), so adding the steps again doubled it.
-test("the context meter spends what the engine says the session cost", async ({ page, request }) => {
+// UL-06: the meter's session figure is the usage ledger's, the same number the Cost screen and the
+// run card read. The ledger is filled from what the engine recorded for each step, so it is checked
+// against the harness's own answer for the session; the title the engine also bills is not a step
+// and is not in it (see "Hallazgos", UL-02/UL-03), so the engine's `SessionInfo.cost` can be higher.
+test("the context meter's session cost is the usage ledger's", async ({ page, request }) => {
   await script(request, { type: "text", text: "First answer" }, { type: "text", text: "Second answer" })
+  await page.addInitScript((ledger) => {
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify(ledger))
+  }, LEDGER)
   const sessionID = await openSession(page, request, { mode: "auto" })
 
   await send(page, "One")
@@ -177,13 +184,26 @@ test("the context meter spends what the engine says the session cost", async ({ 
   await expect(page.locator(".fc-message-assistant").filter({ hasText: "Second answer" })).toBeVisible()
   await expect(page.locator(".fc-message-pending")).toHaveCount(0)
 
-  const session = (await (await request.get(`${ENGINE}/api/session/${sessionID}`)).json()) as {
+  // Both steps reach the ledger once the session is idle and the reconciler has read it.
+  type Bucket = { events: number; money: Array<{ billing: string; usd: number }> }
+  const report = async () =>
+    ((await (await request.get(`${LEDGER}/harness/usage/sessions/${sessionID}`)).json()) as {
+      data: { total: Bucket }
+    }).data.total
+  await expect.poll(async () => (await report()).events, { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
+  const total = await report()
+  const usd = total.money.filter((line) => line.billing !== "subscription").reduce((sum, line) => sum + line.usd, 0)
+  expect(usd).toBeGreaterThan(0)
+  const engineCost = ((await (await request.get(`${ENGINE}/api/session/${sessionID}`)).json()) as {
     data: { cost: number }
-  }
-  expect(session.data.cost).toBeGreaterThan(0)
+  }).data.cost
+  // Never more than the engine billed: the ledger has every step and nothing twice.
+  expect(usd).toBeLessThanOrEqual(engineCost + 1e-9)
+
   await page.locator(".fc-context-button").click()
-  const spent = page.locator(".fc-context-row").filter({ hasText: /Spent|Gastado/ })
-  await expect(spent).toContainText(`$${session.data.cost.toFixed(2)}`)
+  const session = page.locator(".fc-context-spend .fc-context-row").filter({ hasText: /^(Session|Sesión)/ })
+  const figure = usd < 0.01 ? `~$${usd.toFixed(4)}` : `~$${usd.toFixed(2)}`
+  await expect(session.locator(".fc-cost-figure")).toHaveText(figure)
 })
 
 // TI-04: the terminal on OpenCode 2's own PTY. What a reader does with it: type a command, read

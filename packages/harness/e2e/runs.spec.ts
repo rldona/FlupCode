@@ -27,6 +27,22 @@ const tasks = [
   { id: "t2", runID: "run_1", position: 1, name: "build it", prompt: "b", status: "running", startedAt: now + 4000 },
 ]
 
+const noTokens = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 }
+const spent = {
+  events: 2,
+  tokens: { ...noTokens, input: 2000, output: 400 },
+  money: [{ basis: "engine-list-price", billing: "metered", usd: 0.0043, events: 2 }],
+  unpriced: { events: 0, tokens: noTokens },
+}
+const ledger = {
+  runID: "run_1",
+  total: spent,
+  byTask: [{ ...spent, key: "t2", fields: { taskID: "t2", runID: "run_1", attempt: 1 } }],
+  byPurpose: [{ ...spent, key: "run-task", fields: { purpose: "run-task" } }],
+  byAgent: [],
+  byModel: [],
+}
+
 // The supervisor reads the list once and follows the stream after that. A task that changes while
 // someone is looking must move on screen without the list being asked for again — that is the whole
 // difference between this and the five-second poll it replaced.
@@ -61,6 +77,8 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
       return route.fulfill({ json: { data: [run] } })
     }
     if (url.pathname === "/harness/runs/run_1/tasks") return route.fulfill({ json: { data: tasks } })
+    // What the run spent, from the ledger (UL-06): only the second task had a priced step.
+    if (url.pathname === "/harness/usage/runs/run_1") return route.fulfill({ json: { data: ledger } })
     if (url.pathname === "/harness/events") {
       // Held open after one event: the second task finishes while the reader is watching.
       return route.fulfill({
@@ -87,17 +105,19 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
   // What the run was allowed to do: no shell is unusual, so it is stated (H-47).
   await expect(run1.locator(".fc-run-rules")).toContainText("No shell commands")
 
-  // The event moved it: the task shows what it cost, which only the event carried.
+  // The event moved it, and the card reads what it cost from the ledger (UL-06).
   const second = run1.locator(".fc-run-task").nth(1)
-  await expect(second.locator(".fc-run-meta")).toContainText("2.4k", { timeout: 15_000 })
-  // A small cost reads as what it is, not as $0.00 (TI-05).
-  await expect(second.locator(".fc-run-meta")).toContainText("$0.0043")
+  await expect(second).toHaveAttribute("data-status", "success", { timeout: 15_000 })
+  await expect(second.locator(".fc-run-cost")).toContainText("2.4k tokens")
+  // A small cost reads as what it is, not as $0.00 (TI-05), and as an estimate at list price.
+  await expect(second.locator(".fc-cost-figure")).toHaveText("~$0.0043")
+  // A task the ledger has nothing for carries no figure at all rather than a $0.
+  await expect(run1.locator(".fc-run-task").first().locator(".fc-run-cost")).toHaveCount(0)
 
-  // The run's header adds its tasks up: the report of what it did, where there is room for it. The
-  // same value prints the same string on the header and on the task.
+  // The run's header says how far it got, and its cost is the ledger's run total: the same figure,
+  // the same string, as on the task.
   await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("2/2")
-  await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("2.4k")
-  await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("$0.0043")
+  await expect(run1.locator(".fc-run-head .fc-cost-figure")).toHaveText("~$0.0043")
 
   // And nothing was re-read to learn it.
   expect(listReads).toBeLessThanOrEqual(2)

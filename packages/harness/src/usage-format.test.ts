@@ -1,24 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { duration, scaleOf, share } from "./components/UsagePanel"
-import { money } from "./metrics"
-
-describe("money", () => {
-  test("shows a small amount rather than rounding it to nothing", () => {
-    // At two places this reads $0.00, which reads as free. It is not free: it is the number that
-    // becomes real money the two-hundredth time a routine runs.
-    expect(money(0.0034)).toBe("$0.0034")
-    expect(money(0.009)).toBe("$0.0090")
-  })
-
-  test("is money once it is money", () => {
-    expect(money(1.5)).toBe("$1.50")
-    expect(money(12.345)).toBe("$12.35")
-  })
-
-  test("nothing is nothing, and says so in one character", () => {
-    expect(money(0)).toBe("$0")
-  })
-})
+import { dayKeys, duration, periodStart, share } from "./components/UsagePanel"
 
 describe("duration", () => {
   test("reads as a person would say it", () => {
@@ -45,25 +26,29 @@ describe("share", () => {
   })
 })
 
-describe("scaleOf", () => {
-  test("scales to the biggest day, even when every day costs pennies", () => {
-    // `Math.max(1, …)` was the first version. With costs under a dollar the 1 wins, and every bar
-    // in the chart is drawn at a few per cent of its box — which is what it looked like.
-    const days = [
-      { day: "1", cost: 0.05, tokens: 100 },
-      { day: "2", cost: 0.2, tokens: 400 },
-    ]
-    expect(scaleOf(days)).toBe(0.2)
-    expect(share(days[1]!.cost, scaleOf(days))).toBe(100)
-    expect(share(days[0]!.cost, scaleOf(days))).toBe(25)
+describe("the daily series", () => {
+  const at = (month: number, day: number, hour = 12) => new Date(2026, month, day, hour).getTime()
+
+  test("a period of n days starts at midnight of its first day and has n slots", () => {
+    const now = at(8, 30, 15)
+    expect(periodStart(7, now)).toBe(new Date(2026, 8, 24).getTime())
+    expect(dayKeys(periodStart(7, now), now)).toEqual([
+      "2026-09-24",
+      "2026-09-25",
+      "2026-09-26",
+      "2026-09-27",
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30",
+    ])
   })
 
-  test("falls back to tokens for a day that cost nothing", () => {
-    expect(scaleOf([{ cost: 0, tokens: 900 }])).toBe(900)
-  })
-
-  test("never returns zero, so nothing is divided by it", () => {
-    expect(scaleOf([])).toBe(1)
-    expect(scaleOf([{ cost: 0, tokens: 0 }])).toBe(1)
+  test("names days as the ledger does, across a month end and a clock change", () => {
+    // Late October has the European clock change: a 25-hour day must not lose or repeat a slot.
+    const keys = dayKeys(at(9, 24), at(10, 2))
+    expect(keys[0]).toBe("2026-10-24")
+    expect(keys.at(-1)).toBe("2026-11-02")
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(keys).toHaveLength(10)
   })
 })

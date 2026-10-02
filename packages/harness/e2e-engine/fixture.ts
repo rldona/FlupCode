@@ -2,6 +2,12 @@ import { mcpStdioCommand } from "@flupcode/engine-contract/mcp"
 import { startEngine } from "@flupcode/engine-contract/engine"
 import { startModel, type Reply } from "@flupcode/engine-contract/model"
 import { startEngineProxy } from "@flupcode/remote/engine-proxy"
+import { createHarnessHandler } from "../../harness-server/src/api"
+import { Engine } from "../../harness-server/src/engine"
+import { SqliteRoutineRepository } from "../../harness-server/src/repository"
+import { RoutineScheduler } from "../../harness-server/src/scheduler"
+import { createUsagePricing } from "../../harness-server/src/usage-pricing"
+import { createUsageReconciler } from "../../harness-server/src/usage-reconciler"
 
 /**
  * The live-engine Playwright project's engine (V2-43): the pinned OpenCode 2 binary, isolated, with
@@ -12,6 +18,8 @@ import { startEngineProxy } from "@flupcode/remote/engine-proxy"
  *   FLUPCODE_CONTRACT_LINE=v2 bun e2e-engine/fixture.ts
  */
 const FIXTURE_PORT = 4187
+/** The harness's usage ledger (UL-06), for the specs that check a cost figure against it. */
+const LEDGER_PORT = 4188
 const CONTROL_PORT = 4189
 
 const model = startModel()
@@ -37,6 +45,28 @@ const proxy = await startEngineProxy({
   origins: ["http://localhost:4173"],
 })
 
+// The usage ledger the composer's cost reads (UL-06): the harness's routes over an in-memory ledger
+// that the reconciler fills from the engine's transcripts every second, as the real server does on
+// its own interval. No plugin feeds it here, so a session's title (which only the plugin could see,
+// and on 2.0.18 not even it) is not in it — the ledger is the figure, not the engine's session cost.
+const ledger = new SqliteRoutineRepository(":memory:")
+const ledgerEngine = new Engine(engine.url, engine.authorization)
+const reconciler = createUsageReconciler({
+  repository: ledger,
+  engine: ledgerEngine,
+  intervalMs: 1_000,
+  log: () => undefined,
+  classify: createUsagePricing({ engine: ledgerEngine, repository: ledger }).classify,
+})
+reconciler.start()
+const ledgerServer = Bun.serve({
+  port: LEDGER_PORT,
+  hostname: "127.0.0.1",
+  fetch: createHarnessHandler(ledger, new RoutineScheduler({ repository: ledger, engineURL: engine.url }), {
+    hostname: "127.0.0.1",
+  }),
+})
+
 // The specs' side door, apart from the engine's address: where the project lives, and the replies
 // the stub model gives next.
 Bun.serve({
@@ -55,6 +85,8 @@ Bun.serve({
 })
 
 const stop = async () => {
+  reconciler.stop()
+  ledgerServer.stop(true)
   await proxy.close()
   await engine.stop()
   model.stop()

@@ -535,20 +535,6 @@ export type Checkpoint = {
 /** What restoring would do, named before it does it. */
 export type RestorePlan = { write: string[]; remove: string[] }
 
-/** What a slice of the runs spent (H-16). */
-export type Spend = { tasks: number; tokens: number; cost: number }
-
-export type UsageReport = {
-  totals: Spend & { runs: number; ms: number }
-  /** Work done for the second time or later: paid twice, and invisible until it is split out. */
-  retries: Spend
-  byModel: Array<Spend & { key: string }>
-  byAgent: Array<Spend & { key: string }>
-  byProject: Array<Spend & { key: string; runs: number }>
-  byDay: Array<{ day: string; tokens: number; cost: number }>
-  slowest: Array<{ taskID: string; runID: string; name: string; ms: number }>
-}
-
 /**
  * The usage ledger read back (UL-05), as `/harness/usage/summary`, `/sessions/:id` and `/runs/:id`
  * answer. Mirrors `harness-server/src/usage.ts`.
@@ -602,6 +588,8 @@ export type UsageSessionReport = {
   own: UsageBucket
   sessions: Array<UsageBucket & { sessionID: string; parentSessionID: string | null; depth: number }>
   byAgent: UsageGroup[]
+  /** What the tree spent from the `from` it was asked with: the composer's turn. */
+  since?: UsageBucket
 }
 
 export type UsageRunReport = {
@@ -613,51 +601,7 @@ export type UsageRunReport = {
   byModel: UsageGroup[]
 }
 
-/** Latency percentiles over a set of turns (AH-B02); absent when no turn measured it. */
-export type Percentiles = { p50?: number; p95?: number }
-
 export type MetricTokens = { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number }
-
-export type ToolTotal = { tool: string; calls: number; errors: number; bytes: number }
-
-/** One session's cost, added up from its per-turn metrics (AH-B02). */
-export type SessionCost = {
-  sessionID: string
-  projectID?: string
-  providerID?: string
-  modelID?: string
-  agent?: string
-  turns: number
-  requests: number
-  tokens: MetricTokens & { total: number }
-  cost: number
-  /** cacheRead / (input + cacheRead + cacheWrite), as a fraction. */
-  cached: number
-  turnMs: Percentiles
-  firstTokenMs: Percentiles
-  toolCalls: number
-  toolErrors: number
-  toolOutputBytes: number
-  topTools: ToolTotal[]
-  compactions: number
-  startedAt: number
-  endedAt: number
-}
-
-/** Every session's cost in a window, answered in one read (AH-B02). */
-export type SessionCostReport = {
-  totals: {
-    sessions: number
-    turns: number
-    tokens: MetricTokens & { total: number }
-    cost: number
-    cached: number
-    turnMs: Percentiles
-    firstTokenMs: Percentiles
-  }
-  sessions: SessionCost[]
-  topTools: ToolTotal[]
-}
 
 /** One turn of one session, as the harness recorded it (AH-B01). */
 export type SessionMetricTurn = {

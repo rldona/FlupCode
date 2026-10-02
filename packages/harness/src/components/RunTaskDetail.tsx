@@ -1,8 +1,10 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
-import type { Artifact, Run, Task, TaskActivity, TaskTools, TouchedFiles } from "../types"
-import { money } from "../metrics"
+import type { Artifact, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageBucket } from "../types"
+import { tokenCount } from "../cost"
+import { formatTokens } from "../metrics"
+import { CostFigure } from "./CostFigure"
 import { duration } from "./UsagePanel"
 import { VerdictBadge } from "./VerdictBadge"
 
@@ -17,6 +19,8 @@ type RunTaskDetailProps = {
   tools?: TaskTools
   /** What the run left behind, for the task that produced it (H-14). */
   artifacts: Artifact[]
+  /** What the task spent, from the usage ledger (UL-06); undefined draws a dash. */
+  cost?: UsageBucket
   models: ModelInfo[]
   serverAvailable: boolean
   onOpenSession: (id: string) => void
@@ -41,9 +45,6 @@ const elapsed = (from: number, to: number | undefined) => {
   if (seconds < 60) return `${seconds}s`
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`
 }
-
-const thousands = (value: number | undefined) =>
-  value === undefined ? undefined : value >= 1000 ? `${Math.round(value / 100) / 10}k` : String(value)
 
 /** Who judged a verdict (RP-06), so a rule's reading of the answer is not mistaken for a check. */
 const VERDICT_SOURCES: Record<NonNullable<Task["verdict"]>["source"], string> = {
@@ -72,8 +73,7 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
       task.kind === "verify" ? t("verify") : task.kind === "external" ? t("external") : task.agent,
       (task.attempt ?? 1) > 1 ? t("attempt {n}", { n: task.attempt! }) : undefined,
       task.startedAt ? elapsed(task.startedAt, task.finishedAt) : undefined,
-      thousands(task.tokens) ? t("{n} tokens", { n: thousands(task.tokens)! }) : undefined,
-      task.cost ? money(task.cost) : undefined,
+      props.cost?.events ? t("{n} tokens", { n: formatTokens(tokenCount(props.cost.tokens)) }) : undefined,
     ].filter((value): value is string => !!value)
   }
 
@@ -111,7 +111,9 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
         </button>
       </header>
 
-      <p class="fc-run-meta">{facts().join(" · ")}</p>
+      <p class="fc-run-meta">
+        {facts().join(" · ")} · <CostFigure bucket={props.cost} />
+      </p>
 
       <Show when={props.activity}>
         {(doing) => (

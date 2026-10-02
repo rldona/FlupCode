@@ -11054,8 +11054,7 @@ button.fc-status {
 
 /* ── What it cost (H-16) ──────────────────────────────────────────────────── */
 
-.fc-usage,
-.fc-usage-sessions {
+.fc-usage {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-5);
@@ -11087,23 +11086,6 @@ button.fc-status {
 .fc-usage-tile-label {
   color: var(--fc-text-muted);
   font-size: var(--fc-text-xs);
-}
-
-/* Money spent twice. Marked, unless there was none — then it is just another zero. */
-.fc-usage-tile-warn {
-  border-color: color-mix(in srgb, var(--fc-diff-del) 45%, var(--fc-border));
-}
-
-.fc-usage-tile-warn .fc-usage-tile-value {
-  color: var(--fc-diff-del);
-}
-
-.fc-usage-tile-quiet {
-  border-color: var(--fc-border);
-}
-
-.fc-usage-tile-quiet .fc-usage-tile-value {
-  color: var(--fc-text);
 }
 
 .fc-usage-block h2 {
@@ -11148,40 +11130,191 @@ button.fc-status {
   background: var(--fc-accent);
 }
 
-.fc-usage-tokens,
-.fc-usage-cost {
-  width: 84px;
+.fc-usage-tokens {
+  width: 96px;
   color: var(--fc-text-muted);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
 .fc-usage-cost {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 96px;
   color: var(--fc-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-usage-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fc-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fc-usage-open:hover {
+  text-decoration: underline;
+}
+
+.fc-usage-rest .fc-usage-key {
+  color: var(--fc-text-muted);
+}
+
+.fc-usage-toolbar {
+  flex-wrap: wrap;
+  gap: var(--fc-space-3);
+}
+
+.fc-usage-select {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-usage-select h2 {
+  margin: 0;
+  color: var(--fc-text);
+}
+
+.fc-usage-select select {
+  max-width: 220px;
+  padding: 4px 8px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font: inherit;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-usage-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--fc-space-2);
+}
+
+.fc-usage-stale {
+  display: flex;
+  gap: var(--fc-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fc-usage-tile-note {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  line-height: 1.35;
+}
+
+.fc-usage-tile[data-lens] {
+  border-top: 3px solid var(--fc-cost-color, var(--fc-border));
+}
+
+.fc-usage-tile-basis summary {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  cursor: pointer;
+}
+
+.fc-usage-tile-basis .fc-cost-basis-row {
+  margin-top: 4px;
+}
+
+.fc-usage-tops {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: var(--fc-space-5);
+}
+
+/* The daily money series: one segment per lens, coloured by the lens and never merged. */
+.fc-usage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-3);
+  margin-bottom: var(--fc-space-2);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-usage-legend-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.fc-usage-legend-item i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--fc-cost-fill, var(--fc-cost-color));
+}
+
+.fc-usage-legend-item i[data-lens="unpriced"] {
+  border-radius: 50%;
 }
 
 .fc-usage-days {
   display: flex;
   gap: 4px;
-  align-items: flex-end;
-  height: 120px;
+  align-items: stretch;
+  height: 140px;
   overflow-x: auto;
 }
 
 .fc-usage-day {
   display: flex;
+  flex: 1 0 18px;
   flex-direction: column;
-  gap: 4px;
-  justify-content: flex-end;
+  gap: 3px;
   align-items: center;
-  min-width: 26px;
+  min-width: 18px;
+  max-width: 40px;
   height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fc-usage-day:hover,
+.fc-usage-day-picked {
+  background: var(--fc-bg-subtle);
+}
+
+.fc-usage-day-stack {
+  display: flex;
+  flex: 1;
+  flex-direction: column-reverse;
+  width: 100%;
 }
 
 .fc-usage-day-bar {
   width: 100%;
+  min-height: 2px;
+  background: var(--fc-cost-fill, var(--fc-cost-color));
+}
+
+.fc-usage-day-bar:last-child {
   border-radius: 3px 3px 0 0;
-  background: var(--fc-accent);
+}
+
+.fc-usage-day-mark {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.fc-usage-day-mark-on {
+  background: var(--fc-text-muted);
 }
 
 .fc-usage-day-label {
@@ -11190,93 +11323,203 @@ button.fc-status {
   white-space: nowrap;
 }
 
-.fc-usage-only {
+.fc-usage-day-detail .fc-cost-basis-row {
+  flex-basis: 100%;
+}
+
+.fc-usage-day-detail {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2) var(--fc-space-3);
   align-items: center;
+  margin-top: var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+}
+
+@media (max-width: 640px) {
+  .fc-usage-row {
+    flex-wrap: wrap;
+    gap: 2px var(--fc-space-3);
+  }
+
+  .fc-usage-key {
+    flex: 1 1 100%;
+    width: auto;
+  }
+
+  .fc-usage-tokens {
+    width: auto;
+    margin-inline-end: auto;
+    text-align: left;
+  }
+
+  .fc-usage-select select {
+    max-width: 60vw;
+  }
+
+  .fc-usage-day-label[data-tick="false"] {
+    visibility: hidden;
+  }
+}
+
+/* ── A cost, the one way the app draws it (UL-06) ─────────────────────────── */
+
+/* Each lens has its colour; estimates and spend in the accent, notional money in the merged violet,
+   striped, and what had no price muted and dashed — told apart without reading the words. */
+[data-lens="estimated"] {
+  --fc-cost-color: var(--fc-accent);
+}
+
+[data-lens="measured"] {
+  --fc-cost-color: var(--fc-success);
+}
+
+[data-lens="notional"] {
+  --fc-cost-color: var(--fc-merged);
+  --fc-cost-fill: repeating-linear-gradient(
+    135deg,
+    var(--fc-merged) 0 3px,
+    color-mix(in srgb, var(--fc-merged) 45%, transparent) 3px 6px
+  );
+}
+
+[data-lens="unpriced"] {
+  --fc-cost-color: var(--fc-text-muted);
+}
+
+.fc-cost {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.fc-cost-unknown {
   color: var(--fc-text-muted);
-  font-size: var(--fc-text-xs);
+}
+
+.fc-cost-figure {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  justify-content: flex-end;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
-/* ── What each session cost (AH-B02) ──────────────────────────────────────── */
+.fc-cost-figure:hover .fc-cost-lens,
+.fc-cost-figure[aria-expanded="true"] .fc-cost-lens {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
 
-.fc-session-costs {
+.fc-cost-lens {
+  white-space: nowrap;
+}
+
+.fc-cost-lens[data-lens="estimated"] {
+  color: var(--fc-text);
+}
+
+.fc-cost-lens[data-lens="measured"] {
+  color: var(--fc-text);
+  font-weight: 600;
+}
+
+.fc-cost-lens[data-lens="notional"] {
+  color: var(--fc-merged);
+  font-style: italic;
+}
+
+.fc-cost-lens[data-lens="unpriced"] {
+  padding: 0 6px;
+  border: 1px dashed var(--fc-border);
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  font-size: 0.92em;
+}
+
+.fc-usage-tile-value.fc-cost-lens[data-lens="unpriced"] {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  font-size: var(--fc-text-lg);
+}
+
+.fc-cost-basis {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: var(--fc-space-3);
+  gap: 4px;
+  width: max-content;
+  max-width: min(340px, 86vw);
+  padding: 8px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+  color: var(--fc-text);
+  font-size: var(--fc-text-xs);
+  font-style: normal;
+  font-weight: 400;
+  text-align: left;
 }
 
-.fc-session-cost-table {
-  overflow-x: auto;
+.fc-cost-basis-row {
+  display: flex;
+  gap: 10px;
+  font-size: var(--fc-text-xs);
 }
 
-.fc-session-cost-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 2.4fr) 56px 76px 72px minmax(120px, 1.2fr) minmax(120px, 1.2fr) 84px;
-  gap: var(--fc-space-3);
-  align-items: center;
-  min-width: 760px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--fc-border);
-  color: var(--fc-text-muted);
-  font-size: var(--fc-text-sm);
+.fc-cost-basis-row > span:first-child {
+  min-width: 56px;
   font-variant-numeric: tabular-nums;
 }
 
-.fc-session-cost-row > span:not(:first-child) {
-  text-align: right;
+.fc-cost-basis-row > span:last-child {
+  color: var(--fc-text-muted);
 }
 
-/* Two latencies in one tile: kept on one line, a size down from a single figure. */
-.fc-session-cost-pair {
-  font-size: var(--fc-text-lg);
-  white-space: nowrap;
+/* Inside the composer's meter, which opens upwards, the basis opens upwards too. */
+.fc-context-popover .fc-cost-basis {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
-.fc-session-cost-head {
-  font-size: var(--fc-text-xs);
-  font-weight: 600;
-}
-
-.fc-session-cost-name {
+.fc-context-spend {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--fc-border);
 }
 
-.fc-session-cost-open {
-  overflow: hidden;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--fc-text);
-  font: inherit;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.fc-session-cost-open:hover {
-  text-decoration: underline;
-}
-
-.fc-session-cost-meta {
-  overflow: hidden;
+.fc-context-agent {
+  padding-inline-start: 10px;
+  color: var(--fc-text-muted);
   font-size: var(--fc-text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.fc-session-cost-money {
-  color: var(--fc-text);
+.fc-run-cost {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
 }
 
-.fc-session-cost-tools h2 {
-  margin: 0 0 var(--fc-space-2);
-  font-size: var(--fc-text-sm);
-  font-weight: 600;
+.fc-run-cost-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--fc-space-4);
+  margin: 6px 0 0;
 }
 
 /* ── What a task is doing, and what it changed (H-12) ─────────────────────── */

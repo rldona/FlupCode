@@ -1,11 +1,13 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
-import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedFiles } from "../types"
+import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedFiles, UsageRunReport } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
 import { RunTimeline } from "./RunTimeline"
 import { VerdictBadge } from "./VerdictBadge"
-import { money } from "../metrics"
+import { CostFigure } from "./CostFigure"
+import { purposeName, tokenCount } from "../cost"
+import { formatTokens } from "../metrics"
 import { runInputs, runTitle } from "../run-title"
 
 type RunsPanelProps = {
@@ -31,6 +33,8 @@ type RunsPanelProps = {
   tools?: Record<string, TaskTools>
   /** What the runs left behind, by run id (H-14). */
   artifacts?: Record<string, Artifact[]>
+  /** What each run spent, from the usage ledger (UL-06), by run id. A run not in it shows a dash. */
+  usage?: Record<string, UsageRunReport>
   /** What a retry can run on, if the reader wants a different model (H-12). */
   models: ModelInfo[]
   /** Opens the changes screen for a run's folder, where its checkpoints can be restored (H-15). */
@@ -76,11 +80,9 @@ const marks: Record<TaskStatus, string> = {
 /** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */
 const going = (run: Run) => run.status === "running" || run.status === "awaiting"
 
-const thousands = (value: number | undefined) =>
-  value === undefined ? undefined : value >= 1000 ? `${Math.round(value / 100) / 10}k` : String(value)
-
 /**
- * The run's own report: what its tasks add up to.
+ * The run's own report: how far its tasks got. What it cost is the ledger's (UL-06), drawn beside it
+ * by `CostFigure` so the card, the Cost screen and the session show the same figure.
  *
  * This is where the summary of a run lives. The audit (§6.3) puts it in the run's session as a
  * message too, but the engine has no way to append one without running a turn — writing it would
@@ -89,15 +91,12 @@ const thousands = (value: number | undefined) =>
  */
 const totals = (run: Run) => {
   const tasks = run.tasks ?? []
-  const tokens = tasks.reduce((sum, task) => sum + (task.tokens ?? 0), 0)
-  const cost = tasks.reduce((sum, task) => sum + (task.cost ?? 0), 0)
   const done = tasks.filter((task) => task.status !== "queued" && task.status !== "running").length
-  return [
-    tasks.length ? `${done}/${tasks.length}` : undefined,
-    thousands(tokens || undefined),
-    cost ? money(cost) : undefined,
-  ].filter((value): value is string => !!value)
+  return tasks.length ? [`${done}/${tasks.length}`] : []
 }
+
+/** A task's own rows of its run's ledger report: a retry is a task of its own, so its own bill. */
+const taskUsage = (report: UsageRunReport | undefined, task: Task) => report?.byTask.find((group) => group.key === task.id)
 
 /** What a task is worth saying on one line, with the parts the engine did not report left out. */
 const facts = (task: Task) => {
@@ -107,8 +106,6 @@ const facts = (task: Task) => {
     // Only from the second: saying "attempt 1" on every task is noise on the runs that went fine.
     (task.attempt ?? 1) > 1 ? t("attempt {n}", { n: task.attempt! }) : undefined,
     started ? elapsed(started, task.finishedAt) : undefined,
-    thousands(task.tokens),
-    task.cost ? money(task.cost) : undefined,
   ].filter((value): value is string => !!value)
 }
 
@@ -246,6 +243,9 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     <Show when={run.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
                     <span class="fc-run-meta">
                       {[run.status, elapsed(run.startedAt, run.finishedAt), ...totals(run)].join(" · ")}
+                    </span>
+                    <span class="fc-run-cost">
+                      <CostFigure bucket={props.usage?.[run.id]?.total} />
                     </span>
                     <Show when={run.sessionID}>
                       {(id) => (
@@ -387,6 +387,16 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                           <span class="fc-run-task-name">{task.name}</span>
                           <Show when={task.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
                           <span class="fc-run-meta">{facts(task).join(" · ")}</span>
+                          <Show when={taskUsage(props.usage?.[run.id], task)}>
+                            {(spent) => (
+                              <span class="fc-run-cost">
+                                <span class="fc-run-meta">
+                                  {t("{n} tokens", { n: formatTokens(tokenCount(spent().tokens)) })}
+                                </span>
+                                <CostFigure bucket={spent()} />
+                              </span>
+                            )}
+                          </Show>
                           {/*
                             What it is doing right now, and for how long. Without this a call that
                             never returns is indistinguishable from work getting done.
@@ -517,6 +527,19 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       )}
                     </For>
                   </ol>
+                  {/* What the run spent beyond its tasks (§8.4): handoffs and other purposes apart. */}
+                  <Show when={(props.usage?.[run.id]?.byPurpose ?? []).some((group) => group.key !== "run-task")}>
+                    <p class="fc-run-cost-breakdown">
+                      <For each={props.usage![run.id]!.byPurpose}>
+                        {(group) => (
+                          <span class="fc-run-cost">
+                            <span class="fc-run-meta">{group.key ? purposeName(group.key) : t("Not attributed")}</span>
+                            <CostFigure bucket={group} />
+                          </span>
+                        )}
+                      </For>
+                    </p>
+                  </Show>
                 </article>
               )}
             </For>
@@ -541,6 +564,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     touched={props.touched[picked().task.id]}
                     tools={props.tools?.[picked().task.id]}
                     artifacts={props.artifacts?.[picked().run.id] ?? []}
+                    cost={taskUsage(props.usage?.[picked().run.id], picked().task)}
                     models={props.models}
                     serverAvailable={props.serverAvailable}
                     onOpenSession={props.onOpenSession}

@@ -1,13 +1,17 @@
-import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
-import { compactionNear, money } from "../metrics"
+import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
+import { compactionNear } from "../metrics"
 import { t } from "../i18n"
+import { CostFigure } from "./CostFigure"
+import type { UsageSessionReport } from "../types"
+
+/** What the session spent, from the usage ledger (UL-06), and whether the last read of it failed. */
+export type SessionSpend = { report?: UsageSessionReport; failure?: Error; refresh?: () => void }
 
 type ContextMeterProps = {
   used: number
   limit: number
-  cost?: number
-  /** Part of `cost` was priced by the app, not the engine (TI-05): it is shown with a "~". */
-  costEstimated?: boolean
+  /** Absent where the harness cannot be asked (no server): the meter then says nothing about cost. */
+  spend?: SessionSpend
   tokens?: { input: number; output: number; reasoning: number }
   /** The figure sizes the text the engine will send next, not a finished step: after a compaction,
    *  until the next step reports tokens. */
@@ -15,6 +19,10 @@ type ContextMeterProps = {
   /** What the engine counts and where it folds the session, so the meter can warn before it does. */
   compaction?: { at: number; count: number }
 }
+
+/** Why a figure is a dash: the read failed, or the ledger has nothing for it yet. */
+const reason = (spend: SessionSpend) =>
+  spend.failure && !spend.report ? t("The cost could not be read") : t("Nothing recorded")
 
 /** Green, yellow and red in three equal thirds — solid blocks, no blend between them. */
 const meterColor = (percent: number) => {
@@ -52,7 +60,11 @@ export const ContextMeter: Component<ContextMeterProps> = (props) => {
       <button
         class="fc-context-button"
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          // Opened, the figures are read again: the last step's row may have landed since.
+          if (!open()) props.spend?.refresh?.()
+          setOpen((value) => !value)
+        }}
         title={compactionNear(props.compaction) ? warning() : t("Context")}
       >
         <svg class="fc-context-ring" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -106,14 +118,38 @@ export const ContextMeter: Component<ContextMeterProps> = (props) => {
               </span>
             </div>
           </Show>
-          <Show when={props.cost !== undefined && props.cost > 0}>
-            <div class="fc-context-row">
-              <span>{t("Spent")}</span>
-              <span class="fc-context-muted" title={props.costEstimated ? t("Estimated") : undefined}>
-                {props.costEstimated ? "~" : ""}
-                {money(props.cost!)}
-              </span>
-            </div>
+          {/* What it cost (UL-06), from the ledger like every other cost: the turn in progress, then
+              the session with its subagents and by agent. A dash where the ledger has nothing. */}
+          <Show when={props.spend}>
+            {(spend) => (
+              <div class="fc-context-spend">
+                <div class="fc-context-row">
+                  <span>{t("This turn")}</span>
+                  <CostFigure bucket={spend().report?.since} unknownReason={reason(spend())} />
+                </div>
+                <div class="fc-context-row">
+                  <span>
+                    {(spend().report?.sessions.length ?? 0) > 1
+                      ? t("Session and {n} subagents", { n: spend().report!.sessions.length - 1 })
+                      : t("Session")}
+                  </span>
+                  <CostFigure bucket={spend().report?.total} unknownReason={reason(spend())} />
+                </div>
+                <Show when={(spend().report?.byAgent.length ?? 0) > 1}>
+                  <For each={spend().report!.byAgent}>
+                    {(group) => (
+                      <div class="fc-context-row fc-context-agent">
+                        <span>{group.key ?? t("No agent")}</span>
+                        <CostFigure bucket={group} />
+                      </div>
+                    )}
+                  </For>
+                </Show>
+                <Show when={spend().failure && spend().report}>
+                  <div class="fc-context-row fc-context-muted">{t("Refresh failed: this is the last figure read.")}</div>
+                </Show>
+              </div>
+            )}
           </Show>
         </div>
       </Show>

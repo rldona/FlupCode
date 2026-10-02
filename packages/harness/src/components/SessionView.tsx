@@ -36,7 +36,7 @@ type SessionViewProps = {
   retry?: { message: string; attempt: number }
   /** How the last 2.x execution ended, when the reader did not see it coming (V2-40). */
   outcome?: RunOutcome
-  usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
+  usage?: { tokens?: { input: number; output: number; reasoning: number } }
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
   showTools: boolean
@@ -1444,7 +1444,6 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                 <div class="fc-message fc-message-assistant fc-message-pending">
                   <Loader
                     tokens={props.usage?.tokens}
-                    cost={props.usage?.cost}
                     startedAt={props.startedAt}
                     tasks={activity().tasks}
                     label={activity().label}

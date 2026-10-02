@@ -335,6 +335,26 @@ describe("the session and run rollups (UL-05)", () => {
     repository.close()
   })
 
+  test("from adds what the tree spent since then, the composer's turn (UL-06)", async () => {
+    const { repository } = fixture()
+    const asked = (from: string) =>
+      handleUsageRead(
+        new Request(`http://127.0.0.1/harness/usage/sessions/ses_chat?from=${from}`),
+        ["harness", "usage", "sessions", "ses_chat"],
+        repository,
+      )!
+    const late = (await asked(String(day(11))).json()).data
+    // Only the unpriced row of day 12 ended after it: no money, and not $0 either.
+    expect(late.since).toMatchObject({ events: 1, money: [], unpriced: { events: 1 } })
+    // The rest of the report is the whole tree, as without `from`.
+    expect(sumOf([late.total]).usd).toEqual({ "engine-list-price/metered": 0.18 })
+    const early = (await asked(String(day(10, 0))).json()).data
+    expect(sumOf([early.since])).toEqual(sumOf([early.total]))
+    expect((await read(repository, ["harness", "usage", "sessions", "ses_chat"]).json()).data.since).toBeUndefined()
+    expect(asked("soon").status).toBe(400)
+    repository.close()
+  })
+
   test("a session with no rows answers with nothing measured, not $0", async () => {
     const { repository } = fixture()
     const report = (await read(repository, ["harness", "usage", "sessions", "ses_unknown"]).json()).data

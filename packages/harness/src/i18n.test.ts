@@ -60,17 +60,13 @@ describe("t", () => {
 })
 
 describe("the Cost screen's subtitle", () => {
-  const subtitle = "What your work cost: the runs the harness started, and below, every session, chats included."
+  const subtitle = "What your work cost, every session and run, from the usage ledger."
 
-  test("is the one the screen shows, and it names both the runs and every session", () => {
-    // It once said chat turns were never counted, which stopped being true when Sessions arrived.
+  test("is the one the screen shows, and it says where every figure comes from", () => {
+    // It once said chat turns were never counted; since UL-06 every figure is the ledger's.
     expect(readFileSync(join(import.meta.dir, "components/UsagePanel.tsx"), "utf8")).toContain(`t("${subtitle}")`)
-    setLocale("en")
-    expect(t(subtitle)).toBe(subtitle)
     setLocale("es")
-    expect(t(subtitle)).toBe(
-      "Lo que ha costado tu trabajo: las ejecuciones que lanzó el harness y, debajo, cada sesión, chats incluidos.",
-    )
+    expect(t(subtitle)).toBe("Lo que ha costado tu trabajo, cada sesión y ejecución, según el registro de uso.")
     setLocale("en")
   })
 })
@@ -87,7 +83,6 @@ const ADAPTIVE_SURFACES = [
   "components/GuardrailBanner.tsx",
   "components/SkillCatalogue.tsx",
   "components/ContextPanel.tsx",
-  "components/SessionCosts.tsx",
   "components/UsagePanel.tsx",
   "adaptive-copy.ts",
 ]

@@ -97,7 +97,7 @@ describe("requests without the engine credentials", () => {
     const sent = capture()
     withEngineAuth()
     await engineFetch("http://127.0.0.1:4096/global/health")
-    await anonymousFetch("http://127.0.0.1:4097/harness/usage?days=30")
+    await anonymousFetch("http://127.0.0.1:4097/harness/usage/summary?groupBy=day")
     expect(authOf(sent[0]!.init)).toBe("Basic secret")
     expect(authOf(sent[1]!.init)).toBeNull()
   })

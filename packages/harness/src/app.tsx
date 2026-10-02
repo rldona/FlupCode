@@ -3,12 +3,12 @@ import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
 import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { createResource } from "./resource"
+import { createSessionSpend } from "./session-spend"
 import { setAdaptiveModels } from "./adaptive-copy"
 import { createReconciledList } from "./reconciled"
 import { compareFromSearch, decisionFromSearch, screenFromPath, searchForCompare, searchForDecision, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
-import { SessionCosts } from "./components/SessionCosts"
 import { AgentsPanel } from "./components/AgentsPanel"
 import { SkillCatalogue } from "./components/SkillCatalogue"
 import { FilesPanel } from "./components/FilesPanel"
@@ -1458,8 +1458,12 @@ export const App: Component = () => {
   // by the three per-run reads below, so they refetch together and only when there is a reason to.
   const runsDetailKey = () => {
     if (!runsOpen() || !routinesServerAvailable()) return undefined
+    // A task that finishes is a reason too: it changed files and the ledger has its bill (UL-06).
     const shape = runs()
-      .map((run) => `${run.id}:${run.tasks?.length ?? 0}:${run.status}`)
+      .map((run) => {
+        const finished = (run.tasks ?? []).filter((task) => task.status !== "queued" && task.status !== "running")
+        return `${run.id}:${run.tasks?.length ?? 0}:${run.status}:${finished.length}`
+      })
       .join("|")
     return shape ? `${harnessServerUrl()}\n${shape}` : undefined
   }
@@ -1486,6 +1490,14 @@ export const App: Component = () => {
     for (const list of lists) for (const entry of list ?? []) byTask[entry.taskID] = entry
     return byTask
   })
+  // What each run spent, from the usage ledger (UL-06): the card's figure is the Cost screen's.
+  const [runUsage] = createResource(runsDetailKey, async (key) => {
+    const [url = ""] = key.split("\n")
+    const client = createHarnessClient(url)
+    const ids = runIDsOf(key)
+    const reports = await Promise.all(ids.map((id) => client.runUsage(id).catch(() => undefined)))
+    return Object.fromEntries(reports.flatMap((report) => (report ? [[report.runID, report]] : [])))
+  })
   const [runArtifacts] = createResource(runsDetailKey, async (key) => {
     const [url = ""] = key.split("\n")
     const client = createHarnessClient(url)
@@ -1497,20 +1509,6 @@ export const App: Component = () => {
       if (list) byRun[id] = list
     })
     return byRun
-  })
-
-  // What the runs cost (H-16). Read only while the screen is open: it is an aggregation over every
-  // task ever recorded, and nothing else on screen needs it.
-  const [usageDays, setUsageDays] = createSignal<number | undefined>(30)
-  const [usageOnlyProject, setUsageOnlyProject] = createSignal(false)
-  const usageKey = () => {
-    if (!usageOpen() || !routinesServerAvailable()) return undefined
-    const directory = usageOnlyProject() ? (vcsDirectory() ?? "") : ""
-    return `${harnessServerUrl()}\n${directory}\n${usageDays() ?? 0}`
-  }
-  const [usage, { refetch: refetchUsage }] = createResource(usageKey, (key) => {
-    const [url = "", directory = "", days = "0"] = key.split("\n")
-    return createHarnessClient(url).usage({ directory: directory || undefined, days: Number(days) || undefined })
   })
 
   // What the model was given (H-17). The instruction files come from the harness server, which can
@@ -2096,17 +2094,22 @@ export const App: Component = () => {
       const last = list[list.length - 1]
       if (last?.type === "assistant") {
         const assistant = last as SessionMessageAssistant
-        if (assistant.tokens) return { tokens: assistant.tokens, cost: assistant.cost }
+        if (assistant.tokens) return { tokens: assistant.tokens }
       }
       const chars = streamedChars()
       if (chars <= 0) return undefined
-      return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
+      return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 } }
     }
+    // What the open session spent (UL-06), from the ledger: the composer's turn and session figures.
+    const sessionSpend = createSessionSpend(() => {
+      const sessionID = selected()
+      if (!sessionID || !routinesServerAvailable()) return undefined
+      return { serverUrl: harnessServerUrl(), sessionID, messages: activeMessages() ?? [] }
+    })
     const contextUsage = () =>
       contextFigures(
         selectedSession(),
         activeMessages() ?? [],
-        modelList(),
         currentModel(),
         engineConfig()?.compaction,
       )
@@ -5085,6 +5088,7 @@ export const App: Component = () => {
             touched={touched() ?? {}}
             tools={taskTools() ?? {}}
             artifacts={runArtifacts() ?? {}}
+            usage={runUsage() ?? {}}
             models={modelList()}
             onRetry={retryTask}
             onSteer={steerTask}
@@ -5282,30 +5286,16 @@ export const App: Component = () => {
           </Show>
           <UsagePanel
             open={usageOpen()}
-            report={usage()}
-            loading={usage.loading}
-            failure={usage.failure() ?? harnessRefusal()}
-            onRetry={() => void (harnessRefusal() ? refreshRoutines() : refetchUsage())}
-            days={usageDays()}
-            onDays={setUsageDays}
-            directory={vcsDirectory()}
-            onlyProject={usageOnlyProject()}
-            onOnlyProject={setUsageOnlyProject}
+            serverUrl={harnessServerUrl()}
             serverAvailable={routinesServerAvailable()}
+            directory={vcsDirectory()}
+            refusal={harnessRefusal()}
+            onRetryRefusal={() => void refreshRoutines()}
+            runs={runs()}
+            routineName={(id) => routines().find((routine) => routine.id === id)?.name}
+            sessionTitle={(id) => sessionList()?.find((session) => session.id === id)?.title}
             onOpenRuns={() => showScreen("runs")}
-            sessions={
-              <PanelBoundary name={t("Session cost")}>
-                <SessionCosts
-                  open={usageOpen() && routinesServerAvailable()}
-                  serverUrl={harnessServerUrl()}
-                  capabilities={harnessCapabilities()}
-                  days={usageDays()}
-                  directory={usageOnlyProject() ? vcsDirectory() : undefined}
-                  titleOf={(id) => sessionList()?.find((session) => session.id === id)?.title}
-                  onOpenSession={selectSession}
-                />
-              </PanelBoundary>
-            }
+            onOpenSession={selectSession}
           />
         </Show>
         <Show
@@ -5352,6 +5342,7 @@ export const App: Component = () => {
                         onOpenModelPicker={() => setModelPickerOpen(true)}
                         onAgentChange={changeAgent}
                         onPermissionModeChange={changePermissionMode}
+                        harnessUrl={routinesServerAvailable() ? harnessServerUrl() : undefined}
                         adaptive={
                           adaptiveSurfaces(harnessCapabilities()).session
                             ? { serverUrl: harnessServerUrl(), onWhy: showDecision }
@@ -5520,6 +5511,11 @@ export const App: Component = () => {
                 variants={variants()}
                 variantKey={variantKey()}
                 usage={contextUsage()}
+                spend={
+                  routinesServerAvailable()
+                    ? { report: sessionSpend.report(), failure: sessionSpend.failure(), refresh: sessionSpend.refresh }
+                    : undefined
+                }
                 repo={
                   vcsDirectory() && codeChrome()
                     ? {

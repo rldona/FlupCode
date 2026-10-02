@@ -18,6 +18,7 @@ import { createClient } from "../client"
 import { CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, INSTRUCTION_SYSTEM, type ChatClass } from "../chat"
 import { messageID } from "../ids"
 import { pendingPrompts, type Delivery } from "../pending-prompts"
+import { createSessionSpend } from "../session-spend"
 import { contextFigures, type CompactionConfig } from "../metrics"
 import { permissionMode } from "../permission-modes"
 import { recordPrompt } from "../prompt-history"
@@ -70,6 +71,8 @@ type SessionPaneProps = {
   onPermissionModeChange: (id: string) => void
   /** The harness server when it has the per-session override (AH-E02): the pane draws the "Adaptive" chip. */
   adaptive?: { serverUrl: string; onWhy: (decisionID: string) => void }
+  /** The harness server, when it can be asked what the session spent (UL-06). */
+  harnessUrl?: string
 }
 
 /**
@@ -208,17 +211,20 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   }
   const lastAssistant = () =>
     [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as SessionMessageAssistant | undefined
-  const usage = () => contextFigures(props.session, list() ?? [], props.models, currentModel(), props.compaction)
+  const spend = createSessionSpend(() =>
+    props.harnessUrl ? { serverUrl: props.harnessUrl, sessionID: sessionID(), messages: list() ?? [] } : undefined,
+  )
+  const usage = () => contextFigures(props.session, list() ?? [], currentModel(), props.compaction)
   const pending = () => pendingPrompts.forSession(sessionID(), list() ?? [], props.serverUrl)
   createEffect(() => pendingPrompts.reconcile(new Set((list() ?? []).map((message) => message.id))))
   const liveUsage = () => {
     const assistant = lastAssistant()
     const messages = list() ?? []
     if (assistant && messages[messages.length - 1] === assistant && assistant.tokens) {
-      return { tokens: assistant.tokens, cost: assistant.cost }
+      return { tokens: assistant.tokens }
     }
     const chars = streamedChars()
-    return chars > 0 ? { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined } : undefined
+    return chars > 0 ? { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 } } : undefined
   }
   const startedAt = () => {
     const messages = list() ?? []
@@ -475,6 +481,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         variants={variants()}
         variantKey={validModel()?.variant}
         usage={usage()}
+        spend={props.harnessUrl ? { report: spend.report(), failure: spend.failure(), refresh: spend.refresh } : undefined}
         attachments={attachments()}
         commands={[]}
         projects={props.projects}
