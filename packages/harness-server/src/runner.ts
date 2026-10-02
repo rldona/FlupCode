@@ -370,7 +370,14 @@ export class TaskRunner {
     // A test that fakes the engine has no note to write; the caller gets the answer it already had.
     if (typeof engine.handoff !== "function") return answer
     try {
-      const note = await this.engine.handoff({ directory, task: task.name, answer })
+      const note = await this.engine.handoff({
+        directory,
+        task: task.name,
+        answer,
+        // The note's session is the run's too, labelled as what it is (UL-04).
+        onSession: (sessionID) =>
+          this.repository.attributeSession(sessionID, { runID: run.id, taskID: task.id, purpose: "handoff" }),
+      })
       if (!note) return answer
       this.repository.addArtifact({
         kind: "handoff",

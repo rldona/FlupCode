@@ -13,6 +13,8 @@
  * server's to say (UL-04), so the ingest route drops any attribution a caller sends.
  */
 
+import { basename, dirname } from "node:path"
+
 export const USAGE_KINDS = ["step", "step_failed", "compaction", "title", "generate", "adaptive", "external"] as const
 export type UsageKind = (typeof USAGE_KINDS)[number]
 
@@ -79,6 +81,32 @@ export type UsageAttribution = {
 
 export type LedgerEvent = UsageEvent & UsageAttribution
 
+/**
+ * Who a session works for (UL-04), kept once per session in `session_attribution`.
+ *
+ * The server writes it when it opens a session for a run, a task's closing note or a commit message.
+ * A session the server did not open is learnt from the engine the first time the ledger hears of
+ * it: a subagent names its parent and inherits from it, field by field, nearest first; a top-level
+ * session nobody stamped is a person's conversation, a `chat`. `directory` is the repository root,
+ * with worktrees resolved to the checkout they belong to.
+ */
+export type SessionAttribution = Omit<UsageAttribution, "tags"> & { parentSessionID?: string; directory?: string }
+
+/** What the engine says of a session, as `Engine.describeSession` answers. */
+export type SessionDescriber = (
+  sessionID: string,
+) => Promise<{ directory: string; parentID?: string; createdAt: number } | undefined>
+
+/**
+ * The purpose a fact has whatever session it happened in: a title or a compaction in a run's task
+ * is still billed to the run, but it is the engine's own overhead and is labelled as such.
+ */
+export const KIND_PURPOSE: Partial<Record<UsageKind, UsagePurpose>> = {
+  title: "title",
+  compaction: "compaction",
+  adaptive: "adaptive",
+}
+
 export type ToolEvent = {
   id: string
   sessionID: string
@@ -91,8 +119,13 @@ export type ToolEvent = {
 }
 
 export type UsageRepository = {
-  /** Stores what it has not seen, by id; returns how many rows were new. */
+  /** Stores what it has not seen, by id, attributed; returns how many rows were new. */
   recordUsage(batch: { events: LedgerEvent[]; tools: ToolEvent[] }): { events: number; tools: number }
+  /** Whether the session already has an attribution row, of any source. */
+  knowsSession(sessionID: string): boolean
+  attributeSession(sessionID: string, attribution: SessionAttribution, source?: "server" | "engine"): void
+  /** When attribution started: an unstamped session created before it may be anything. */
+  attributionSince(): number
 }
 
 /** The most items one POST may carry, per list. A plugin with more sends more batches. */
@@ -108,7 +141,7 @@ const MAX_PATH = 4096
  * checked. A malformed item is skipped and named in `rejected`, so one bad event cannot block the
  * batch it came with from ever being delivered; the valid ones are stored.
  */
-export async function handleUsageIngest(request: Request, repository: UsageRepository) {
+export async function handleUsageIngest(request: Request, repository: UsageRepository, describe?: SessionDescriber) {
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return tooLarge()
   const text = await request.text()
   if (text.length > MAX_BODY_BYTES) return tooLarge()
@@ -129,8 +162,11 @@ export async function handleUsageIngest(request: Request, repository: UsageRepos
     )
   const parsedEvents = events.map(usageEventFrom)
   const parsedTools = tools.map(toolEventFrom)
+  const valid = parsedEvents.filter((event): event is UsageEvent => typeof event !== "string")
+  if (describe)
+    for (const sessionID of new Set(valid.map((event) => event.sessionID))) await learnSession(sessionID, repository, describe)
   const stored = repository.recordUsage({
-    events: parsedEvents.filter((event): event is UsageEvent => typeof event !== "string"),
+    events: valid,
     tools: parsedTools.filter((tool): tool is ToolEvent => typeof tool !== "string"),
   })
   const rejected = [
@@ -205,6 +241,52 @@ export function toolEventFrom(input: unknown): ToolEvent | string {
     ...optional("messageID", text(input.messageID, MAX_ID)),
     ...optional("startedAt", count(input.startedAt)),
   }
+}
+
+/**
+ * Records who a session the server did not open works for, from what the engine says of it: its
+ * parent (learnt first, so the chain is there to inherit from) and its folder. A top-level session
+ * created since attribution started is a chat; one from before is left without a purpose, since an
+ * old run's closing note looks the same. An engine that cannot answer records nothing, so the
+ * session's next event asks again and fills in the rows stored meanwhile.
+ */
+async function learnSession(sessionID: string, repository: UsageRepository, describe: SessionDescriber, depth = 0) {
+  if (depth > 16 || repository.knowsSession(sessionID)) return
+  const session = await describe(sessionID).catch(() => null)
+  if (session === null) return
+  if (session?.parentID) await learnSession(session.parentID, repository, describe, depth + 1)
+  repository.attributeSession(
+    sessionID,
+    {
+      ...(session?.parentID ? { parentSessionID: session.parentID } : {}),
+      ...(session ? { directory: session.directory } : {}),
+      ...(session && !session.parentID && session.createdAt >= repository.attributionSince()
+        ? { purpose: "chat" as const }
+        : {}),
+    },
+    "engine",
+  )
+}
+
+const roots = new Map<string, string>()
+
+/**
+ * The checkout a folder belongs to: a worktree resolves to the repository it was made from, so a
+ * project's cost is one figure however many trees its runs used. Anything else, a plain checkout, a
+ * subfolder or a folder outside git, is kept as it is. Asked of git once per folder per process.
+ */
+export function repositoryRoot(directory: string) {
+  const known = roots.get(directory)
+  if (known) return known
+  const result = Bun.spawnSync(
+    ["git", "-C", directory, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
+    { stdout: "pipe", stderr: "ignore" },
+  )
+  const [own, common] = result.success ? result.stdout.toString().trim().split("\n") : []
+  // A worktree's own git folder differs from the common one, which is the main checkout's `.git`.
+  const root = own && common && own !== common && basename(common) === ".git" ? dirname(common) : directory
+  roots.set(directory, root)
+  return root
 }
 
 function tooLarge() {

@@ -307,6 +307,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 3, name: "workflow-identity", backup: join(dirname(path), backup!) },
       { version: 4, name: "referential-integrity", backup: join(dirname(path), backup!) },
       { version: 5, name: "usage-ledger", backup: join(dirname(path), backup!) },
+      { version: 7, name: "usage-attribution", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -321,7 +322,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 7 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -335,6 +336,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 3, backup: null },
       { version: 4, backup: null },
       { version: 5, backup: null },
+      { version: 7, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -342,7 +344,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 7 }])
     repository.close()
   })
 

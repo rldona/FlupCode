@@ -387,11 +387,13 @@ export class Engine {
    * the conversation's context. The prompt is the diff and the instruction to answer with the message
    * alone, and the session is a throwaway with no folder history behind it.
    */
-  async commitMessage(input: { directory?: string; diff: string }): Promise<string> {
+  async commitMessage(input: { directory?: string; diff: string; onSession?: (sessionID: string) => void }): Promise<string> {
     const session = await this.createSession({
       ...(input.directory ? { directory: input.directory } : {}),
       title: "Commit message",
     })
+    // Said before the prompt, so what the session spends is attributed from its first fact (UL-04).
+    input.onSession?.(session.id)
     await this.prompt({
       sessionID: session.id,
       ...(input.directory ? { directory: input.directory } : {}),
@@ -415,11 +417,17 @@ export class Engine {
    * pending — not its conversation. A session of its own, like the commit message, so the note costs
    * no turn of the step it is about. An empty answer means the caller keeps what it had.
    */
-  async handoff(input: { directory?: string; task: string; answer: string }): Promise<string> {
+  async handoff(input: {
+    directory?: string
+    task: string
+    answer: string
+    onSession?: (sessionID: string) => void
+  }): Promise<string> {
     const session = await this.createSession({
       ...(input.directory ? { directory: input.directory } : {}),
       title: `${input.task} — handoff`,
     })
+    input.onSession?.(session.id)
     await this.prompt({
       sessionID: session.id,
       ...(input.directory ? { directory: input.directory } : {}),

@@ -162,7 +162,7 @@ jobs:
           bun run --cwd packages/engine-contract typecheck
           bun run --cwd packages/engine-contract test
           (cd packages/harness && bun test src/engine --timeout 60000)
-          (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts src/project-roots.engine.test.ts --timeout 120000)
+          (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts src/project-roots.engine.test.ts src/usage-attribution.engine.test.ts --timeout 120000)
 
   # The one required check on `main`. A job skipped because its paths did not change is a pass; a
   # failed or cancelled one, or a `changes` job that could not decide, is not.
