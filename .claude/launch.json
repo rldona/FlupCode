@@ -2,21 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev"
-      ],
-      "port": 3000
-    },
-    {
       "name": "engine",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve --port 4096"
-      ],
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["packages/flupcode-cli/src/index.ts", "serve", "--port", "4096"],
       "port": 4096
     },
     {

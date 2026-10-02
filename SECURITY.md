@@ -7,8 +7,15 @@ engine, which runs locally on your machine and gives an agent shell, file and we
 
 - **No sandbox.** The engine does not sandbox the agent. Permission modes are a UX feature that asks
   before commands and edits; they are not isolation. For isolation, run the engine in a container or VM.
-- **Local engine.** FlupCode talks to an engine on your computer (`http://localhost:4096` by default).
-  Exposing that server beyond your machine is your choice; set `OPENCODE_SERVER_PASSWORD` if you do.
+- **Local engine.** FlupCode runs the pinned OpenCode 2 engine on your computer. OpenCode 2 always
+  asks for a password: the desktop app generates one and signs its own window in, and `flupcode serve`
+  puts FlupCode's engine proxy at `http://127.0.0.1:4096`, which signs in for FlupCode's web app and
+  serves a browser page only from that app's origin. Exposing the engine beyond your machine is your
+  choice.
+- **Harness server.** The desktop app also runs FlupCode's harness server on loopback
+  (`http://127.0.0.1:4097`), which keeps runs, routines, artifacts and web-action profiles. Its
+  routes ask for a bearer token the desktop app generates. That token is one secret for every route,
+  and the agent's plugins hold it too; splitting it by scope is planned (AUDIT-2026-10, TI-10).
 - **Remote control.** Phones reach the engine through the relay over an end-to-end encrypted channel
   opened by pairing. The relay forwards encrypted traffic and cannot read it; anyone holding a paired
   device can control the paired computer, so revoke devices you no longer use.

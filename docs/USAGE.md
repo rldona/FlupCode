@@ -237,6 +237,9 @@ how long it took, what it cost, and a mark:
 | `✕` | failed |
 | `■` | stopped |
 
+`●` means the task's turn ended without an error; it does not judge whether the work did what it was
+asked (that check is planned, AUDIT-2026-10 RP-06).
+
 **Stop** a run that is going, **Delete** one that has finished, or use **Stop all** and **Clear
 finished** in the header. A run that is still going cannot be deleted: stop it first.
 
@@ -572,6 +575,11 @@ worse than showing nothing.
 **Cost** (`/usage`) is what the runs have spent: total, tokens, how many runs, how long they took,
 and the bill broken down by model, by agent, by project and by day. Pick 7 days, 30 days or
 everything.
+
+A task's cost is what the engine priced for that task's own turn. The closing note handed to the next
+task and any subagent sessions are not in it, and its token count leaves out cache reads and
+reasoning, so the figures here are a floor, not the bill (AUDIT-2026-10 §8; the usage ledger, UL-01
+to UL-06, replaces them).
 
 The tile that is not on any other screen is **On retries**. A bounded retry is a new task by design
 — that is what keeps the evidence of the first attempt — so work attempted twice is billed twice,

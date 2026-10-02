@@ -1,5 +1,8 @@
 # Parity
 
+> **Historical document.** The parity matrix as of September 2026, measured against OpenCode 1.18.30. The current plan and status are in
+> [AUDIT-2026-10.md](AUDIT-2026-10.md); where they disagree, that audit is right.
+
 What FlupCode's harness (`packages/harness`, plus `harness-desktop` and `remote`) does, measured
 against the OpenCode engine it runs on (v1.18.30) and against OpenCode's own clients: the terminal
 UI (`packages/tui`) and the official desktop/web app (`packages/app` + `packages/session-ui`).

@@ -1,14 +1,15 @@
 # @flupcode/harness
 
-The FlupCode web app. A Claude Code–style harness that reuses the OpenCode engine and UI
-libraries without modifying upstream packages.
+The FlupCode web app: a Claude Code–style cockpit on the pinned OpenCode 2 engine, plus the screens
+for what FlupCode's harness server keeps (runs, workflows, routines, artifacts).
 
 ## Stack
 
 - SolidJS + Vite + Tailwind v4 (same stack as upstream `packages/app`).
 - Its own transcript markdown renderer in `src/markdown` (derived from OpenCode, MIT): Shiki in a
   Web Worker, incremental streaming, morphdom patching, KaTeX.
-- `@opencode-ai/client` (vendored, zero-Effect) for the HTTP + SSE API.
+- `@opencode/client` (from npm, pinned with the engine) for the engine's HTTP + SSE API, reached only
+  through the adapter in `src/engine/` (ADR-0027).
 
 ## Scripts
 
@@ -23,8 +24,8 @@ bun run typecheck  # tsgo
 Start the engine and point the harness at it:
 
 ```bash
-# terminal 1 — engine
-bun run --cwd packages/opencode ./src/index.ts serve --port 4096
+# terminal 1 — the pinned OpenCode 2 engine behind FlupCode's engine proxy, on :4096
+bun packages/flupcode-cli/src/index.ts serve
 
 # terminal 2 — harness-server
 bun run --cwd packages/harness-server dev
@@ -41,12 +42,11 @@ Override it with `VITE_FLUPCODE_HARNESS_SERVER_URL` or `flupcode.harnessServerUr
 The desktop app starts both the OpenCode engine and the harness server automatically when the
 repository checkout is available.
 
-## Current scope
+## Status
 
-This is the F1/F2 bootstrap shell. It connects to the server, lists sessions, creates a session and
-sends a prompt. The Claude Code–style shell (F2) and full TUI parity (F3) are tracked in
-`docs/ROADMAP.md`; the parity matrix lives in `docs/PARITY.md`.
+What works end to end and what does not yet is in `docs/AUDIT-2026-10.md` (§5).
 
 ## Boundary
 
-Never edit upstream packages to make this app work. Wrap or extend them here.
+The engine is never patched here. Reach it only through `src/engine/`; extend it with a plugin
+(`packages/remote/src/engine-plugins-v2.ts`).

@@ -1,5 +1,8 @@
 # V2 hook contingency
 
+> **Historical document.** A review of which 1.x plugin hooks a V2 turn still calls, written while FlupCode ran both engines. FlupCode now runs only OpenCode 2. The current plan and status are in
+> [AUDIT-2026-10.md](AUDIT-2026-10.md); where they disagree, that audit is right.
+
 - **Ticket:** AH-D05 (Phase D, "Session weight"), from the 2026-09-30 engineering audit, §2.5.
 - **Status:** reviewed mapping, at commit `370412ba0f` (`power`).
 - **Scope:** the engine plugins that act or measure for AutoHarness: A11 (`RELEVANCE_PLUGIN`),
