@@ -3,6 +3,7 @@ import { t } from "../i18n"
 import { formatDateTime } from "../dates"
 import type { Artifact, ArtifactKind } from "../types"
 import { viewerFor, viewerNeedsRaw } from "../artifact-view"
+import { diffLines, highlightDiff } from "../highlight"
 import { openImagePreview } from "../image-preview"
 import { isAbsolutePath, joinPath } from "../folder"
 import { Markdown } from "./Markdown"
@@ -26,7 +27,17 @@ type ArtifactsPanelProps = {
   onRemove: (id: string) => void
   /** Keep one in front, or say when it may be forgotten (H-14). */
   onUpdate: (id: string, input: { pinned?: boolean; expiresAt?: number | null }) => void
-  onOpenRun: (runID: string) => void
+  /** Whether the server has more documents than the list holds; `onLoadMore` reads the next page. */
+  hasMore?: boolean
+  onLoadMore?: () => void
+  /** Every version of the document an artifact belongs to, newest first, without their text (RP-03). */
+  versions: (id: string) => Promise<Artifact[]>
+  /** One version in full, to show or to compare. */
+  version: (id: string) => Promise<Artifact>
+  /** Opens the run that produced an artifact, at the task that did (RP-03). */
+  onOpenRun: (runID: string, taskID?: string) => void
+  /** Opens the session whose message wrote an artifact, at that message (RP-03). */
+  onOpenMessage: (sessionID: string, messageID: string) => void
   /** Open a path in the system's default app. */
   onOpenPath: (path: string) => void
   /** Open a path in the code editor (VS Code): the default for a generated file. */
@@ -105,9 +116,44 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
     return props.sessionFiles.filter((path) => !needle || path.toLowerCase().includes(needle))
   })
 
-  const open = (artifact: Artifact) => setSelectedID(artifact.id)
+  // The version on screen (RP-03): the document's newest unless the reader picked another.
+  const [shownID, setShownID] = createSignal<string>()
+  const [comparing, setComparing] = createSignal(false)
+  const open = (artifact: Artifact) => {
+    setSelectedID(artifact.id)
+    setShownID(artifact.id)
+    setComparing(false)
+  }
   // Leaving the viewer keeps the list where it was: the tab and the search are still set.
   const back = () => setSelectedID(undefined)
+
+  // A document's history is asked for only when it has one.
+  const [history] = createResource(
+    () => {
+      const artifact = selected()
+      return artifact && (artifact.versions ?? 1) > 1 ? `${artifact.id}\n${artifact.versions}` : undefined
+    },
+    (key) => props.versions(key.split("\n")[0]!),
+  )
+  const [picked, pickedActions] = createResource(
+    () => (shownID() && shownID() !== selectedID() ? shownID() : undefined),
+    (id) => props.version(id),
+  )
+  // The version on screen in full: the list row itself, or the one picked from its history.
+  const onScreen = () => (shownID() === selectedID() ? selected() : picked()?.id === shownID() ? picked() : undefined)
+  // The version before the one on screen, which is what "compare" sets it against.
+  const previous = createMemo(() => {
+    const current = onScreen()
+    return current ? (history() ?? []).find((version) => version.version === (current.version ?? 1) - 1) : undefined
+  })
+  const [before] = createResource(
+    () => (comparing() ? previous()?.id : undefined),
+    (id) => props.version(id),
+  )
+  const unified = () =>
+    diffLines(before()?.content ?? "", onScreen()?.content ?? "")
+      .map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`)
+      .join("\n")
 
   const FileActions: Component<{ path: string }> = (row) => (
     <span class="fc-artifact-file-actions">
@@ -223,7 +269,8 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                       onClick={() => setTab("artifacts")}
                     >
                       {t("Artifacts")}
-                      <span class="fc-workflow-count">{props.artifacts.length}</span>
+                      {/* What is loaded, and a plus while the server has more than that (RP-03). */}
+                      <span class="fc-workflow-count">{`${props.artifacts.length}${props.hasMore ? "+" : ""}`}</span>
                     </button>
                     <button
                       class="fc-routines-tab"
@@ -288,6 +335,9 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                                   <small>
                                     {[
                                       when(artifact.createdAt),
+                                      (artifact.versions ?? 1) > 1
+                                        ? t("{n} versions", { n: artifact.versions! })
+                                        : undefined,
                                       size(artifact),
                                       artifact.truncated ? t("cut") : undefined,
                                       artifact.expiresAt
@@ -314,8 +364,12 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                                 </button>
                                 <Show when={artifact.runID}>
                                   {(runID) => (
-                                    <button class="fc-button" type="button" onClick={() => props.onOpenRun(runID())}>
-                                      {t("Run")}
+                                    <button
+                                      class="fc-button"
+                                      type="button"
+                                      onClick={() => props.onOpenRun(runID(), artifact.taskID)}
+                                    >
+                                      {t("Open run")}
                                     </button>
                                   )}
                                 </Show>
@@ -332,6 +386,12 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                           )}
                         </For>
                       </div>
+                    </Show>
+                    {/* The list is read a page at a time (RP-03); the rest are a click away. */}
+                    <Show when={props.hasMore}>
+                      <button class="fc-button fc-artifact-more" type="button" onClick={() => props.onLoadMore?.()}>
+                        {t("Load more")}
+                      </button>
                     </Show>
                   </Show>
 
@@ -369,7 +429,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                   </button>
                   <span class="fc-artifact-kind">{t(artifact().kind)}</span>
                   <span class="fc-artifact-viewer-title" dir="auto">
-                    {artifact().title}
+                    {onScreen()?.title ?? artifact().title}
                   </span>
                   <span class="fc-artifact-viewer-actions">
                     <Show when={artifact().path && props.canOpenFiles}>
@@ -395,8 +455,101 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                     </Show>
                   </span>
                 </div>
+                {/* Which version, what produced it, and what changed since the one before (RP-03). */}
+                <div class="fc-artifact-lineage">
+                  <Show when={(history() ?? []).length > 1}>
+                    <select
+                      class="fc-artifact-version"
+                      aria-label={t("Version")}
+                      value={shownID()}
+                      onChange={(event) => {
+                        setShownID(event.currentTarget.value)
+                        setComparing(false)
+                      }}
+                    >
+                      <For each={history()}>
+                        {(version) => (
+                          <option value={version.id}>
+                            {`${t("Version {version}", { version: version.version ?? 1 })} · ${when(version.createdAt)}`}
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                  </Show>
+                  <Show when={onScreen()}>
+                    {(version) => (
+                      <>
+                        <Show when={version().runID}>
+                          {(runID) => (
+                            <button
+                              class="fc-button"
+                              type="button"
+                              onClick={() => props.onOpenRun(runID(), version().taskID)}
+                            >
+                              {t("Open run")}
+                            </button>
+                          )}
+                        </Show>
+                        <Show when={version().sessionID && version().messageID}>
+                          <button
+                            class="fc-button"
+                            type="button"
+                            onClick={() => props.onOpenMessage(version().sessionID!, version().messageID!)}
+                          >
+                            {t("Open message")}
+                          </button>
+                        </Show>
+                        <Show when={previous()}>
+                          {(earlier) => (
+                            <button
+                              class="fc-button"
+                              classList={{ "fc-button-primary": comparing() }}
+                              type="button"
+                              aria-pressed={comparing()}
+                              onClick={() => setComparing((value) => !value)}
+                            >
+                              {t("Compare with version {version}", { version: earlier().version ?? 1 })}
+                            </button>
+                          )}
+                        </Show>
+                      </>
+                    )}
+                  </Show>
+                </div>
                 <div class="fc-artifact-viewer-body">
-                  <ArtifactBody artifact={artifact()} />
+                  <Show
+                    when={onScreen()}
+                    fallback={
+                      <Show
+                        when={picked.failure()}
+                        fallback={<p class="fc-artifact-note">{t("Reading…")}</p>}
+                      >
+                        {(error) => (
+                          <PanelFailure
+                            inline
+                            title={t("{name} could not be read", { name: t("This artifact") })}
+                            error={error()}
+                            onRetry={() => void pickedActions.refetch()}
+                          />
+                        )}
+                      </Show>
+                    }
+                  >
+                    {(version) => (
+                      <Show when={comparing()} fallback={<ArtifactBody artifact={version()} />}>
+                        <Show
+                          when={before()?.content !== undefined && version().content !== undefined}
+                          fallback={
+                            <p class="fc-artifact-note">
+                              {before.loading ? t("Reading…") : t("These versions have no text to compare.")}
+                            </p>
+                          }
+                        >
+                          <pre class="fc-diff-view fc-artifact-diff" innerHTML={highlightDiff(unified())} />
+                        </Show>
+                      </Show>
+                    )}
+                  </Show>
                 </div>
                 {/* Retention (H-14): nothing expires by default, and a pinned one is never swept. */}
                 <div class="fc-artifact-retention">

@@ -155,8 +155,29 @@ const evidence: Record<string, () => Promise<void> | void> = {
     expect(recorded).toMatchObject({ providerID: "stub", modelID: "stub-model" })
     expect(recorded.system.join("\n")).toContain("OpenCode")
   },
-  "flupcode-artifact-write.js": () => {
+  "flupcode-artifact-write.js": async () => {
     expect(readFileSync(join(engine.project, ".flupcode", "artifacts", "report.md"), "utf8")).toBe("# Report")
+    // The write is reported as it happens (RP-03), with the plugins' token: which file, which session
+    // and the assistant message whose turn called the tool. No run or task: those are the server's.
+    const posts = harness.hits("POST /harness/artifacts/index")
+    expect(posts).toHaveLength(1)
+    expect(posts[0]!.authorization).toBe("Bearer plugin-token")
+    const messages = (
+      (await call("GET", `/api/session/${sessionID}/message?limit=200`)) as {
+        data: Array<{ id: string; type: string; content?: Array<{ type: string; name?: string }> }>
+      }
+    ).data
+    const writer = messages.find((message) =>
+      (message.content ?? []).some((part) => part.type === "tool" && part.name === "artifact_write"),
+    )
+    expect(JSON.parse(posts[0]!.body)).toEqual({
+      kind: "document",
+      directory: engine.project,
+      path: join(".flupcode", "artifacts", "report.md"),
+      title: "Report",
+      sessionID,
+      messageID: writer!.id,
+    })
   },
   "flupcode-episode-events.js": () => {
     const ring = JSON.parse(readFileSync(join(data(), "events", `${sessionID}.json`), "utf8"))

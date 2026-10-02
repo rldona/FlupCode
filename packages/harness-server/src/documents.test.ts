@@ -86,7 +86,7 @@ describe("documents the agent produced (H-14)", () => {
     expect(discoverDocuments(root)).toEqual([])
   })
 
-  test("registers once, and keeps a rewritten document as a new snapshot", () => {
+  test("registers once, and keeps a rewritten document as its next version, not a new row (RP-03)", () => {
     const repository = new SqliteRoutineRepository(":memory:")
     const root = project()
     write(root, "report.md", "# One")
@@ -98,9 +98,14 @@ describe("documents the agent produced (H-14)", () => {
     write(root, "report.md", "# Two")
     registerDocuments(repository, root)
     const kept = repository.listArtifacts({ directory: root, kind: "document" })
-    expect(kept).toHaveLength(2)
-    expect(kept.map((artifact) => artifact.title).sort()).toEqual(["One", "Two"])
-    expect(kept.every((artifact) => artifact.producer === "agent")).toBe(true)
+    expect(kept).toHaveLength(1)
+    expect(kept[0]).toMatchObject({ title: "Two", version: 2, versions: 2, producer: "agent" })
+    expect(repository.listArtifactVersions(kept[0]!.id).map((version) => version.title)).toEqual(["Two", "One"])
+
+    // Back to what an older version said is still the file's newest state, so it is a version too.
+    write(root, "report.md", "# One")
+    registerDocuments(repository, root)
+    expect(repository.listArtifacts({ directory: root, kind: "document" })[0]).toMatchObject({ title: "One", version: 3 })
     repository.close()
   })
 })

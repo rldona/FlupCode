@@ -25,6 +25,12 @@ type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
   /** Resets scroll/follow state when the viewed session changes; the view instance is reused. */
   sessionKey?: string
+  /**
+   * A message to scroll to once it is in the transcript, e.g. the one whose turn wrote an artifact
+   * (RP-03). `onRevealed` says it was reached, so the caller can let it go.
+   */
+  reveal?: string
+  onRevealed?: () => void
   loading: boolean
   busy: boolean
   /** Whether the engine is folding the session: the status line says so instead of "Thinking…". */
@@ -1061,20 +1067,34 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   })
 
   const jumpToChapter = (id: string) => {
+    if (!(props.messages ?? []).some((message) => message.id === id)) return
+    setActiveChapter(id)
+    jumpTo(id, "data-chapter")
+  }
+
+  // Scrolls to a message by its id: a prompt by its chapter mark, any message by its id.
+  const jumpTo = (id: string, attribute: "data-chapter" | "data-message-id") => {
     const index = (props.messages ?? []).findIndex((message) => message.id === id)
-    if (index < 0) return
+    if (index < 0) return undefined
     setStick(false)
     jumpedTo = id
     jumpedAt = performance.now()
     // Render older messages first when the prompt is above the loaded window.
     if (index < offset()) setVisibleCount(total() - index + 20)
-    setActiveChapter(id)
     const rendered = index >= offset()
     // Messages above render lazily (content-visibility), so their real heights shift the target
     // after the first jump: keep aligning it for a few frames until it stays put.
+    // A message that only continues an earlier run of tools draws nothing of its own: the nearest
+    // drawn message before it holds its tools, so that is where it is.
+    const find = () =>
+      (props.messages ?? [])
+        .slice(0, index + 1)
+        .reverse()
+        .map((message) => body?.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(message.id)}"]`))
+        .find((element) => !!element) ?? undefined
     let frames = 0
     const align = () => {
-      const target = body?.querySelector<HTMLElement>(`[data-chapter="${CSS.escape(id)}"]`)
+      const target = find()
       if (target && container) {
         const before = target.getBoundingClientRect().top
         target.scrollIntoView({ block: "start" })
@@ -1082,12 +1102,34 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       }
       if (++frames < 30) requestAnimationFrame(align)
     }
-    const target = rendered ? body?.querySelector<HTMLElement>(`[data-chapter="${CSS.escape(id)}"]`) : undefined
-    if (!target || motion() === "auto") return requestAnimationFrame(align)
+    const target = rendered ? find() : undefined
+    if (!target || motion() === "auto") {
+      requestAnimationFrame(align)
+      return find
+    }
     // Glide to a prompt that is already rendered, then settle any shift from lazy rendering.
     target.scrollIntoView({ block: "start", behavior: "smooth" })
     setTimeout(() => requestAnimationFrame(align), 500)
+    return find
   }
+
+  // The message asked for is reached once it has loaded; until then the request waits.
+  createEffect(() => {
+    const id = props.reveal
+    if (!id || !(props.messages ?? []).some((message) => message.id === id)) return
+    // After the session's own first scroll to the end, which would otherwise undo this one.
+    setTimeout(() => {
+      const find = jumpTo(id, "data-message-id")
+      if (!find) return
+      props.onRevealed?.()
+      // Marked for a moment once the scroll has settled, so the reader sees which message it was.
+      setTimeout(() => {
+        const target = find()
+        target?.classList.add("fc-message-revealed")
+        setTimeout(() => target?.classList.remove("fc-message-revealed"), 2400)
+      }, 600)
+    }, 0)
+  })
 
   const scrollToEnd = () => {
     if (!container) return

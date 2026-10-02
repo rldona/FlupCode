@@ -56,31 +56,21 @@ export function discoverPlans(directory: string): PlanFile[] {
 }
 
 /**
- * Indexes the plans of a folder that are not indexed yet, and returns the ones it added.
- *
- * Deduplicated by path **and** content: reading the same plan twice adds nothing, but a plan that
- * was rewritten is kept as a new snapshot rather than silently leaving the old one on screen.
+ * Indexes the plans of a folder whose current state is not indexed yet, and returns the ones it
+ * added. A plan file is one document (RP-03): one rewritten since its newest version is kept as the
+ * next version, and one read again unchanged adds nothing.
  */
 export function registerPlans(repository: ArtifactRepository, directory: string): Artifact[] {
-  const known = new Set(
-    repository
-      .listArtifacts({ directory, kind: "plan" })
-      .filter((artifact) => artifact.path && artifact.hash)
-      .map((artifact) => `${artifact.path}\0${artifact.hash}`),
-  )
-  const added: Artifact[] = []
-  for (const plan of discoverPlans(directory)) {
-    if (known.has(`${plan.path}\0${artifactHash(plan.content)}`)) continue
-    added.push(
-      repository.addArtifact({
-        kind: "plan",
-        title: plan.title,
-        producer: "agent",
-        content: plan.content,
-        path: plan.path,
-        directory,
-      }),
-    )
-  }
-  return added
+  return discoverPlans(directory).flatMap((plan) => {
+    const kept = repository.keepVersion({
+      kind: "plan",
+      title: plan.title,
+      producer: "agent",
+      content: plan.content,
+      path: plan.path,
+      directory,
+      hash: artifactHash(plan.content),
+    })
+    return kept.added ? [kept.artifact] : []
+  })
 }

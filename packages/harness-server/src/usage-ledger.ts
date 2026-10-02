@@ -257,7 +257,12 @@ export function toolEventFrom(input: unknown): ToolEvent | string {
  * old run's closing note looks the same. An engine that cannot answer records nothing, so the
  * session's next event asks again and fills in the rows stored meanwhile.
  */
-async function learnSession(sessionID: string, repository: UsageRepository, describe: SessionDescriber, depth = 0) {
+export async function learnSession(
+  sessionID: string,
+  repository: Pick<UsageRepository, "knowsSession" | "attributeSession" | "attributionSince">,
+  describe: SessionDescriber,
+  depth = 0,
+) {
   if (depth > 16 || repository.knowsSession(sessionID)) return
   const session = await describe(sessionID).catch(() => null)
   if (session === null) return

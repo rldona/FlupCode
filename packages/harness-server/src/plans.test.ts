@@ -58,7 +58,7 @@ describe("registerPlans", () => {
     repository.close()
   })
 
-  test("a plan that was rewritten is kept as a new snapshot", () => {
+  test("a plan that was rewritten is kept as the plan's next version (RP-03)", () => {
     const directory = scratch()
     plan(directory, "auth.md", "# Auth\n\nFirst take.\n")
     const repository = new SqliteRoutineRepository(":memory:")
@@ -67,7 +67,8 @@ describe("registerPlans", () => {
     plan(directory, "auth.md", "# Auth\n\nSecond take, better.\n")
     registerPlans(repository, directory)
 
-    expect(repository.listArtifacts({ directory, kind: "plan" })).toHaveLength(2)
+    const [kept] = repository.listArtifacts({ directory, kind: "plan" })
+    expect(kept).toMatchObject({ version: 2, versions: 2, content: "# Auth\n\nSecond take, better.\n" })
     repository.close()
   })
 })

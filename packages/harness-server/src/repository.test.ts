@@ -312,6 +312,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 8, name: "usage-summary", backup: join(dirname(path), backup!) },
       { version: 9, name: "task-verdict", backup: join(dirname(path), backup!) },
       { version: 10, name: "browser-policy", backup: join(dirname(path), backup!) },
+      { version: 11, name: "artifact-versions", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -326,7 +327,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -345,6 +346,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 8, backup: null },
       { version: 9, backup: null },
       { version: 10, backup: null },
+      { version: 11, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -352,7 +354,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }])
     repository.close()
   })
 
@@ -1599,6 +1601,166 @@ describe("the browser-policy migration (BU-01)", () => {
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM runs").get() as { count: number }).count).toBe(1)
     copy.close()
+    repository.close()
+  })
+})
+
+// ---- RP-03: artifact lineage and versions (migration 11) ----------------------------------------
+
+describe("artifact versions (RP-03)", () => {
+  const document = { kind: "document" as const, title: "Report", producer: "agent" as const, directory: "/work/demo", path: ".flupcode/artifacts/report.md" }
+
+  test("a folder and path already kept is the next version of that document; anything else starts its own", () => {
+    const repository = open()
+    const first = repository.addArtifact({ ...document, content: "one" }, 1_000)
+    const second = repository.addArtifact({ ...document, title: "Report, retitled", content: "two" }, 2_000)
+    const elsewhere = repository.addArtifact({ ...document, directory: "/work/other", content: "two" }, 3_000)
+    const otherKind = repository.addArtifact({ ...document, kind: "plan", content: "two" }, 4_000)
+    const pathless = repository.addArtifact({ kind: "report", title: "Report", producer: "harness", content: "x" }, 5_000)
+    const pathlessAgain = repository.addArtifact({ kind: "report", title: "Report", producer: "harness", content: "x" }, 6_000)
+
+    expect(first).toMatchObject({ logicalID: first.id, version: 1 })
+    expect(second).toMatchObject({ logicalID: first.id, version: 2 })
+    for (const own of [elsewhere, otherKind, pathless, pathlessAgain]) expect(own).toMatchObject({ logicalID: own.id, version: 1 })
+    expect(repository.getArtifact(second.id)).toMatchObject({ logicalID: first.id, version: 2 })
+    expect(repository.listArtifactVersions(first.id).map((version) => version.id)).toEqual([second.id, first.id])
+    repository.close()
+  })
+
+  test("keeping a file's state adds nothing when the newest version holds it, and fills in what wrote it", () => {
+    const repository = open()
+    const runID = repository.startRun({ type: "manual" }, 1_000, "/work/demo").id
+    const lazy = repository.keepVersion({ ...document, content: "one", hash: "h1" })
+    expect(lazy).toMatchObject({ added: true, artifact: { version: 1 } })
+    expect(lazy.artifact.sessionID).toBeUndefined()
+
+    const reported = repository.keepVersion({ ...document, content: "one", hash: "h1", sessionID: "ses_1", messageID: "msg_1", runID })
+    expect(reported).toMatchObject({ added: false, artifact: { id: lazy.artifact.id, sessionID: "ses_1", messageID: "msg_1", runID } })
+    // What wrote a version is not rewritten by a later report of the same content.
+    repository.keepVersion({ ...document, content: "one", hash: "h1", sessionID: "ses_2", messageID: "msg_2" })
+    expect(repository.getArtifact(lazy.artifact.id)).toMatchObject({ sessionID: "ses_1", messageID: "msg_1" })
+
+    const rewritten = repository.keepVersion({ ...document, content: "two", hash: "h2", sessionID: "ses_2", messageID: "msg_2" })
+    expect(rewritten).toMatchObject({ added: true, artifact: { logicalID: lazy.artifact.id, version: 2, messageID: "msg_2" } })
+    expect(repository.db.query("SELECT COUNT(*) AS count FROM artifacts").get()).toEqual({ count: 2 })
+    repository.close()
+  })
+
+  test("the list is one row per document, the newest matching version, a page at a time", () => {
+    const repository = open()
+    const runA = repository.startRun({ type: "manual" }, 1_000, "/work/demo").id
+    const runB = repository.startRun({ type: "manual" }, 1_000, "/work/demo").id
+    repository.addArtifact({ ...document, content: "one", runID: runA }, 1_000)
+    const newest = repository.addArtifact({ ...document, content: "two", runID: runB }, 2_000)
+    for (let index = 0; index < 150; index++)
+      repository.addArtifact({ kind: "report", title: `r${index}`, producer: "harness", content: `r${index}` }, 10_000 + index)
+
+    const listed = repository.listArtifacts({ directory: "/work/demo" })
+    expect(listed).toEqual([expect.objectContaining({ id: newest.id, version: 2, versions: 2 })])
+    // A run sees the version it produced, still counted against the whole document.
+    expect(repository.listArtifacts({ runID: runA })).toEqual([expect.objectContaining({ content: "one", version: 1, versions: 2 })])
+
+    const first = repository.listArtifacts({}, 100)
+    const second = repository.listArtifacts({ offset: 100 }, 100)
+    expect(first).toHaveLength(100)
+    expect(second).toHaveLength(51)
+    expect(new Set([...first, ...second].map((artifact) => artifact.logicalID)).size).toBe(151)
+    repository.close()
+  })
+
+  test("a pin and a retention belong to the document: new versions inherit them and the sweep spares them", () => {
+    const repository = open()
+    const first = repository.addArtifact({ ...document, content: "one" }, 1_000)
+    repository.setArtifactRetention(first.id, 5_000)
+    const second = repository.addArtifact({ ...document, content: "two" }, 2_000)
+    expect(second.expiresAt).toBe(5_000)
+    repository.setArtifactPinned(second.id, true)
+    expect(repository.getArtifact(first.id)?.pinned).toBe(true)
+    expect(repository.addArtifact({ ...document, content: "three" }, 3_000).pinned).toBe(true)
+    expect(repository.removeExpiredArtifacts(10_000)).toBe(0)
+
+    repository.setArtifactPinned(first.id, false)
+    expect(repository.removeExpiredArtifacts(10_000)).toBe(3)
+    repository.close()
+  })
+
+  test("deleting a version leaves the others; deleting the document takes every version", () => {
+    const repository = open()
+    const first = repository.addArtifact({ ...document, content: "one" }, 1_000)
+    const second = repository.addArtifact({ ...document, content: "two" }, 2_000)
+    repository.addArtifact({ ...document, content: "three" }, 3_000)
+    expect(repository.removeArtifact(second.id)).toBe(true)
+    expect(repository.listArtifactVersions(first.id).map((version) => version.version)).toEqual([3, 1])
+    expect(repository.removeArtifact(first.id, { document: true })).toBe(true)
+    expect(repository.db.query("SELECT COUNT(*) AS count FROM artifacts").get()).toEqual({ count: 0 })
+    repository.close()
+  })
+})
+
+describe("the artifact-versions migration (RP-03)", () => {
+  test("a populated database at version 10 is backed up, and its copies become versions without losing a row", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
+    const add = (input: Parameters<SqliteRoutineRepository["addArtifact"]>[0], at: number) => before.addArtifact(input, at).id
+    const doc = { kind: "document" as const, producer: "agent" as const, directory: "/work/demo", path: ".flupcode/artifacts/report.md" }
+    // Four copies of one document as the lazy pass left them, retitled once, one of them pinned.
+    const copies = [
+      add({ ...doc, title: "Report", content: "one" }, 1_000),
+      add({ ...doc, title: "Report", content: "two", pinned: true }, 2_000),
+      add({ ...doc, title: "Final report", content: "three" }, 3_000),
+      add({ ...doc, title: "Final report", content: "three" }, 3_500),
+    ]
+    // The same file name in another project, and another kind at the same path, are other documents.
+    const otherProject = add({ ...doc, directory: "/work/other", title: "Report", content: "one" }, 1_500)
+    const plan = add({ ...doc, kind: "plan", title: "Report", content: "one" }, 1_600)
+    // Rows with no path share titles across runs and are never grouped; one carries an expiry.
+    const reports = [
+      add({ kind: "report", title: "Run report", producer: "harness", content: "a", runID: run.id }, 4_000),
+      add({ kind: "report", title: "Run report", producer: "harness", content: "b", expiresAt: 9_000 }, 5_000),
+    ]
+    before.db.exec(`
+      DROP INDEX artifacts_logical;
+      DROP INDEX artifacts_document;
+      ALTER TABLE artifacts DROP COLUMN logical_id;
+      ALTER TABLE artifacts DROP COLUMN version;
+      ALTER TABLE artifacts DROP COLUMN message_id;
+      DELETE FROM schema_version WHERE version >= 11;
+    `)
+    const snapshot = before.db.query("SELECT * FROM artifacts ORDER BY id").all()
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v10-/)
+    expect(repository.db.query("SELECT version, name, backup FROM schema_version WHERE version = 11").all()).toEqual([
+      { version: 11, name: "artifact-versions", backup: join(dirname(path), backup!) },
+    ])
+    // No row is lost or changed beyond its new columns, except a copy taking its document's pin.
+    const after = repository.db
+      .query("SELECT id, directory, run_id, task_id, session_id, kind, title, mime, content, path, bytes, truncated, hash, producer, pinned, expires_at, created_at FROM artifacts ORDER BY id")
+      .all() as Array<Record<string, unknown>>
+    expect(after).toEqual(
+      (snapshot as Array<Record<string, unknown>>).map((row) => (copies.includes(row.id as string) ? { ...row, pinned: 1 } : row)),
+    )
+    const copy = new Database(join(dirname(path), backup!))
+    expect(copy.query("SELECT * FROM artifacts ORDER BY id").all()).toEqual(snapshot)
+    copy.close()
+
+    // The copies are one document, oldest first; everything else is its own.
+    expect(copies.map((id) => repository.getArtifact(id))).toEqual(
+      copies.map((_, index) => expect.objectContaining({ logicalID: copies[0], version: index + 1, pinned: true })),
+    )
+    for (const id of [otherProject, plan, ...reports]) expect(repository.getArtifact(id)).toMatchObject({ logicalID: id, version: 1 })
+    expect(repository.getArtifact(reports[1]!)?.expiresAt).toBe(9_000)
+    expect(repository.listArtifacts({ directory: "/work/demo", kind: "document" })).toEqual([
+      expect.objectContaining({ id: copies[3], version: 4, versions: 4 }),
+    ])
+    // The next rewrite continues the document.
+    expect(repository.addArtifact({ ...doc, title: "Final report", content: "four" }, 6_000)).toMatchObject({
+      logicalID: copies[0],
+      version: 5,
+    })
     repository.close()
   })
 })

@@ -977,18 +977,48 @@ export const App: Component = () => {
   // last one it managed to read, instead of borrowing the routines connection's state.
   const [artifactsFailure, setArtifactsFailure] = createSignal<Error>()
   const artifactsAvailable = () => !!harnessServerUrl() && !artifactsFailure()
+  // Where the next page of documents starts (RP-03); absent once the last page is read.
+  const [artifactsNext, setArtifactsNext] = createSignal<number>()
   const refreshArtifacts = async () => {
     const directory = modelLocation()
     try {
-      const list = await createHarnessClient(harnessServerUrl()).artifacts.list(directory ? { directory } : {})
+      const page = await createHarnessClient(harnessServerUrl()).artifacts.page(directory ? { directory } : {})
       // A server that answers without a list keeps the last one instead of clearing it: the list is
       // rendered and searched as an array, and `undefined` there took the whole app down.
-      if (list) setArtifactList(list)
+      if (page.data) setArtifactList(page.data)
+      setArtifactsNext(page.next)
       setArtifactsFailure(undefined)
     } catch (cause) {
       setArtifactsFailure(cause instanceof Error ? cause : new Error(String(cause)))
     }
   }
+  const loadMoreArtifacts = async () => {
+    const offset = artifactsNext()
+    if (offset === undefined) return
+    const directory = modelLocation()
+    const page = await createHarnessClient(harnessServerUrl())
+      .artifacts.page({ ...(directory ? { directory } : {}), offset })
+      .catch((cause) => {
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+        return undefined
+      })
+    if (!page?.data) return
+    const known = new Set(artifactList().map((artifact) => artifact.id))
+    setArtifactList([...artifactList(), ...page.data.filter((artifact) => !known.has(artifact.id))])
+    setArtifactsNext(page.next)
+  }
+  // A document kept or changed while the app is open shows without reopening the screen (RP-03).
+  // Several in a row (a turn writing a few) are read once.
+  let artifactsRefresh: ReturnType<typeof setTimeout> | undefined
+  const artifactsChanged = () => {
+    clearTimeout(artifactsRefresh)
+    artifactsRefresh = setTimeout(() => void refreshArtifacts(), 300)
+  }
+  onCleanup(() => clearTimeout(artifactsRefresh))
+  /** Where the runs screen opens next: a run, and the task whose detail it shows (RP-03). */
+  const [runFocus, setRunFocus] = createSignal<{ runID: string; taskID?: string }>()
+  /** The message the transcript scrolls to once the session it belongs to is open (RP-03). */
+  const [revealMessage, setRevealMessage] = createSignal<string>()
   createEffect(() => {
     harnessServerUrl()
     modelLocation()
@@ -3641,6 +3671,10 @@ export const App: Component = () => {
           setStashes((list) => [prompt, ...list])
         return
       }
+      if (event.type === "artifact.created" || event.type === "artifact.changed") {
+        artifactsChanged()
+        return
+      }
       if (event.type === "stash.removed" && typeof event.promptID === "string") {
         const removed = event.promptID
         setStashes((list) => list.filter((entry) => entry.id !== removed))
@@ -5206,6 +5240,8 @@ export const App: Component = () => {
               setTargetDirectory(directory)
               showScreen("changes")
             }}
+            focus={runFocus()}
+            onFocused={() => setRunFocus(undefined)}
           />
           <ChangesPanel
             open={changesOpen()}
@@ -5261,7 +5297,19 @@ export const App: Component = () => {
             onCopy={copyPath}
             onRemove={removeArtifact}
             onUpdate={updateArtifact}
-            onOpenRun={() => showScreen("runs")}
+            hasMore={artifactsNext() !== undefined}
+            onLoadMore={() => void loadMoreArtifacts()}
+            versions={(id) => createHarnessClient(harnessServerUrl()).artifacts.versions(id)}
+            version={(id) => createHarnessClient(harnessServerUrl()).artifacts.get(id)}
+            onOpenRun={(runID, taskID) => {
+              setRunFocus({ runID, ...(taskID ? { taskID } : {}) })
+              showScreen("runs")
+            }}
+            onOpenMessage={(sessionID, messageID) => {
+              // The transcript first, so it is on screen when it is asked to scroll.
+              selectSession(sessionID)
+              setRevealMessage(messageID)
+            }}
             onOpenPath={(path) => void openLocalPath(path)}
             onOpenInEditor={(path) => void openInEditor(path)}
           />
@@ -5525,6 +5573,8 @@ export const App: Component = () => {
               <SessionView
                 messages={activeMessages()}
                 sessionKey={selected()}
+                reveal={revealMessage()}
+                onRevealed={() => setRevealMessage(undefined)}
                 loading={messagesLoading()}
                 busy={generating()}
                 compacting={compacting()}

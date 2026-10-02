@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
 import type { Artifact, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageRunReport } from "../types"
@@ -61,6 +61,12 @@ type RunsPanelProps = {
   onBestOfN: () => void
   /** Each routine's name, by id, so a routine's run is called what the reader called it (UX-04). */
   routineNames?: Record<string, string>
+  /**
+   * A run to bring into view when the screen opens, and the task whose detail to show, e.g. the
+   * ones that produced an artifact (RP-03). `onFocused` lets it go once it is shown.
+   */
+  focus?: { runID: string; taskID?: string }
+  onFocused?: () => void
 }
 
 /** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */
@@ -129,6 +135,17 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
   // The task opened in the detail panel (§6.4). Its run is looked up, because a task carries only
   // its run's id.
   const [selectedTask, setSelectedTask] = createSignal<string>()
+  createEffect(() => {
+    const focus = props.focus
+    if (!props.open || !focus || !props.runs.some((run) => run.id === focus.runID)) return
+    if (focus.taskID) setSelectedTask(focus.taskID)
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLElement>(`.fc-run-card[data-run-id="${CSS.escape(focus.runID)}"]`)
+        ?.scrollIntoView({ block: "start" }),
+    )
+    props.onFocused?.()
+  })
   const detail = createMemo(() => {
     const id = selectedTask()
     if (!id) return undefined
@@ -229,7 +246,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
           <div class="fc-runs-list">
             <For each={props.runs}>
               {(run) => (
-                <article class="fc-run-card" classList={{ "fc-run-running": going(run) }}>
+                <article class="fc-run-card" data-run-id={run.id} classList={{ "fc-run-running": going(run) }}>
                   <header class="fc-run-head">
                     <Show when={props.attention[run.id]}>{(level) => <AttentionMark level={level()} />}</Show>
                     <span class="fc-run-title">{title(run)}</span>

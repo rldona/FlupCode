@@ -9369,6 +9369,48 @@ button.fc-status {
   gap: 6px;
 }
 
+/* The message an artifact's "Open message" scrolled to, marked for a moment (RP-03). */
+.fc-message.fc-message-revealed {
+  border-radius: var(--fc-radius-sm, 8px);
+  outline: 2px solid color-mix(in srgb, var(--fc-accent) 60%, transparent);
+  outline-offset: 6px;
+}
+
+/* Which version is on screen, what produced it, and the comparison with the one before (RP-03). */
+.fc-artifact-lineage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-artifact-lineage:empty {
+  display: none;
+}
+
+.fc-artifact-version {
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm, 6px);
+  background: var(--fc-bg);
+  color: var(--fc-text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.fc-artifact-diff {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm, 6px);
+}
+
+.fc-artifact-more {
+  margin-top: var(--fc-space-2);
+}
+
 .fc-artifact-viewer-body {
   display: flex;
   flex: 1;

@@ -603,6 +603,11 @@ const ES: Record<string, string> = {
 
   // About
   "Version {version}": "Versión {version}",
+  Version: "Versión",
+  "{n} versions": "{n} versiones",
+  "Open message": "Abrir mensaje",
+  "Compare with version {version}": "Comparar con la versión {version}",
+  "These versions have no text to compare.": "Estas versiones no tienen texto que comparar.",
   "FlupCode is an independent project built on OpenCode. It is not affiliated with or endorsed by Anomaly (OpenCode) or Anthropic (Claude Code).":
     "FlupCode es un proyecto independiente construido sobre OpenCode. No está afiliado ni respaldado por Anomaly (OpenCode) ni por Anthropic (Claude Code).",
   Repository: "Repositorio",

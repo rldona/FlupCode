@@ -13,7 +13,8 @@ import type {
   TaskInput,
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
-import { readFileSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
+import { resolve } from "node:path"
 import { confinedPath, projectRoots, type ProjectRoots } from "./project-roots"
 import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
 import { UnknownTaskError } from "./workflow"
@@ -322,6 +323,40 @@ const retriesFrom = (value: unknown) => {
 
 const KINDS: ArtifactKind[] = [...ARTIFACT_KINDS]
 
+/** How many documents one page of the artifacts list holds, unless the caller asks for fewer. */
+const ARTIFACT_PAGE = 100
+const MAX_ARTIFACT_PAGE = 500
+
+/** What `artifact_write` reports (RP-03). Anything naming a run or a task is ignored: that is ours. */
+const documentWriteFrom = (value: unknown): DocumentWrite | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const input = value as Record<string, unknown>
+  const text = (name: string) => (typeof input[name] === "string" && input[name] ? (input[name] as string) : undefined)
+  const sessionID = text("sessionID")
+  const directory = text("directory")
+  const path = text("path")
+  if (!sessionID || !directory || !path || (input.kind !== undefined && input.kind !== "document")) return undefined
+  return {
+    sessionID,
+    directory,
+    path,
+    ...(text("messageID") ? { messageID: text("messageID")! } : {}),
+    ...(text("title") ? { title: text("title")! } : {}),
+  }
+}
+
+/** Two spellings of one folder, as the engine and a plugin may give them (macOS `/var` → `/private/var`). */
+const sameFolder = (left: string, right: string) => {
+  const real = (path: string) => {
+    try {
+      return realpathSync(path)
+    } catch {
+      return resolve(path)
+    }
+  }
+  return real(left) === real(right)
+}
+
 const artifactFrom = (value: unknown): ArtifactInput | undefined => {
   if (!value || typeof value !== "object") return undefined
   const input = value as Record<string, unknown>
@@ -419,9 +454,9 @@ import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, dropAll, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
-import { registerDocuments } from "./documents"
+import { indexDocument, registerDocuments, type DocumentWrite } from "./documents"
 import { handleUsageRead } from "./usage"
-import { handleUsageIngest } from "./usage-ledger"
+import { handleUsageIngest, learnSession } from "./usage-ledger"
 import type { createUsagePricing } from "./usage-pricing"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./context"
@@ -603,6 +638,30 @@ export const createHarnessHandler = (
         (sessionID) => scheduler.engine.describeSession(sessionID),
         options.usagePricing?.classify,
       )
+    }
+    // A document the agent just kept with `artifact_write` (RP-03): the engine's plugin reports which
+    // file, which session and which message, and the server reads the file and works out the run and
+    // task from the session's attribution (UL-04) — never from the caller (P7). Only the plugins
+    // report writes, so only their bearer is taken; without one the route is an ordinary 404.
+    if (path[1] === "artifacts" && path[2] === "index" && path.length === 3 && request.method === "POST" && options.pluginToken) {
+      if (!pluginCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      const write = documentWriteFrom(await readJSON(request))
+      if (!write) return error("A session, a project folder and a path are required", 400)
+      if (!(await roots.within(write.directory))) return notAProject()
+      const describe = (sessionID: string) => scheduler.engine.describeSession(sessionID)
+      // The session has to be the engine's, in that folder: a write reported for another project's
+      // session would borrow that session's run.
+      const session = await describe(write.sessionID).catch(() => undefined)
+      if (!session || !sameFolder(session.directory, write.directory))
+        return error("No such session in that folder", 404)
+      await learnSession(write.sessionID, repository, describe)
+      // Attribution outlives a deleted run; an artifact can only name a run and a task that exist.
+      const attribution = repository.sessionAttribution(write.sessionID)
+      const runID = attribution?.runID && repository.getRun(attribution.runID) ? attribution.runID : undefined
+      const taskID = runID && attribution?.taskID && repository.getTask(attribution.taskID) ? attribution.taskID : undefined
+      const kept = indexDocument(repository, write, { runID, taskID })
+      if (!kept) return error("No such document", 404)
+      return json({ data: kept.artifact, added: kept.added }, kept.added ? 201 : 200)
     }
     // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
     // needs the profile id and the shape the form wrote.
@@ -1271,14 +1330,27 @@ export const createHarnessHandler = (
           // An unreadable folder is not a reason to fail the list.
         }
       }
-      return json({
-        data: repository.listArtifacts({
+      // A page at a time (RP-03): `next` is where the following page starts, absent on the last one.
+      const limit = Math.min(Math.max(Math.floor(Number(query.get("limit")) || ARTIFACT_PAGE), 1), MAX_ARTIFACT_PAGE)
+      const offset = Math.max(Math.floor(Number(query.get("offset")) || 0), 0)
+      const page = repository.listArtifacts(
+        {
           directory,
           runID: query.get("runID") ?? undefined,
           kind: (query.get("kind") as ArtifactKind | null) ?? undefined,
           q: query.get("q") ?? undefined,
-        }),
-      })
+          offset,
+        },
+        limit + 1,
+      )
+      return json({ data: page.slice(0, limit), ...(page.length > limit ? { next: offset + limit } : {}) })
+    }
+    // Every version of a document, newest first and without their text: the viewer reads the one it
+    // shows by its id (RP-03).
+    if (path[1] === "artifacts" && request.method === "GET" && path[2] && path[3] === "versions" && path.length === 4) {
+      const versions = repository.listArtifactVersions(path[2])
+      if (versions.length === 0) return error("Artifact not found", 404)
+      return json({ data: versions.map(({ content: _content, ...version }) => version) })
     }
     if (path[1] === "artifacts" && request.method === "POST" && !path[2]) {
       const input = artifactFrom(await readJSON(request))
@@ -1346,8 +1418,10 @@ export const createHarnessHandler = (
       const artifact = repository.getArtifact(path[2])
       return artifact ? json({ data: artifact }) : error("Artifact not found", 404)
     }
+    // One version, or with `?document=1` the whole document: every version of it (RP-03).
     if (path[1] === "artifacts" && request.method === "DELETE" && path[2] && !path[3]) {
-      return repository.removeArtifact(path[2]) ? json({ data: true }) : error("Artifact not found", 404)
+      const document = new URL(request.url).searchParams.get("document") === "1"
+      return repository.removeArtifact(path[2], { document }) ? json({ data: true }) : error("Artifact not found", 404)
     }
     // What a reader kept about a session (H-18): pins and tags, which the engine's session list
     // does not carry back, so they live here and travel to every device that reads this server.
