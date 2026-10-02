@@ -86,6 +86,7 @@ packages/remote
 
 ## 5. Related decisions
 
+- ADR-0028 — FlupCode attaches to the engine's built-in browser tools
 - ADR-0027 — FlupCode runs the official OpenCode 2, not a fork (supersedes ADR-0001)
 - ADR-0026 — What FlupCode does about the features OpenCode 2 removed
 - ADR-0002 — Where UI code lives

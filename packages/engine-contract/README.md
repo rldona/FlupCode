@@ -13,6 +13,8 @@ never touches the user's engine or `opencode.db`.
 - `test/plugins-v2.test.ts` (V2-30): FlupCode's 2.x plugins installed from
   `packages/remote/src/engine-plugins-v2.ts`, each one checked by what it leaves behind.
 - `test/mcp-stats-v2.test.ts`: an MCP tool called from Code Mode is counted and timed.
+- `test/browser-attach-v2.test.ts` (BU-07, ADR-0028): the engine's built-in `opencode.browser`
+  attach protocol (`experimental.browser` version 4), driven by a minimal client.
 - `test/v1-import-v2.test.ts` (V2-61): a recorded 1.x database (`fixtures/v1/history.db`, written by
   FlupCode's last 1.x engine) imported into 2.x, memories included, and rolled back.
 
