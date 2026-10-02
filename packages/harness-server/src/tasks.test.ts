@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
@@ -1476,6 +1476,117 @@ describe("a web action task (WA-7)", () => {
       action: { id: "publish", inputs: { text: "hola" } },
     })
     expect(calls).toHaveLength(1)
+    repository.close()
+  })
+})
+
+// TI-03: a run that pauses and is picked up again — at a gate, after a budget stop, after a restart or
+// through a retry — hands its tasks the same notes and trees as one that never paused.
+describe("a run picked up again", () => {
+  const recording = (prompts: Array<{ text: string; directory?: string }>, worktree?: (name: string) => string) =>
+    ({
+      ...(worktree
+        ? { createWorktree: async (input: { name?: string }) => ({ name: input.name, directory: worktree(input.name ?? "task") }) }
+        : {}),
+      createSession: async () => ({ id: `ses_${prompts.length}` }),
+      prompt: async (input: { text: string; directory?: string }) => void prompts.push(input),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "Plan: change the parser" }),
+      handoff: async (input: { task: string }) => `Handoff from ${input.task}: change the parser`,
+      interrupt: async () => undefined,
+    }) as never
+
+  test("after a gate, the next task is handed the gated task's note", async () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    const prompts: Array<{ text: string; directory?: string }> = []
+    Object.assign(scheduler, { engine: recording(prompts) })
+
+    const run = await scheduler.runTasks({
+      tasks: [
+        { name: "plan", prompt: "Plan it", gate: "human" },
+        { name: "implement", prompt: "Build it" },
+      ],
+    })
+    await settledAt(repository, run.id, "awaiting")
+    scheduler.approve(run.id)
+    await settledAt(repository, run.id, "success")
+
+    expect(prompts.map((prompt) => prompt.text.includes("Build it"))).toEqual([false, true])
+    expect(prompts[1]!.text).toContain("Handoff from plan: change the parser")
+    repository.close()
+  })
+
+  // A real folder per tree with a check of its own: a check works in the tree it checks, and its
+  // verdict records where that was.
+  const trees = (base: string) => {
+    const made = new Map<string, string>()
+    return (name: string) => {
+      if (!made.has(name)) {
+        const tree = realpathSync(mkdtempSync(join(base, `${name}-`)))
+        mkdirSync(join(tree, ".flupcode"))
+        writeFileSync(join(tree, ".flupcode", "project.yaml"), "verify:\n  where: pwd\n")
+        made.set(name, tree)
+      }
+      return made.get(name)!
+    }
+  }
+
+  test("after a restart, a fresh runner hands on the note and the tree the gated task left", async () => {
+    const repository = open()
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "flupcode-resume-")))
+    scratch.push(directory)
+    const prompts: Array<{ text: string; directory?: string }> = []
+    const tree = trees(directory)
+
+    const run = repository.startRun(manual, 1000, directory, { worktrees: true })
+    repository.addTasks(run.id, [
+      { name: "plan", prompt: "Plan it", gate: "human" },
+      { name: "implement", prompt: "Build it", dependsOn: ["plan"] },
+      { name: "check", prompt: "", kind: "verify", dependsOn: ["plan"] },
+    ])
+    expect(await new TaskRunner(repository, recording(prompts, tree)).execute(run, { directory })).toBe("paused")
+    repository.resumeRun(run.id)
+    // Another process: nothing survives but the database.
+    await new TaskRunner(repository, recording(prompts, tree)).execute(repository.getRun(run.id)!, { directory })
+
+    expect(prompts.find((prompt) => prompt.text.includes("Build it"))!.text).toContain(
+      "Handoff from plan: change the parser",
+    )
+    const verdict = repository.listArtifacts({ runID: run.id, kind: "verdict" })
+    expect(verdict.map((artifact) => artifact.directory)).toEqual([tree("plan")])
+    repository.close()
+  })
+
+  test("a retried task gets its predecessor's note, and a retried check runs in the tree it checks", async () => {
+    const repository = open()
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "flupcode-retry-")))
+    scratch.push(directory)
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    const prompts: Array<{ text: string; directory?: string }> = []
+    const tree = trees(directory)
+    Object.assign(scheduler, { engine: recording(prompts, tree) })
+
+    const run = await scheduler.runTasks({
+      directory,
+      worktrees: true,
+      tasks: [
+        { name: "plan", prompt: "Plan it" },
+        { name: "implement", prompt: "Build it", dependsOn: ["plan"] },
+        { name: "check", prompt: "", kind: "verify", dependsOn: ["implement"] },
+      ],
+    })
+    await settledAt(repository, run.id, "success")
+    for (const name of ["check", "implement"]) {
+      scheduler.retryTask(repository.listTasks(run.id).find((task) => task.name === name)!.id)
+      await settledAt(repository, run.id, "success")
+    }
+
+    const built = prompts.filter((prompt) => prompt.text.includes("Build it"))
+    expect(built).toHaveLength(2)
+    expect(built[1]!.text).toContain("Handoff from plan: change the parser")
+    const verdicts = repository.listArtifacts({ runID: run.id, kind: "verdict" })
+    expect(verdicts.map((artifact) => artifact.directory)).toEqual([tree("implement"), tree("implement")])
     repository.close()
   })
 })

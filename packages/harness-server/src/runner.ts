@@ -401,7 +401,11 @@ export class TaskRunner {
       : task.dependsOn !== undefined
         ? task.dependsOn
         : task.retryOf
-          ? []
+          ? // A retry somebody asked for (H-12) works from what the original was given (TI-03).
+            (() => {
+              const original = tasks.find((entry) => entry.id === task.retryOf)
+              return original ? this.dependencies(original, tasks) : []
+            })()
           : (() => {
               const previous = tasks.filter((entry) => entry.position < task.position).at(-1)
               return previous ? [previous.name] : []
@@ -458,6 +462,28 @@ export class TaskRunner {
     const latest = byRun.length > 0 ? byRun[0] : directory ? this.repository.listArtifacts({ kind, directory })[0] : undefined
     if (!latest) return undefined
     return { title: latest.title, kind: latest.kind, content: latest.content }
+  }
+
+  /**
+   * What the finished tasks handed on, read back from the database (TI-03).
+   *
+   * A run is driven again after a gate, a budget stop, a restart or a retry, and every time by a new
+   * `runGraph`: without this, a task behind the pause would start with no note and in the run's
+   * folder instead of the tree its predecessor worked in. The note is the handoff artifact the task
+   * left, or its output when it wrote none (a check's evidence, a command's output, a short answer).
+   * A tree is the one the task recorded; one that recorded none worked where its predecessors left
+   * it, worked out in order exactly as it was the first time.
+   */
+  private rehydrate(run: Run, tasks: Task[], context: RunContext) {
+    const notes = new Map(
+      this.repository
+        .listArtifacts({ runID: run.id, kind: "handoff" })
+        .flatMap((artifact) => (artifact.taskID ? [[artifact.taskID, artifact.content] as const] : [])),
+    )
+    for (const task of tasks.filter((entry) => entry.status === "success")) {
+      context.handoffs.set(task.id, notes.get(task.id) ?? task.output)
+      context.directories.set(task.id, task.directory ?? this.directoryFor(task, tasks, context))
+    }
   }
 
   /** What the tasks before it concluded, joined: a graph task may have several (H-28). */
@@ -545,6 +571,7 @@ export class TaskRunner {
       handoffs: new Map(),
       directories: new Map(),
     }
+    this.rehydrate(run, all, context)
     const running = new Set<Promise<void>>()
     while (true) {
       if (stopped()) {
