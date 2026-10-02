@@ -37,33 +37,6 @@ const clients: BrowserAttach[] = []
 const asked: Array<{ title: string; tier: string; action: string }> = []
 let answer: (request: { metadata: { tier: string } }) => Promise<string | undefined> = async () => undefined
 
-beforeAll(async () => {
-  if (!run) return
-  engine = await startEngine({ modelUrl: model.url })
-  adapter = new Engine(engine.url, engine.authorization)
-  repository = new SqliteRoutineRepository(":memory:")
-  driver = createRecipeDriver({
-    repository,
-    dataDir: directory,
-    egress: createEgressGuard({ allowLoopbackPorts: [site.port] }),
-  })
-}, 120_000)
-
-// A test that failed half way must not leave the next one a busy browser.
-afterEach(async () => {
-  await Promise.all(clients.splice(0).map((client) => client.stop()))
-})
-
-afterAll(async () => {
-  await Promise.all(clients.map((client) => client.stop()))
-  await driver?.stop()
-  repository?.close()
-  await engine?.stop()
-  model.stop()
-  site.stop()
-  rmSync(directory, { recursive: true, force: true })
-}, 30_000)
-
 const attachClient = (options: { answerWindowMs?: number } = {}) => {
   const client = createBrowserAttach({
     engine: adapter,
@@ -80,6 +53,33 @@ const attachClient = (options: { answerWindowMs?: number } = {}) => {
 }
 
 describe.skipIf(!run)("the agent's browser over the engine's attach protocol (BU-05)", () => {
+  beforeAll(async () => {
+    if (!run) return
+    engine = await startEngine({ modelUrl: model.url })
+    adapter = new Engine(engine.url, engine.authorization)
+    repository = new SqliteRoutineRepository(":memory:")
+    driver = createRecipeDriver({
+      repository,
+      dataDir: directory,
+      egress: createEgressGuard({ allowLoopbackPorts: [site.port] }),
+    })
+  }, 120_000)
+
+  // A test that failed half way must not leave the next one a busy browser.
+  afterEach(async () => {
+    await Promise.all(clients.splice(0).map((client) => client.stop()))
+  })
+
+  afterAll(async () => {
+    await Promise.all(clients.map((client) => client.stop()))
+    await driver?.stop()
+    repository?.close()
+    await engine?.stop()
+    model.stop()
+    site.stop()
+    rmSync(directory, { recursive: true, force: true })
+  }, 30_000)
+
   test("the agent completes a three-step form by refs alone, and reads the page as untrusted", async () => {
     const sessionID = await session()
     const client = attachClient()
@@ -170,7 +170,14 @@ describe.skipIf(!run)("the agent's browser over the engine's attach protocol (BU
   test("an approval not answered in time tells the model to call again; a session without a browser loses the tools", async () => {
     const sessionID = await session()
     const client = attachClient({ answerWindowMs: 500 })
-    answer = () => new Promise((resolve) => setTimeout(() => resolve("deny"), 3000))
+    const late = Promise.withResolvers<void>()
+    answer = () =>
+      new Promise((resolve) =>
+        setTimeout(() => {
+          resolve("deny")
+          late.resolve()
+        }, 3000),
+      )
     await client.attach(sessionID)
     await turn(sessionID, `return await tools.browser.tabs.open({ url: "${site.url}/" })`)
     expect(toolResults()[0]).toContain("[browser.approval_pending] The person has not answered yet")
@@ -179,6 +186,8 @@ describe.skipIf(!run)("the agent's browser over the engine's attach protocol (BU
     expect(driver.get(sessionID)).toBeUndefined()
     await turn(sessionID, `return await tools.browser.tabs.list({})`)
     expect(toolResults()[1]).toContain("Unknown tool 'browser.tabs.list'")
+    // The question outlived its command; its answer lands before this test hands the store back.
+    await late.promise
   }, 120_000)
 })
 
