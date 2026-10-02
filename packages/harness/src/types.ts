@@ -688,6 +688,32 @@ export type Budget = {
 
 export type BudgetInput = Pick<Budget, "scope" | "target" | "unit" | "limit" | "softPct">
 
+/**
+ * A provider quota window as the server last read it (UL-07): `calendar` resets at `resetAt`,
+ * `spendCap` never resets, `balance` is prepaid money with only what remains. `null` is not said.
+ */
+export type QuotaWindow = {
+  id: string
+  kind: "calendar" | "spendCap" | "balance"
+  unit: "credits" | "requests" | "usd" | "cny"
+  used: number | null
+  limit: number | null
+  remaining: number | null
+  resetAt: number | null
+  /** The pace from the stored readings, and when it runs out at it; `null` until there are enough. */
+  forecast: { perHour: number; exhaustsAt: number | null } | null
+}
+
+/** One connected provider's quota (UL-07): its windows at the last good read, and the last failure. */
+export type ProviderQuota = {
+  providerID: string
+  name: string
+  docs: string
+  sampledAt: number | null
+  error?: { message: string; at: number }
+  windows: QuotaWindow[]
+}
+
 export type MetricTokens = { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number }
 
 /** One turn of one session, as the harness recorded it (AH-B01). */

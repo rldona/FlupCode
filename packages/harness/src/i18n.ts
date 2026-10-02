@@ -1432,6 +1432,31 @@ const ES: Record<string, string> = {
   "Paused at its budget": "En pausa al llegar a su presupuesto",
   "Carry on": "Continuar",
 
+  // Provider quotas (UL-07)
+  "Provider quotas": "Cuotas de proveedores",
+  "What each connected provider reports of its own limits for the key, all of its use and not only FlupCode's. Read every few minutes by the server; the key stays in the engine.":
+    "Lo que cada proveedor conectado informa de sus propios límites para la clave, todo su uso y no solo el de FlupCode. Lo lee el servidor cada pocos minutos; la clave no sale del motor.",
+  "No connected provider reports its quota. FlupCode reads it for OpenRouter and DeepSeek API keys.":
+    "Ningún proveedor conectado informa de su cuota. FlupCode la lee para claves de API de OpenRouter y DeepSeek.",
+  "Read {when}": "Leído {when}",
+  "Not read yet": "Aún no leído",
+  "Refresh failed": "Falló la actualización",
+  "What the provider reports": "Qué informa el proveedor",
+  "Key limit": "Límite de la clave",
+  "Key spending cap": "Tope de gasto de la clave",
+  "This month": "Este mes",
+  "Free model requests today": "Peticiones a modelos gratis hoy",
+  Balance: "Saldo",
+  "{n} requests": "{n} peticiones",
+  "{n} credits": "{n} créditos",
+  "{amount} left": "quedan {amount}",
+  "{amount} used": "{amount} usados",
+  "{amount} an hour": "{amount} por hora",
+  "{pace}: runs out {when}": "{pace}: se agota {when}",
+  "{pace}: lasts until it resets": "{pace}: dura hasta que se reinicia",
+  "Not enough readings for a forecast yet": "Aún no hay lecturas suficientes para una previsión",
+  "Not being used lately": "Sin uso últimamente",
+  "Resets {when}": "Se reinicia {when}",
   // Budgets as policy (UL-08)
   Budget: "Presupuesto",
   Budgets: "Presupuestos",

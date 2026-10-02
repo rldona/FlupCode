@@ -458,6 +458,7 @@ import { registerPlans } from "./plans"
 import { indexDocument, registerDocuments, type DocumentWrite } from "./documents"
 import { handleUsageRead } from "./usage"
 import { handleBudgetRoutes, softPctOf } from "./budget"
+import type { QuotaPoller } from "./quota/poller"
 import { handleUsageIngest, learnSession } from "./usage-ledger"
 import type { createUsagePricing } from "./usage-pricing"
 import { FINDINGS_INSTRUCTION } from "./findings"
@@ -533,6 +534,8 @@ export type HarnessHandlerOptions = {
   hostname?: string
   /** The basis and billing the server can tell for a ledger row before it is stored (UL-05). */
   usagePricing?: Pick<ReturnType<typeof createUsagePricing>, "classify">
+  /** The connected providers' quota windows as last read (UL-07). */
+  quotas?: Pick<QuotaPoller, "report">
   /** The folders a caller may name (TI-11); the engine's projects and worktrees when absent. */
   projectRoots?: ProjectRoots
   /**
@@ -1559,6 +1562,10 @@ export const createHarnessHandler = (
     // Standing budgets (UL-08): today's, a workflow's or a routine's, each with what today spent.
     const budgets = await handleBudgetRoutes(request, path, repository)
     if (budgets) return budgets
+    // Provider quotas (UL-07): what is stored of each connected provider's windows, with a forecast.
+    // Never a read of the provider: that is the poller's, on its own schedule.
+    if (path[1] === "quotas" && path.length === 2 && request.method === "GET" && options.quotas)
+      return json({ data: options.quotas.report() })
 
     // What the model was given (H-17): which instruction files a turn in this folder would load.
     // Read from disk by the engine's own rules, because the engine does not report them.

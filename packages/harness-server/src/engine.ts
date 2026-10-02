@@ -245,6 +245,16 @@ export class Engine {
     return (await this.v2()).usageCatalog(directory)
   }
 
+  /** The integrations with a connection, the only ones whose quota is read (UL-07). */
+  async connectedIntegrations() {
+    return (await this.v2()).connectedIntegrations()
+  }
+
+  /** A provider's quota answer, read by the engine's quota plugin with the key it keeps (UL-07). */
+  async readQuota(integrationID: string) {
+    return (await this.v2()).readQuota(integrationID)
+  }
+
   async rename(sessionID: string, title: string) {
     return (await this.v2()).rename(sessionID, title)
   }

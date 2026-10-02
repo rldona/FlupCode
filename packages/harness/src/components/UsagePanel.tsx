@@ -23,6 +23,7 @@ import { formatTokens } from "../metrics"
 import { runTitle } from "../run-title"
 import { CostFigure } from "./CostFigure"
 import { BudgetsBlock } from "./BudgetsBlock"
+import { QuotasBlock } from "./QuotasBlock"
 import { PanelFailure } from "./PanelBoundary"
 import type { Run, UsageBucket, UsageDimension, UsageGroup, UsageSummary } from "../types"
 
@@ -286,8 +287,10 @@ export const UsagePanel: Component<UsagePanelProps> = (props) => {
         </Show>
 
         {/* The budgets over this spend (UL-08), under the figures they are about. Shown with nothing
-            spent yet too, so one can be set before it is needed. */}
+            spent yet too, so one can be set before it is needed. Then what the providers themselves
+            report of their limits (UL-07), which is not the ledger's and is never added to it. */}
         <div class="fc-usage">
+          <QuotasBlock serverUrl={props.serverUrl} serverAvailable={props.serverAvailable} />
           <BudgetsBlock
             serverUrl={props.serverUrl}
             serverAvailable={props.serverAvailable}

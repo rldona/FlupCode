@@ -11889,6 +11889,86 @@ button.fc-status {
   color: var(--fc-danger);
 }
 
+/* The Cost screen's provider quotas (UL-07): one collapsible row per provider with its shortest
+   window, then every window with a meter where it has a limit and its forecast below. */
+.fc-quota-list {
+  display: grid;
+  gap: 6px;
+}
+
+.fc-quota {
+  border-bottom: 1px solid var(--fc-border);
+  padding: 4px 0 6px;
+}
+
+.fc-quota-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--fc-space-3);
+  align-items: baseline;
+  font-size: var(--fc-text-sm);
+  cursor: pointer;
+}
+
+.fc-quota-name {
+  font-weight: 600;
+}
+
+.fc-quota-headline {
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-quota-read,
+.fc-quota-window-note {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-quota-failed,
+.fc-quota-error {
+  color: var(--fc-warning, #d9a441);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-quota-error {
+  margin: 6px 0 0;
+}
+
+.fc-quota-window {
+  display: grid;
+  grid-template-columns: minmax(0, 14em) minmax(60px, 1fr) max-content;
+  gap: 2px var(--fc-space-3);
+  align-items: center;
+  margin-top: 8px;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-quota-window-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.fc-quota-window-note {
+  grid-column: 1 / -1;
+}
+
+.fc-quota-docs {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: var(--fc-text-xs);
+}
+
+@media (max-width: 560px) {
+  .fc-quota-window {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .fc-quota-window .fc-usage-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 @media (max-width: 560px) {
   .fc-budget-meter {
     grid-template-columns: minmax(0, 1fr) max-content;

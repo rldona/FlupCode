@@ -67,6 +67,7 @@ import { episodeTrace } from "./adaptive/learning/heuristics"
 import type { LearningRunner } from "./adaptive/learning/manager"
 import { learningLimitStatus } from "./adaptive/learning/limits"
 import { createProposalReview } from "./adaptive/learning/review"
+import { createQuotaPoller } from "./quota/poller"
 import { createUsagePricing } from "./usage-pricing"
 import { createUsageReconciler } from "./usage-reconciler"
 import { createAuditor } from "./verdict"
@@ -417,12 +418,15 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   })
   // What the server can tell of a ledger row's money (UL-05), shared by the ingest and the reconciler.
   const usagePricing = createUsagePricing({ engine: scheduler.engine, repository })
+  // The connected providers' quotas (UL-07), read on the server and kept as samples.
+  const quotas = createQuotaPoller({ engine: scheduler.engine, repository })
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname,
     fetch: createHarnessHandler(repository, scheduler, {
       hostname,
       usagePricing,
+      quotas,
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(pluginToken ? { pluginToken } : {}),
@@ -496,6 +500,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     purge()
     // The metrics dedupe ledger only has to outlive a redelivery (AH-B01).
     repository.pruneSessionMetricSeen(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    // A forecast reads a week of quota samples; a month is kept.
+    repository.pruneQuotaSamples(Date.now() - 30 * 24 * 60 * 60 * 1000)
   }, 60 * 60 * 1000)
   scheduler.start()
   // After the scheduler started, so a run it recovered as failed is swept and backfilled.
@@ -514,6 +520,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     onStored: (sessionID) => scheduler.checkBudgets([sessionID]),
   })
   usage.start()
+  quotas.start()
   void runtimeProbe.refresh()
   const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
   return {
@@ -531,6 +538,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       clearInterval(sweep)
       clearInterval(probeInterval)
       usage.stop()
+      quotas.stop()
       learning?.stop()
       shadow.stop()
       labeler.stop()

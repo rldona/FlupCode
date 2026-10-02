@@ -307,6 +307,13 @@ const evidence: Record<string, () => Promise<void> | void> = {
     expect(harness.hits("POST /harness/browser-mcp/decide")).toEqual([])
     expect(harness.hits("POST /harness/browser-mcp/observe")).toEqual([])
   },
+  "flupcode-quota.js": async () => {
+    // Nothing is connected here, so nothing is read: the reading itself is proved in harness-server's
+    // `quota.engine.test.ts` against a fake provider (UL-07).
+    expect(await call("POST", "/api/rpc/flupcode.quota/read", { input: { integrationID: "openrouter" } })).toEqual({
+      output: { status: "unconfigured" },
+    })
+  },
   "flupcode-cache-selection.js": () => {
     expect(harness.hits("GET /harness/adaptive/selection").length).toBeGreaterThan(0)
   },

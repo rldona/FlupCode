@@ -2,6 +2,7 @@ import { OpenCode, type SessionInfo, type SessionMessageInfo } from "@opencode/c
 import { basename } from "node:path"
 import { pathToFileURL } from "node:url"
 import { detailOf, type Activity, type PendingRequest, type PermissionRule, type TranscriptMessage } from "./engine"
+import type { QuotaRead } from "./quota/adapters"
 import type { ToolEvent, UsageEvent } from "./usage-ledger"
 
 /**
@@ -333,6 +334,24 @@ export class V2Engine {
         ),
       })),
     }
+  }
+
+  /** The integrations with a connection (UL-07): the only providers whose quota is ever read. */
+  async connectedIntegrations() {
+    const integrations = await call(this.client.integration.list())
+    return integrations.data.flatMap((integration) =>
+      integration.connections.length > 0 ? [{ integrationID: integration.id, name: integration.name }] : [],
+    )
+  }
+
+  /**
+   * A provider's quota endpoint as FlupCode's quota plugin read it inside the engine, with the key the
+   * engine keeps (UL-07). The key never comes back: 2.0.18 has no route that reads a credential, and
+   * the plugin hands out the provider's answer only.
+   */
+  async readQuota(integrationID: string) {
+    const answer = await call(this.client.rpc.call({ rpcID: "flupcode.quota", method: "read", input: { integrationID } }))
+    return answer.output as QuotaRead
   }
 
   /** The session a subagent's chain starts from: itself when it has no parent. */
