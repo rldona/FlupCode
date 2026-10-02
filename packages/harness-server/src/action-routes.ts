@@ -9,7 +9,7 @@ import type { ActionApprover } from "./action-approval"
 import { toActionErrorBody, ActionRunError } from "./action-runner"
 import type { ActionRunner, ActionRunRequest } from "./action-runner"
 import { validateActionProfile } from "./actions"
-import { BrowserError } from "./browser"
+import { BrowserError } from "./browser-driver"
 import { NavigationBlockedError } from "./browser-egress"
 
 const json = (value: unknown, status = 200) =>

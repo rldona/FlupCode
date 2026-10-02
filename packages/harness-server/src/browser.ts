@@ -1,10 +1,15 @@
 /**
- * The browser the harness drives (WA-1).
+ * The recipe runner's browser (WA-1), the first `BrowserDriver` (BU-03).
  *
  * A real Chromium on the user's machine, launched with a persistent profile per project so a login
  * survives, keyed by the `x-flupcode-session` header. It never exposes a tool to the model: it is an
  * internal HTTP surface, and the egress guard is the boundary that keeps a page somebody else wrote
  * from pointing it at a cloud metadata endpoint or a machine on the local network.
+ *
+ * What only this driver has stays here: it owns its Chromium (one exclusive profile per project, a
+ * headed window is a relaunch on it, egress by `context.route`), so the person's controls of that
+ * window — log in, take over, pause, resize, pick an element, clear the profile — are
+ * `RecipeDriver`'s, not every driver's.
  */
 
 import { createHash, randomUUID } from "node:crypto"
@@ -12,6 +17,16 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:
 import type { Dirent } from "node:fs"
 import { dirname, join } from "node:path"
 import type { BrowserContext, Page } from "playwright-core"
+import { BrowserError } from "./browser-driver"
+import type {
+  BrowserAction,
+  BrowserActionKind,
+  BrowserDriver,
+  BrowserOpenInput,
+  BrowserSession,
+  BrowserViewport,
+  WaitUntil,
+} from "./browser-driver"
 import type { EgressGuard } from "./browser-egress"
 import { NavigationBlockedError, createEgressGuard } from "./browser-egress"
 import { flupcodeConfigDir } from "./browser-token"
@@ -27,27 +42,6 @@ const BASE_MASK = 'input[type="password"], [autocomplete^="cc-"]'
 /** The bounds a live-view resize is clamped to (WA-6). */
 export const MIN_VIEWPORT = 1
 export const MAX_VIEWPORT = 4096
-
-export type WaitUntil = "load" | "domcontentloaded" | "networkidle" | "commit"
-
-export type BrowserViewport = { width: number; height: number }
-
-export type BrowserSession = {
-  id: string
-  project: string
-  headed: boolean
-  createdAt: number
-  lastUsedAt: number
-  idleTimeoutMs: number
-  url: string
-  title: string
-  /** The page's viewport, so a click-to-pick knows what its coordinates are relative to (WA-8). */
-  viewport?: BrowserViewport
-  /** The agent is held at the next step boundary; a person may be driving the window (WA-6). */
-  paused: boolean
-  /** The run was stopped: the runner must fail with `stopped`, not retry, and never resume. */
-  stopped: boolean
-}
 
 /**
  * What a click-to-pick read back from a point in the page (WA-8).
@@ -67,7 +61,7 @@ export type SelectorCapture = {
   text?: string
 }
 
-export type BrowserRuntimeOptions = {
+export type RecipeDriverOptions = {
   repository: Pick<SqliteRoutineRepository, "addArtifact" | "append">
   dataDir?: string
   executablePath?: string
@@ -76,31 +70,23 @@ export type BrowserRuntimeOptions = {
   limit?: number
 }
 
-export type BrowserStartInput = {
-  id: string
-  project: string
-  headed?: boolean
-  idleTimeoutMs?: number
-  /**
-   * What this browser is working for (WA-7).
-   *
-   * A scheduled action has no session of a model to hang its evidence on, so the run and task that
-   * asked for the browser travel with it and every artifact it stores is filed under them.
-   */
-  runID?: string
-  taskID?: string
-}
+/** Every action the runner asks of a driver: the recipe vocabulary (WA-2). */
+const RECIPE_ACTIONS: ReadonlySet<BrowserActionKind> = new Set([
+  "navigate",
+  "waitFor",
+  "click",
+  "type",
+  "submit",
+  "upload",
+  "read",
+])
 
-export type BrowserRuntime = {
-  start(input: BrowserStartInput): Promise<BrowserSession>
+/** The driver plus the person's own controls of the Chromium it owns. */
+export type RecipeDriver = BrowserDriver & {
   /** Opens the persistent profile headed by default: a login a person needs to see and finish. */
-  openLogin(input: BrowserStartInput): Promise<BrowserSession>
-  /** Remembers a value to redact and, when a selector comes with it, a field to black out. */
-  protect(id: string, input: { selector?: string; value: string }): void
+  openLogin(input: BrowserOpenInput): Promise<BrowserSession>
   /** Deletes a project's persistent profile; refuses while a browser for it is still open. */
   clearData(project: string): Promise<boolean>
-  get(id: string): BrowserSession | undefined
-  close(id: string): Promise<boolean>
   /** Hold the agent at the next step boundary so a person can drive the window (WA-6). */
   pause(id: string): BrowserSession
   /** Let the agent carry on after a pause. */
@@ -110,45 +96,12 @@ export type BrowserRuntime = {
   /** Stop a run for good: the runner fails with `stopped`, and the session is closed. */
   abort(id: string): Promise<boolean>
   /**
-   * Marks this session as running (WA-6).
-   *
-   * A wanted reveal waits for the run to reach a step boundary; counting active runs here is what
-   * lets an idle takeover open the window at once and a busy one wait for the boundary.
-   */
-  beginRun(id: string): void
-  /** Ends one active run; the last one opens a wanted window and resolves when it has (WA-6). */
-  endRun(id: string): Promise<void>
-  /**
    * Resizes the headless page to match the live view's panel (WA-6).
    *
    * The size is validated and clamped at the HTTP boundary (`parseViewport`), which also fixes the
    * error precedence: a bad size is `invalid_viewport` before a missing session can be `no_session`.
    */
   setViewport(id: string, viewport: BrowserViewport): Promise<BrowserSession>
-  /** Block the caller while the session is paused; throw `stopped` if it was aborted meanwhile. */
-  waitIfPaused(id: string): Promise<void>
-  navigate(id: string, url: string, waitUntil?: WaitUntil): Promise<{ url: string; title: string }>
-  snapshot(
-    id: string,
-    options?: { html?: boolean },
-  ): Promise<{ url: string; title: string; text: string; html?: string }>
-  click(id: string, selector: string, timeoutMs?: number): Promise<{ url: string; title: string }>
-  type(id: string, selector: string, text: string, timeoutMs?: number): Promise<{ url: string; title: string }>
-  submit(id: string, selector: string, timeoutMs?: number): Promise<{ url: string; title: string }>
-  waitFor(
-    id: string,
-    selector: string,
-    timeoutMs?: number,
-    state?: "attached" | "visible",
-  ): Promise<{ url: string; title: string }>
-  upload(id: string, selector: string, filePath: string, timeoutMs?: number): Promise<{ url: string; title: string }>
-  text(
-    id: string,
-    selector: string,
-    options?: { as?: "text" | "html" | "attribute"; attribute?: string; timeoutMs?: number },
-  ): Promise<{ value: string | null; url: string; title: string }>
-  screenshot(id: string, label?: string): Promise<{ artifactId: string }>
-  frame(id: string, options?: { store?: boolean }): Promise<{ bytes: Uint8Array; artifactId?: string }>
   /**
    * What is at a point in the page, turned into selectors for the editor (WA-8).
    *
@@ -158,31 +111,6 @@ export type BrowserRuntime = {
   capture(id: string, point: { x: number; y: number }): Promise<SelectorCapture>
   stop(): Promise<void>
 }
-
-export class BrowserError extends Error {
-  constructor(
-    readonly code: BrowserErrorCode,
-    readonly status: number,
-    message: string,
-  ) {
-    super(message)
-    this.name = "BrowserError"
-  }
-}
-
-export type BrowserErrorCode =
-  | "session_required"
-  | "invalid_session"
-  | "no_session"
-  | "browser_busy"
-  | "wrong_project"
-  | "browser_limit"
-  | "browser_launch_failed"
-  | "action_failed"
-  | "navigation_blocked"
-  | "project_required"
-  | "stopped"
-  | "invalid_viewport"
 
 /**
  * The session id the runtime keys everything by, read from the header.
@@ -215,7 +143,7 @@ const isPositiveFinite = (value: unknown): value is number =>
 
 const clampViewport = (value: number): number => Math.min(MAX_VIEWPORT, Math.max(MIN_VIEWPORT, Math.round(value)))
 
-export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRuntime {
+export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
   const dataDir = options.dataDir ?? join(flupcodeConfigDir(), "browser")
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   const egress = options.egress ?? createEgressGuard()
@@ -460,7 +388,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     return redactedView(session)
   }
 
-  const start = async (input: BrowserStartInput): Promise<BrowserSession> => {
+  const open = async (input: BrowserOpenInput): Promise<BrowserSession> => {
     const id = readSessionID(input.id)
     const project = input.project.trim()
     if (!project) throw new BrowserError("project_required", 400, "A project is required")
@@ -536,8 +464,8 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     if (input.selector) session.maskSelectors.add(input.selector)
   }
 
-  const openLogin = (input: BrowserStartInput): Promise<BrowserSession> =>
-    start({ ...input, headed: input.headed ?? true })
+  const openLogin = (input: BrowserOpenInput): Promise<BrowserSession> =>
+    open({ ...input, headed: input.headed ?? true })
 
   const pause = (id: string): BrowserSession => {
     const session = requireSession(id)
@@ -832,24 +760,16 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     return { bytes, artifactId: artifact.id }
   }
 
-  const screenshot = async (id: string, label?: string) => {
-    const session = requireSession(id)
-    return pageOp(session, async () => {
-      const { artifactId } = await storeScreenshot(session, label)
-      return { artifactId }
-    })
-  }
-
-  const frame = async (
+  const screenshot = async (
     id: string,
-    options?: { store?: boolean },
+    options?: { label?: string; store?: boolean },
   ): Promise<{ bytes: Uint8Array; artifactId?: string }> => {
     const session = requireSession(id)
     return pageOp(session, async () => {
       // A polled frame with `store: false` is served and forgotten: writing a PNG per poll would grow
       // the disk without anybody ever asking for it back.
       if (options?.store === false) return { bytes: await session.page.screenshot(captureOptions(session)) }
-      return storeScreenshot(session)
+      return storeScreenshot(session, options?.label)
     })
   }
 
@@ -939,12 +859,23 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     })
   }
 
+  const act = (id: string, action: BrowserAction) => {
+    if (action.kind === "navigate") return navigate(id, action.url, action.waitUntil)
+    if (action.kind === "waitFor") return waitFor(id, action.selector, action.timeoutMs, action.state)
+    if (action.kind === "click") return click(id, action.selector, action.timeoutMs)
+    if (action.kind === "type") return type(id, action.selector, action.text, action.timeoutMs)
+    if (action.kind === "submit") return submit(id, action.selector, action.timeoutMs)
+    if (action.kind === "upload") return upload(id, action.selector, action.file, action.timeoutMs)
+    return text(id, action.selector, action)
+  }
+
   const stop = async (): Promise<void> => {
     await Promise.all([...sessions.keys()].map((id) => closeSession(id)))
   }
 
   return {
-    start,
+    capabilities: { actions: RECIPE_ACTIONS },
+    open,
     openLogin,
     protect,
     clearData,
@@ -958,16 +889,9 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     endRun,
     setViewport,
     waitIfPaused,
-    navigate,
+    act,
     snapshot,
-    click,
-    type,
-    submit,
-    waitFor,
-    upload,
-    text,
     screenshot,
-    frame,
     capture,
     stop,
   }
@@ -1073,7 +997,7 @@ export function managedExecutableFromDir(directory: string | undefined): string 
 }
 
 const launch = async (
-  options: BrowserRuntimeOptions,
+  options: RecipeDriverOptions,
   headed: boolean,
   userDataDir: string,
 ): Promise<BrowserContext> => {

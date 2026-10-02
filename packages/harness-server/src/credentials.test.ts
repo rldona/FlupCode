@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { createActionRunner, ActionRunError } from "./action-runner"
 import { approvedRunner } from "./action-permit.fixture"
-import type { BrowserRuntime } from "./browser"
+import type { BrowserDriver } from "./browser-driver"
 import { createHarnessServer } from "./index"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
@@ -333,64 +333,26 @@ describe("the runner's credential prefetch", () => {
    * A browser that fails only if something actually asks it to open: the credential prefetch happens
    * before `start`, so reaching `start` is the proof that the prefetch let the run through.
    */
-  const unstarted = (): BrowserRuntime => ({
-    start: async () => {
-      throw new Error("browser.start was called")
-    },
-    openLogin: async () => {
-      throw new Error("browser.openLogin was called")
+  const unstarted = (): BrowserDriver => ({
+    capabilities: { actions: new Set(["navigate", "waitFor", "click", "type", "submit", "upload", "read"]) },
+    open: async () => {
+      throw new Error("browser.open was called")
     },
     protect: () => {
       throw new Error("browser.protect was called")
-    },
-    clearData: async () => {
-      throw new Error("browser.clearData was called")
     },
     get: () => undefined,
     close: async () => {
       throw new Error("browser.close was called")
     },
-    navigate: async () => {
-      throw new Error("browser.navigate was called")
+    act: async () => {
+      throw new Error("browser.act was called")
     },
     snapshot: async () => {
       throw new Error("browser.snapshot was called")
     },
-    click: async () => {
-      throw new Error("browser.click was called")
-    },
-    type: async () => {
-      throw new Error("browser.type was called")
-    },
-    submit: async () => {
-      throw new Error("browser.submit was called")
-    },
-    waitFor: async () => {
-      throw new Error("browser.waitFor was called")
-    },
-    upload: async () => {
-      throw new Error("browser.upload was called")
-    },
-    text: async () => {
-      throw new Error("browser.text was called")
-    },
     screenshot: async () => {
       throw new Error("browser.screenshot was called")
-    },
-    frame: async () => {
-      throw new Error("browser.frame was called")
-    },
-    capture: async () => {
-      throw new Error("browser.capture was called")
-    },
-    pause: () => {
-      throw new Error("browser.pause was called")
-    },
-    resume: () => {
-      throw new Error("browser.resume was called")
-    },
-    takeOver: async () => {
-      throw new Error("browser.takeOver was called")
     },
     beginRun: () => {
       throw new Error("browser.beginRun was called")
@@ -398,14 +360,7 @@ describe("the runner's credential prefetch", () => {
     endRun: async () => {
       throw new Error("browser.endRun was called")
     },
-    setViewport: async () => {
-      throw new Error("browser.setViewport was called")
-    },
-    abort: async () => {
-      throw new Error("browser.abort was called")
-    },
     waitIfPaused: async () => {},
-    stop: async () => {},
   })
 
   /** A browser that opens and runs a run to the end, recording every value it was told to protect. */
@@ -423,33 +378,22 @@ describe("the runner's credential prefetch", () => {
       paused: false,
       stopped: false,
     }
-    const browser: BrowserRuntime = {
-      start: async (input) => ({ ...view, id: input.id, project: input.project }),
-      openLogin: async (input) => ({ ...view, id: input.id, project: input.project }),
+    const browser: BrowserDriver = {
+      capabilities: { actions: new Set(["navigate", "waitFor", "click", "type", "submit", "upload", "read"]) },
+      open: async (input) => ({ ...view, id: input.id, project: input.project }),
       protect: (_id, input) => void calls.push(input),
-      clearData: async () => true,
       get: () => view,
       close: async () => true,
-      navigate: async () => ({ url: view.url, title: view.title }),
+      act: async (_id, action) => ({
+        url: view.url,
+        title: view.title,
+        ...(action.kind === "read" ? { value: null } : {}),
+      }),
       snapshot: async () => ({ url: view.url, title: view.title, text: "" }),
-      click: async () => ({ url: view.url, title: view.title }),
-      type: async () => ({ url: view.url, title: view.title }),
-      submit: async () => ({ url: view.url, title: view.title }),
-      waitFor: async () => ({ url: view.url, title: view.title }),
-      upload: async () => ({ url: view.url, title: view.title }),
-      text: async () => ({ value: null, url: view.url, title: view.title }),
-      screenshot: async () => ({ artifactId: "artifact" }),
-      frame: async () => ({ bytes: new Uint8Array() }),
-      capture: async () => ({ found: false, reason: "none" }),
-      pause: () => view,
-      resume: () => view,
-      takeOver: async () => view,
+      screenshot: async () => ({ bytes: new Uint8Array(), artifactId: "artifact" }),
       beginRun: () => {},
       endRun: async () => {},
-      setViewport: async () => view,
-      abort: async () => true,
       waitIfPaused: async () => {},
-      stop: async () => {},
     }
     return { browser, calls }
   }
@@ -463,7 +407,7 @@ describe("the runner's credential prefetch", () => {
     evidence: { screenshots: "none" },
   })
 
-  const runnerWith = (browser: BrowserRuntime, repository: SqliteRoutineRepository, vault: CredentialVault) =>
+  const runnerWith = (browser: BrowserDriver, repository: SqliteRoutineRepository, vault: CredentialVault) =>
     approvedRunner({
       browser,
       repository,
@@ -509,7 +453,7 @@ describe("the runner's credential prefetch", () => {
     const runner = runnerWith(unstarted(), repository, vault)
 
     const error = await thrownBy(runner.run({ action: "signin", sessionID: "s1", project: "proj" }))
-    expect(error.message).toBe("browser.start was called")
+    expect(error.message).toBe("browser.open was called")
   })
 
   test("a matching credential is protected before and after it is typed", async () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -14,9 +14,10 @@ import type { ActionCatalogProfile, ActionRunRequest } from "./action-runner"
 import { approvedRunner } from "./action-permit.fixture"
 import { createBrowserPolicy } from "./browser-policy"
 import { createHarnessHandler } from "./api"
-import { createBrowserRuntime } from "./browser"
-import type { BrowserRuntime, BrowserStartInput } from "./browser"
-import { BrowserError } from "./browser"
+import { createRecipeDriver } from "./browser"
+import { BrowserError } from "./browser-driver"
+import type { BrowserActionKind, BrowserDriver, BrowserOpenInput } from "./browser-driver"
+import { createAttachedDriver } from "./browser-driver.fixture"
 import { createEgressGuard } from "./browser-egress"
 import { loadActionProfiles } from "./config-files"
 import { SqliteRoutineRepository } from "./repository"
@@ -615,10 +616,19 @@ if (process.env.FLUPCODE_REQUIRE_BROWSER === "1" && !existsSync(chromiumPath))
 
 const ACTION_TOKEN = "action-token"
 
-describe("running action recipes", () => {
+const ALL_ACTIONS: BrowserActionKind[] = ["navigate", "waitFor", "click", "type", "submit", "upload", "read"]
+
+// The same runner tests over two drivers (BU-03): the recipe driver, which launches and owns its
+// Chromium, and one that attaches to a browser it did not launch.
+const attachedBrowser = { launched: undefined as Promise<import("playwright-core").Browser> | undefined }
+afterAll(async () => {
+  await (await attachedBrowser.launched)?.close()
+})
+
+describe.each(["recipe", "attached"] as const)("running action recipes (%s driver)", (driver) => {
   const made: string[] = []
   const servers: Array<ReturnType<typeof Bun.serve>> = []
-  const runtimes: BrowserRuntime[] = []
+  const runtimes: Array<BrowserDriver & { stop(): Promise<void> }> = []
   const repositories: SqliteRoutineRepository[] = []
 
   afterEach(async () => {
@@ -660,22 +670,31 @@ describe("running action recipes", () => {
     return server
   }
 
-  const open = (server?: ReturnType<typeof Bun.serve>) => {
+  const open = (...allowed: Array<ReturnType<typeof Bun.serve>>) => {
     const directory = mkdtempSync(join(tmpdir(), "flupcode-action-run-"))
     made.push(directory)
     const repository = new SqliteRoutineRepository(":memory:")
     repositories.push(repository)
-    const runtime = createBrowserRuntime({
-      repository,
-      dataDir: directory,
-      egress: createEgressGuard(server ? { allowLoopbackPorts: [server.port ?? 0] } : undefined),
-    })
+    const runtime =
+      driver === "recipe"
+        ? createRecipeDriver({
+            repository,
+            dataDir: directory,
+            egress: createEgressGuard(
+              allowed.length > 0 ? { allowLoopbackPorts: allowed.map((server) => server.port ?? 0) } : undefined,
+            ),
+          })
+        : createAttachedDriver({
+            repository,
+            dataDir: directory,
+            browser: () => (attachedBrowser.launched ??= chromium.launch({ executablePath: chromiumPath })),
+          })
     runtimes.push(runtime)
     return { directory, repository, runtime }
   }
 
   const runnerFor = (
-    runtime: BrowserRuntime,
+    runtime: BrowserDriver,
     repository: SqliteRoutineRepository,
     profiles: Record<string, unknown>,
     credentials: ActionCredentialResolver = unavailableActionCredentialResolver,
@@ -698,8 +717,10 @@ describe("running action recipes", () => {
   }
 
   /** A browser that records how it was asked to start, and when it was closed (WA-7). */
-  const recordingBrowser = (options: { stopped?: boolean; onEndRun?: (id: string) => void } = {}) => {
-    const starts: BrowserStartInput[] = []
+  const recordingBrowser = (
+    options: { stopped?: boolean; onEndRun?: (id: string) => void; actions?: BrowserActionKind[] } = {},
+  ) => {
+    const starts: BrowserOpenInput[] = []
     const closed: string[] = []
     const calls: string[] = []
     const runs: string[] = []
@@ -716,22 +737,18 @@ describe("running action recipes", () => {
       stopped: false,
     }
     const view = { url: session.url, title: session.title }
-    const browser: BrowserRuntime = {
-      start: async (input) => {
+    const browser: BrowserDriver = {
+      capabilities: { actions: new Set(options.actions ?? ALL_ACTIONS) },
+      open: async (input) => {
         starts.push(input)
         return session
       },
-      openLogin: async () => session,
       protect: () => {},
-      clearData: async () => true,
       get: () => session,
       close: async (id) => {
         closed.push(id)
         return true
       },
-      pause: () => session,
-      resume: () => session,
-      takeOver: async () => session,
       beginRun: (id) => {
         runs.push(`begin:${id}`)
       },
@@ -739,23 +756,19 @@ describe("running action recipes", () => {
         runs.push(`end:${id}`)
         options.onEndRun?.(id)
       },
-      setViewport: async () => session,
-      abort: async () => true,
       waitIfPaused: async () => {
         if (options.stopped) throw new BrowserError("stopped", 409, "stopped")
       },
-      navigate: async () => (calls.push("navigate"), view),
+      act: async (_id, action) => {
+        if (action.kind === "read") return { value: null, ...view }
+        calls.push(action.kind)
+        return view
+      },
       snapshot: async () => ({ ...view, text: "" }),
-      click: async () => (calls.push("click"), view),
-      type: async () => (calls.push("type"), view),
-      submit: async () => (calls.push("submit"), view),
-      waitFor: async () => (calls.push("waitFor"), view),
-      upload: async () => (calls.push("upload"), view),
-      text: async () => ({ value: null, ...view }),
-      screenshot: async () => (calls.push("screenshot"), { artifactId: "artifact" }),
-      frame: async () => (calls.push("frame"), { bytes: new Uint8Array() }),
-      capture: async () => ({ found: false, reason: "none" }),
-      stop: async () => {},
+      screenshot: async (_id, input) =>
+        input?.store === false
+          ? (calls.push("frame"), { bytes: new Uint8Array() })
+          : (calls.push("screenshot"), { bytes: new Uint8Array(), artifactId: "artifact" }),
     }
     return { browser, starts, closed, calls, runs }
   }
@@ -979,35 +992,20 @@ describe("running action recipes", () => {
       stopped: true,
     }
     const view = { url: session.url, title: session.title }
-    const browser: BrowserRuntime = {
-      start: async () => session,
-      openLogin: async () => session,
+    const browser: BrowserDriver = {
+      capabilities: { actions: new Set(ALL_ACTIONS) },
+      open: async () => session,
       protect: () => {},
-      clearData: async () => true,
       get: () => session,
       close: async () => true,
-      pause: () => session,
-      resume: () => session,
-      takeOver: async () => session,
       beginRun: () => {},
       endRun: async () => {},
-      setViewport: async () => session,
-      abort: async () => true,
       waitIfPaused: async () => {
         throw new BrowserError("stopped", 409, "stopped")
       },
-      navigate: async () => view,
+      act: async () => view,
       snapshot: async () => ({ ...view, text: "" }),
-      click: async () => view,
-      type: async () => view,
-      submit: async () => view,
-      waitFor: async () => view,
-      upload: async () => view,
-      text: async () => ({ value: null, ...view }),
-      screenshot: async () => ({ artifactId: "artifact" }),
-      frame: async () => ({ bytes: new Uint8Array() }),
-      capture: async () => ({ found: false, reason: "none" }),
-      stop: async () => {},
+      screenshot: async () => ({ bytes: new Uint8Array(), artifactId: "artifact" }),
     }
     const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
 
@@ -1031,20 +1029,14 @@ describe("running action recipes", () => {
     }
     const view = { url: session.url, title: session.title }
     let pauses = 0
-    const browser: BrowserRuntime = {
-      start: async () => session,
-      openLogin: async () => session,
+    const browser: BrowserDriver = {
+      capabilities: { actions: new Set(ALL_ACTIONS) },
+      open: async () => session,
       protect: () => {},
-      clearData: async () => true,
       get: () => session,
       close: async () => true,
-      pause: () => session,
-      resume: () => session,
-      takeOver: async () => session,
       beginRun: () => {},
       endRun: async () => {},
-      setViewport: async () => session,
-      abort: async () => true,
       waitIfPaused: async () => {
         pauses += 1
         // The abort already closed the session: a retry would only meet `no_session` and bury the
@@ -1052,18 +1044,9 @@ describe("running action recipes", () => {
         if (pauses > 1) throw new BrowserError("no_session", 404, "No browser session is open")
         throw new BrowserError("stopped", 409, "stopped")
       },
-      navigate: async () => view,
+      act: async () => view,
       snapshot: async () => ({ ...view, text: "" }),
-      click: async () => view,
-      type: async () => view,
-      submit: async () => view,
-      waitFor: async () => view,
-      upload: async () => view,
-      text: async () => ({ value: null, ...view }),
-      screenshot: async () => ({ artifactId: "artifact" }),
-      frame: async () => ({ bytes: new Uint8Array() }),
-      capture: async () => ({ found: false, reason: "none" }),
-      stop: async () => {},
+      screenshot: async () => ({ bytes: new Uint8Array(), artifactId: "artifact" }),
     }
     const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
 
@@ -1125,6 +1108,58 @@ describe("running action recipes", () => {
     )
     expect(error).toMatchObject({ code: "stopped", status: 409 })
   })
+
+  test("a recipe its driver cannot drive is refused before the browser opens (BU-03)", async () => {
+    const { repository } = open()
+    const { browser, starts } = recordingBrowser({ actions: ["navigate", "read"] })
+    const runner = runnerFor(browser, repository, {
+      publish: profile("https://example.com", {
+        inputs: { image: "image" },
+        steps: [{ goto: "{{origin}}/" }, { upload: { selector: "#file", from: "{{image}}" } }],
+      }),
+      status: profile("https://example.com", { steps: [{ goto: "{{origin}}/" }, { assert: { selector: "#status" } }] }),
+    })
+
+    const error = await failureOf(runner.run({ action: "publish", sessionID: "s1", project: "proj" }))
+    expect(error).toMatchObject({ code: "unsupported_step", status: 422, action: "publish" })
+    expect(starts).toEqual([])
+    // What it can do still runs.
+    expect(await runner.run({ action: "status", sessionID: "s1", project: "proj" })).toMatchObject({
+      status: "success",
+    })
+  })
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "the policy decides and the audit records the drive, whichever driver acts (BU-03)",
+    async () => {
+      const server = fixture()
+      const origin = `http://127.0.0.1:${server.port}`
+      const { runtime, repository } = open(server)
+      const runner = runnerFor(runtime, repository, {
+        status: profile(origin, { tool: "read_status", steps: [{ goto: "{{origin}}/" }, { screenshot: "seen" }] }),
+      })
+
+      const result = await runner.run({ action: "status", sessionID: "s1", project: "proj" })
+      if (result.status !== "success") throw new Error("expected success")
+      expect(repository.listBrowserAudit({ sessionID: "s1" })).toMatchObject([
+        { kind: "action", outcome: "success", origin, action: "status", artifactID: result.evidence[0] },
+      ])
+      // A run without the policy's permit never reaches the driver.
+      const bare = createActionRunner({
+        browser: runtime,
+        policy: createBrowserPolicy(repository),
+        repository,
+        credentials: unavailableActionCredentialResolver,
+        loadProfiles: () => ({ configDir: root, profiles: { status: profile(origin) }, scopes: {}, guardDirs: {} }),
+      })
+      await runtime.close("s1")
+      expect(await failureOf(bare.run({ action: "status", sessionID: "s1", project: "proj" }))).toMatchObject({
+        code: "approval_required",
+      })
+      expect(runtime.get("s1")).toBeUndefined()
+    },
+    30_000,
+  )
 
   test.skipIf(!existsSync(chromiumPath))(
     "runs a recipe end to end and keeps a recoverable screenshot",
@@ -1436,16 +1471,7 @@ describe("running action recipes", () => {
       })
       servers.push(server)
       const origin = `http://127.0.0.1:${server.port}`
-      const directory = mkdtempSync(join(tmpdir(), "flupcode-action-run-"))
-      made.push(directory)
-      const repository = new SqliteRoutineRepository(":memory:")
-      repositories.push(repository)
-      const runtime = createBrowserRuntime({
-        repository,
-        dataDir: directory,
-        egress: createEgressGuard({ allowLoopbackPorts: [server.port ?? 0, away.port ?? 0] }),
-      })
-      runtimes.push(runtime)
+      const { runtime, repository } = open(server, away)
       const runner = runnerFor(runtime, repository, {
         leave: profile(origin, { steps: [{ goto: "{{origin}}/" }, { submit: { selector: "#send" } }] }),
       })
@@ -1467,7 +1493,7 @@ describe("the action HTTP routes", () => {
   const handlerWith = (profiles: Record<string, unknown>) => {
     const repository = new SqliteRoutineRepository(":memory:")
     repositories.push(repository)
-    const runtime = createBrowserRuntime({ repository })
+    const runtime = createRecipeDriver({ repository })
     const actions = createActionRunner({
       browser: runtime,
       policy: createBrowserPolicy(repository),
