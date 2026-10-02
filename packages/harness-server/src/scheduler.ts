@@ -448,11 +448,12 @@ export class RoutineScheduler {
     if (this.ticking) return
     this.ticking = true
     try {
+      // Every routine that is due, not the first one (TI-07): one whose last run still holds its lock
+      // is skipped by `begin`, and must not keep the others from firing.
       const now = Date.now()
-      const routine = this.repository.list().find((entry) => isDue(entry, now))
-      if (routine) {
+      for (const routine of this.repository.list().filter((entry) => isDue(entry, now))) {
         const run = await this.begin(routine.id, now)
-        if (run && run.status === "running") void this.execute(run)
+        if (run?.status === "running") void this.execute(run)
       }
     } finally {
       this.ticking = false
@@ -527,7 +528,9 @@ export class RoutineScheduler {
       this.episodes?.captureRun(run.id)
       this.repository.release(key, this.owner)
     }
-    return run
+    // Read back rather than the object made above: a start that failed is `failed` in the store, and
+    // handing on the stale `running` copy had it executed with no tasks and overwritten as a success.
+    return this.repository.getRun(run.id)
   }
 
   private async execute(run: Run) {
