@@ -405,7 +405,7 @@ import {
   patchForCommit,
 } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
-import { drop, planRestore, restore, take } from "./checkpoint"
+import { drop, dropAll, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
 import { registerDocuments } from "./documents"
@@ -1160,7 +1160,10 @@ export const createHarnessHandler = (
     }
     if (path[1] === "runs" && request.method === "DELETE" && !path[2]) {
       // Clearing the list is clearing what is over. A run still going is not history yet.
-      return json({ data: { removed: repository.removeFinishedRuns().length } })
+      const removed = repository.removeFinishedRuns()
+      // Their checkpoints go with them, refs and all (TI-15): nothing could reach them any more.
+      await dropAll(repository.removeStaleCheckpoints())
+      return json({ data: { removed: removed.length } })
     }
     if (path[1] === "runs" && request.method === "DELETE" && path[2] && !path[3]) {
       const run = repository.getRun(path[2])
@@ -1169,7 +1172,9 @@ export const createHarnessHandler = (
       // can go. Deleting it underneath the runner would leave tasks pointing at nothing. One held
       // at a gate is not finished either — it is waiting for an answer.
       if (run.status === "running" || run.status === "awaiting") return error("Stop the run before deleting it", 409)
-      return json({ data: repository.removeRun(run.id) })
+      const removed = repository.removeRun(run.id)
+      await dropAll(repository.removeStaleCheckpoints())
+      return json({ data: removed })
     }
     // Artifacts (H-14): what runs left behind, and what a person kept.
     if (path[1] === "artifacts" && request.method === "GET" && !path[2]) {
@@ -1963,6 +1968,7 @@ export const createHarnessHandler = (
           .map((run) => scheduler.stopRun(run.id).catch(() => undefined)),
       )
       repository.remove(routineID)
+      await dropAll(repository.removeStaleCheckpoints())
       return json({ data: true })
     }
     if (request.method === "GET") return json({ data: routine })
