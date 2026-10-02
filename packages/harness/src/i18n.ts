@@ -279,6 +279,7 @@ const ES: Record<string, string> = {
   "{name} asks for {inputs}, which is more than one line can say":
     "{name} pide {inputs}, y eso no cabe en una línea",
   "Manual run": "Ejecución manual",
+  "an earlier version": "una versión anterior",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
   "Run timeline": "Línea de tiempo de la ejecución",
   Workflows: "Flujos de trabajo",

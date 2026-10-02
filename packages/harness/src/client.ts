@@ -586,6 +586,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "POST",
           body: JSON.stringify(input),
         }),
+      /** A workflow's runs, newest first (RP-01); in this folder when it names one. */
+      runs: (name: string, directory?: string) =>
+        harnessRequest<Run[]>(
+          baseUrl,
+          `/harness/workflows/${encodeURIComponent(name)}/runs${directory ? `?directory=${encodeURIComponent(directory)}` : ""}`,
+        ),
       /** The file as written, for the editor (H-28). */
       get: (name: string, directory?: string) =>
         harnessRequest<WorkflowFile>(

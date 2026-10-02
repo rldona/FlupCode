@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import type { Workflow, WorkflowFile } from "../types"
+import type { Run, Workflow, WorkflowFile } from "../types"
+import { runInputs } from "../run-title"
 import { workflowGraph, type WorkflowGraphNode } from "../workflow-graph"
 
 type WorkflowsPanelProps = {
@@ -13,7 +14,16 @@ type WorkflowsPanelProps = {
   onSave: (name: string, input: { source: string; directory?: string; scope?: "project" | "global" }) => Promise<WorkflowFile>
   onDelete: (name: string) => Promise<unknown>
   onRun?: (workflow: Workflow) => void
+  /** This workflow's runs, newest first (RP-01). */
+  onListRuns?: (name: string) => Promise<Run[]>
+  onOpenSession?: (sessionID: string) => void
 }
+
+/** The sha256 of a file's text, as the server hashes it when a run starts (RP-01). */
+const sha256 = async (text: string) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
 
 const NEW_WORKFLOW = `name: new-workflow
 description: What this process is for
@@ -137,6 +147,12 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
   const [reading, setReading] = createSignal(false)
   const [saving, setSaving] = createSignal(false)
   const [confirming, setConfirming] = createSignal(false)
+  const [listed, setRuns] = createSignal<Run[]>([])
+  // Only the runs of the file that is open: a project's `feature` and the shared one are different
+  // processes with the same name.
+  const runs = () => listed().filter((run) => run.workflow?.scope === file()?.scope)
+  // The hash of the file as it is now, so a run of an earlier version says so (RP-01).
+  const [currentHash, setCurrentHash] = createSignal<string>()
 
   // The new-workflow dialog: its own name, source and place, kept apart from the open editor so
   // cancelling cannot touch what is already on screen.
@@ -155,12 +171,16 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
     setSaved(undefined)
     setConfirming(false)
     setReading(true)
+    setRuns([])
+    setCurrentHash(undefined)
+    void props.onListRuns?.(name).then(setRuns).catch(() => setRuns([]))
     props
       .onRead(name)
       .then((read) => {
         setFile(read)
         setSource(read.source)
         setScope(read.scope)
+        void sha256(read.source).then(setCurrentHash)
       })
       .catch((cause) => setProblem(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setReading(false))
@@ -322,6 +342,35 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
               */}
               <Show when={file()?.workflow.tasks?.length}>
                 <WorkflowGraphView tasks={file()!.workflow.tasks} />
+              </Show>
+
+              {/* What this workflow has run (RP-01): each run says the inputs and the version it had. */}
+              <Show when={runs().length > 0}>
+                <section aria-label={t("Runs")}>
+                  <h3 class="fc-routines-kicker">{t("Runs")}</h3>
+                  <ul class="fc-workflow-runs">
+                    <For each={runs().slice(0, 10)}>
+                      {(run) => (
+                        <li class="fc-workflow-run">
+                          <span class="fc-run-mark" data-status={run.status}>
+                            {run.status}
+                          </span>
+                          <span class="fc-run-meta">
+                            {[new Date(run.startedAt).toLocaleString(), runInputs(run)].filter(Boolean).join(" · ")}
+                          </span>
+                          <Show when={currentHash() && run.workflow && run.workflow.hash !== currentHash()}>
+                            <span class="fc-context-aside">{t("an earlier version")}</span>
+                          </Show>
+                          <Show when={run.sessionID && props.onOpenSession}>
+                            <button class="fc-run-open" type="button" onClick={() => props.onOpenSession?.(run.sessionID!)}>
+                              {t("Open")}
+                            </button>
+                          </Show>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </section>
               </Show>
 
               <label class="fc-field">

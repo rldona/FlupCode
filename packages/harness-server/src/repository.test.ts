@@ -304,6 +304,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
     copy.close()
     expect(repository.db.query("SELECT version, name, backup FROM schema_version").all()).toEqual([
       { version: 2, name: "decision-audit-v2", backup: join(dirname(path), backup!) },
+      { version: 3, name: "workflow-identity", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -318,7 +319,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -329,6 +330,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
     const repository = open(path)
     expect(repository.db.query("SELECT version, backup FROM schema_version").all()).toEqual([
       { version: 2, backup: null },
+      { version: 3, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -336,7 +338,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }])
     repository.close()
   })
 
@@ -1251,5 +1253,51 @@ describe("the reflection claim (AH-A07)", () => {
     expect(claim(after, 1_001 + LEASE)).toBe(true)
     expect(after.getReflectionJob("episode:run:1")).toMatchObject({ status: "pending", attempts: 2 })
     after.close()
+  })
+})
+
+// ---- RP-01: a run's workflow identity (migration 3) ---------------------------------------------
+
+/** A database as a build at schema version 2 left it, with runs and tasks of its own. */
+const v2Fixture = (path: string) => {
+  const repository = open(path)
+  const run = repository.startRun({ type: "manual" }, 1_000, "/work/demo")
+  repository.addTasks(run.id, [{ name: "plan", prompt: "Plan it" }])
+  repository.finishRun(run.id, "success", undefined, 2_000)
+  repository.db.exec(`
+    DELETE FROM schema_version WHERE version = 3;
+    DROP TABLE workflow_versions;
+    ALTER TABLE runs DROP COLUMN workflow_json;
+  `)
+  repository.close()
+  return run.id
+}
+
+describe("the workflow identity migration (RP-01)", () => {
+  test("backs the file up, keeps every run as it was, and new runs can name their workflow", () => {
+    const path = scratch()
+    const runID = v2Fixture(path)
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v2-/)
+    expect(repository.db.query("SELECT version, name, backup FROM schema_version WHERE version = 3").all()).toEqual([
+      { version: 3, name: "workflow-identity", backup: join(dirname(path), backup!) },
+    ])
+    // The old run is intact and names no workflow: none was recorded, and none is guessed.
+    expect(repository.getRun(runID)).toMatchObject({ id: runID, status: "success", directory: "/work/demo" })
+    expect(repository.getRun(runID)?.workflow).toBeUndefined()
+    expect(repository.listTasks(runID).map((task) => task.name)).toEqual(["plan"])
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM runs").get() as { count: number }).count).toBe(1)
+    copy.close()
+
+    const workflow = { name: "feature", scope: "project" as const, hash: "abc", inputs: { goal: "x" } }
+    repository.recordWorkflowVersion({ hash: "abc", name: "feature", scope: "project", source: "name: feature\n" })
+    const next = repository.startRun({ type: "manual" }, 3_000, "/work/demo", { workflow })
+    expect(repository.getRun(next.id)?.workflow).toEqual(workflow)
+    expect(repository.listWorkflowRuns("feature", "/work/demo").map((run) => run.id)).toEqual([next.id])
+    expect(repository.getWorkflowVersion("abc")).toMatchObject({ name: "feature", source: "name: feature\n" })
+    repository.close()
   })
 })

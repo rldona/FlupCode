@@ -187,9 +187,20 @@ export type RunSource = { type: "routine"; routineID: string } | { type: "manual
 export type RunStatus = "running" | "awaiting" | "success" | "failed" | "stopped"
 
 /** One execution the harness server owns, as the app reads it. Mirrors `harness-server`'s own type. */
+/** Which workflow produced a run, which version of its file and which inputs (RP-01). */
+export type RunWorkflow = {
+  name: string
+  scope: "project" | "global"
+  /** The sha256 of the file as it was at launch. */
+  hash: string
+  inputs: Record<string, string>
+}
+
 export type Run = {
   id: string
   source: RunSource
+  /** The workflow this run executed, when one did; a routine that runs one has both (RP-01). */
+  workflow?: RunWorkflow
   /** Where the work happens. Sent by the server; used to open its checkpoints from the run view. */
   directory?: string
   sessionID?: string
