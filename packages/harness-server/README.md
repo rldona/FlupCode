@@ -72,6 +72,7 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/runs/:id/activity` | which tool each running task is inside, and since when |
 | `GET /harness/runs/:id/files` | what each task changed on disk, from the checkpoints around it |
 | `GET /harness/usage` | what the runs cost, filtered by `directory` and `days` |
+| `POST /harness/usage/events` | the usage ledger's ingest: `{ events, tools }`, at most 500 of each, stored once by `id`; plugin token only |
 | `GET`/`POST /harness/checkpoints` | the ones for `?directory=`, or take one now |
 | `GET /harness/checkpoints/:id/plan` | which files restoring would write, and which it would delete |
 | `POST /harness/checkpoints/:id/restore` | do it, after recording the present as a checkpoint of its own |
@@ -100,7 +101,8 @@ Access (WA-9, AH-A05):
   `FLUPCODE_BROWSER_TOKEN`). The engine's plugins hold a second, narrower token,
   `<configDir>/plugin-token` (or `FLUPCODE_PLUGIN_TOKEN`): it opens the action catalogue, approval
   and run (not the editor's validate, dry run or preview), a run's evidence screenshots and
-  `/harness/plan-exit`, and nothing else (TI-10). Processes the server starts get neither token, nor
+  `/harness/plan-exit`, and the usage ledger's ingest, which only it may write, and nothing else
+  (TI-10, UL-01). Processes the server starts get neither token, nor
   the engine's credentials or the vault key. When a token exists — the entrypoint always creates one unless the write
   fails — **every other `/harness` route asks for it too**: runs, best-of-n, task retry/cancel,
   workflows, routines, git, checkpoints, artifacts, the event stream, and the reads that carry

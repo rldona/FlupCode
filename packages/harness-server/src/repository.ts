@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite"
 import type { UsageRow } from "./usage"
+import type { LedgerEvent, ToolEvent, UsageEvent, UsagePurpose } from "./usage-ledger"
 import { safeEvent } from "./stream"
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
 import { homedir } from "node:os"
@@ -1247,6 +1248,68 @@ export class SqliteRoutineRepository implements RoutineRepository {
         rewrites: true,
         rebuildsTables: true,
         up: () => this.migrateReferentialIntegrity(),
+      },
+      {
+        // The usage ledger (UL-01, audit §8.4): new tables only, append-only and never pruned. Flagged
+        // as rewriting so the file is still copied first, as every schema change is.
+        version: 5,
+        name: "usage-ledger",
+        rewrites: true,
+        up: () =>
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS usage_event (
+              id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              parent_session_id TEXT,
+              root_session_id TEXT,
+              message_id TEXT,
+              turn_id TEXT,
+              engine_seq INTEGER,
+              agent TEXT,
+              provider_id TEXT,
+              model_id TEXT,
+              variant TEXT,
+              tokens_input INTEGER NOT NULL DEFAULT 0,
+              tokens_output INTEGER NOT NULL DEFAULT 0,
+              tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+              tokens_cache_read INTEGER NOT NULL DEFAULT 0,
+              tokens_cache_write INTEGER NOT NULL DEFAULT 0,
+              cost_usd REAL,
+              cost_basis TEXT NOT NULL,
+              billing TEXT NOT NULL,
+              started_at INTEGER,
+              ended_at INTEGER,
+              first_token_ms INTEGER,
+              finish TEXT,
+              error_type TEXT,
+              retry_attempt INTEGER,
+              directory TEXT,
+              engine_project_id TEXT,
+              run_id TEXT,
+              task_id TEXT,
+              attempt INTEGER,
+              routine_id TEXT,
+              workflow_name TEXT,
+              workflow_hash TEXT,
+              purpose TEXT,
+              tags_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS usage_event_session ON usage_event(session_id, ended_at);
+            CREATE INDEX IF NOT EXISTS usage_event_ended ON usage_event(ended_at);
+            CREATE INDEX IF NOT EXISTS usage_event_run ON usage_event(run_id);
+            CREATE TABLE IF NOT EXISTS tool_event (
+              id TEXT PRIMARY KEY,
+              session_id TEXT NOT NULL,
+              message_id TEXT,
+              tool TEXT NOT NULL,
+              started_at INTEGER,
+              ms INTEGER NOT NULL,
+              error INTEGER NOT NULL,
+              bytes INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS tool_event_session ON tool_event(session_id, started_at);
+          `),
       },
     ]
   }
@@ -2726,6 +2789,104 @@ export class SqliteRoutineRepository implements RoutineRepository {
     }
   }
 
+  // ---- the usage ledger (UL-01) ---------------------------------------------------------------
+
+  /** Stores the facts it has not seen, by id, in one transaction; returns how many were new. */
+  recordUsage(batch: { events: LedgerEvent[]; tools: ToolEvent[] }) {
+    const event = this.db.query(
+      `INSERT OR IGNORE INTO usage_event (
+        id, kind, session_id, parent_session_id, root_session_id, message_id, turn_id, engine_seq,
+        agent, provider_id, model_id, variant,
+        tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write,
+        cost_usd, cost_basis, billing, started_at, ended_at, first_token_ms, finish, error_type, retry_attempt,
+        directory, engine_project_id,
+        run_id, task_id, attempt, routine_id, workflow_name, workflow_hash, purpose, tags_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
+        ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)`,
+    )
+    const tool = this.db.query(
+      `INSERT OR IGNORE INTO tool_event (id, session_id, message_id, tool, started_at, ms, error, bytes)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    )
+    return this.db.transaction(() => ({
+      events: batch.events.filter(
+        (entry) =>
+          event.run(
+            entry.id,
+            entry.kind,
+            entry.sessionID,
+            entry.parentSessionID ?? null,
+            entry.rootSessionID ?? null,
+            entry.messageID ?? null,
+            entry.turnID ?? null,
+            entry.engineSeq ?? null,
+            entry.agent ?? null,
+            entry.providerID ?? null,
+            entry.modelID ?? null,
+            entry.variant ?? null,
+            entry.tokens.input,
+            entry.tokens.output,
+            entry.tokens.reasoning,
+            entry.tokens.cacheRead,
+            entry.tokens.cacheWrite,
+            entry.costUSD ?? null,
+            entry.costBasis,
+            entry.billing,
+            entry.startedAt ?? null,
+            entry.endedAt ?? null,
+            entry.firstTokenMs ?? null,
+            entry.finish ?? null,
+            entry.errorType ?? null,
+            entry.retryAttempt ?? null,
+            entry.directory ?? null,
+            entry.engineProjectID ?? null,
+            entry.runID ?? null,
+            entry.taskID ?? null,
+            entry.attempt ?? null,
+            entry.routineID ?? null,
+            entry.workflowName ?? null,
+            entry.workflowHash ?? null,
+            entry.purpose ?? null,
+            entry.tags ? JSON.stringify(entry.tags) : null,
+          ).changes > 0,
+      ).length,
+      tools: batch.tools.filter(
+        (entry) =>
+          tool.run(
+            entry.id,
+            entry.sessionID,
+            entry.messageID ?? null,
+            entry.tool,
+            entry.startedAt ?? null,
+            entry.ms,
+            entry.error ? 1 : 0,
+            entry.bytes,
+          ).changes > 0,
+      ).length,
+    }))()
+  }
+
+  /** A session's billable facts, in the order they were stored. */
+  usageEvents(sessionID: string): LedgerEvent[] {
+    const rows = this.db.query("SELECT * FROM usage_event WHERE session_id = ?1 ORDER BY rowid").all(sessionID) as UsageEventRow[]
+    return rows.map(ledgerEventFromRow)
+  }
+
+  /** A session's finished tools, in the order they were stored. */
+  toolEvents(sessionID: string): ToolEvent[] {
+    const rows = this.db.query("SELECT * FROM tool_event WHERE session_id = ?1 ORDER BY rowid").all(sessionID) as ToolEventRow[]
+    return rows.map((row) => ({
+      id: row.id,
+      sessionID: row.session_id,
+      ...(row.message_id === null ? {} : { messageID: row.message_id }),
+      tool: row.tool,
+      ...(row.started_at === null ? {} : { startedAt: row.started_at }),
+      ms: row.ms,
+      error: row.error === 1,
+      bytes: row.bytes,
+    }))
+  }
+
   // ---- adaptive usage (FH-013) -----------------------------------------------------------------
 
   /**
@@ -3741,5 +3902,100 @@ function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
     startedAt: row.started_at,
     endedAt: row.ended_at,
     ...(row.arms_json ? { arms: JSON.parse(row.arms_json) } : {}),
+  }
+}
+
+type UsageEventRow = {
+  id: string
+  kind: UsageEvent["kind"]
+  session_id: string
+  parent_session_id: string | null
+  root_session_id: string | null
+  message_id: string | null
+  turn_id: string | null
+  engine_seq: number | null
+  agent: string | null
+  provider_id: string | null
+  model_id: string | null
+  variant: string | null
+  tokens_input: number
+  tokens_output: number
+  tokens_reasoning: number
+  tokens_cache_read: number
+  tokens_cache_write: number
+  cost_usd: number | null
+  cost_basis: UsageEvent["costBasis"]
+  billing: UsageEvent["billing"]
+  started_at: number | null
+  ended_at: number | null
+  first_token_ms: number | null
+  finish: string | null
+  error_type: string | null
+  retry_attempt: number | null
+  directory: string | null
+  engine_project_id: string | null
+  run_id: string | null
+  task_id: string | null
+  attempt: number | null
+  routine_id: string | null
+  workflow_name: string | null
+  workflow_hash: string | null
+  purpose: UsagePurpose | null
+  tags_json: string | null
+}
+
+type ToolEventRow = {
+  id: string
+  session_id: string
+  message_id: string | null
+  tool: string
+  started_at: number | null
+  ms: number
+  error: number
+  bytes: number
+}
+
+function ledgerEventFromRow(row: UsageEventRow): LedgerEvent {
+  const present = <K extends string, V>(key: K, value: V | null) =>
+    (value === null ? {} : { [key]: value }) as Partial<Record<K, V>>
+  return {
+    id: row.id,
+    kind: row.kind,
+    sessionID: row.session_id,
+    ...present("parentSessionID", row.parent_session_id),
+    ...present("rootSessionID", row.root_session_id),
+    ...present("messageID", row.message_id),
+    ...present("turnID", row.turn_id),
+    ...present("engineSeq", row.engine_seq),
+    ...present("agent", row.agent),
+    ...present("providerID", row.provider_id),
+    ...present("modelID", row.model_id),
+    ...present("variant", row.variant),
+    tokens: {
+      input: row.tokens_input,
+      output: row.tokens_output,
+      reasoning: row.tokens_reasoning,
+      cacheRead: row.tokens_cache_read,
+      cacheWrite: row.tokens_cache_write,
+    },
+    ...present("costUSD", row.cost_usd),
+    costBasis: row.cost_basis,
+    billing: row.billing,
+    ...present("startedAt", row.started_at),
+    ...present("endedAt", row.ended_at),
+    ...present("firstTokenMs", row.first_token_ms),
+    ...present("finish", row.finish),
+    ...present("errorType", row.error_type),
+    ...present("retryAttempt", row.retry_attempt),
+    ...present("directory", row.directory),
+    ...present("engineProjectID", row.engine_project_id),
+    ...present("runID", row.run_id),
+    ...present("taskID", row.task_id),
+    ...present("attempt", row.attempt),
+    ...present("routineID", row.routine_id),
+    ...present("workflowName", row.workflow_name),
+    ...present("workflowHash", row.workflow_hash),
+    ...present("purpose", row.purpose),
+    ...(row.tags_json === null ? {} : { tags: JSON.parse(row.tags_json) as Record<string, string> }),
   }
 }
