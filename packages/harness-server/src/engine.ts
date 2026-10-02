@@ -213,6 +213,11 @@ export class Engine {
     return (await this.v2()).sessionUsage(sessionID)
   }
 
+  /** Prices, providers and connections, for pricing and billing the ledger's rows (UL-05). */
+  async usageCatalog(directory?: string) {
+    return (await this.v2()).usageCatalog(directory)
+  }
+
   async rename(sessionID: string, title: string) {
     return (await this.v2()).rename(sessionID, title)
   }

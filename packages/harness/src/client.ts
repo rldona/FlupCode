@@ -41,6 +41,10 @@ import type {
   TaskTools,
   TouchedFiles,
   UsageReport,
+  UsageDimension,
+  UsageRunReport,
+  UsageSessionReport,
+  UsageSummary,
   SessionCostReport,
   SessionMetricTurn,
   Workflow,
@@ -825,8 +829,25 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         }),
     },
     /**
-     * What the runs cost (H-16). Runs only — the harness never sees an ordinary chat turn, and
-     * adding the engine's session totals on top would count every task twice.
+     * The usage ledger added up (UL-05): the total for a period and a folder, grouped by one
+     * dimension. `from` and `to` are milliseconds, `[from, to)`.
+     */
+    usageSummary: (
+      input: { groupBy?: UsageDimension; tag?: string; from?: number; to?: number; directory?: string; limit?: number } = {},
+    ) => {
+      const search = new URLSearchParams()
+      for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== "") search.set(key, String(value))
+      return harnessRequest<UsageSummary>(baseUrl, `/harness/usage/summary${search.size ? `?${search}` : ""}`)
+    },
+    /** A session's cost with every subagent under it (UL-05). */
+    sessionUsage: (sessionID: string) =>
+      harnessRequest<UsageSessionReport>(baseUrl, `/harness/usage/sessions/${encodeURIComponent(sessionID)}`),
+    /** A run's cost by task, purpose, agent and model (UL-05). */
+    runUsage: (runID: string) =>
+      harnessRequest<UsageRunReport>(baseUrl, `/harness/usage/runs/${encodeURIComponent(runID)}`),
+    /**
+     * What the runs cost (H-16), in its old shape. Deprecated: a view of the ledger since UL-05, kept
+     * for the screen that reads it until UL-06 moves it to `usageSummary`.
      */
     usage: (input: { directory?: string; days?: number } = {}) => {
       const search = new URLSearchParams()

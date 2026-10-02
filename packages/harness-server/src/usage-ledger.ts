@@ -142,7 +142,12 @@ const MAX_PATH = 4096
  * checked. A malformed item is skipped and named in `rejected`, so one bad event cannot block the
  * batch it came with from ever being delivered; the valid ones are stored.
  */
-export async function handleUsageIngest(request: Request, repository: UsageRepository, describe?: SessionDescriber) {
+export async function handleUsageIngest(
+  request: Request,
+  repository: UsageRepository,
+  describe?: SessionDescriber,
+  classify?: <T extends UsageEvent>(events: T[]) => Promise<T[]>,
+) {
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return tooLarge()
   const text = await request.text()
   if (text.length > MAX_BODY_BYTES) return tooLarge()
@@ -167,7 +172,8 @@ export async function handleUsageIngest(request: Request, repository: UsageRepos
   if (describe)
     for (const sessionID of new Set(valid.map((event) => event.sessionID))) await learnSession(sessionID, repository, describe)
   const stored = repository.recordUsage({
-    events: valid,
+    // The plugin reports the engine's list price and no billing; the server says what it can (UL-05).
+    events: classify ? await classify(valid) : valid,
     tools: parsedTools.filter((tool): tool is ToolEvent => typeof tool !== "string"),
   })
   const rejected = [

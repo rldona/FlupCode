@@ -190,6 +190,29 @@ test("configFiles.list asks the harness for the folder's config files", async ()
   ])
 })
 
+test("the usage ledger reads ask the harness for the summary, a session and a run (UL-05)", async () => {
+  const calls: HarnessCall[] = []
+  recordingHarness(calls)
+  const client = createHarnessClient("http://harness")
+
+  await client.usageSummary({ groupBy: "tag", tag: "feature", from: 1_000, to: 2_000, directory: "/work/demo", limit: 10 })
+  await client.usageSummary()
+  await client.sessionUsage("ses/1")
+  await client.runUsage("run_1")
+
+  expect(calls).toEqual([
+    {
+      method: "GET",
+      path: "/harness/usage/summary",
+      search: "?groupBy=tag&tag=feature&from=1000&to=2000&directory=%2Fwork%2Fdemo&limit=10",
+      body: undefined,
+    },
+    { method: "GET", path: "/harness/usage/summary", search: "", body: undefined },
+    { method: "GET", path: "/harness/usage/sessions/ses%2F1", search: "", body: undefined },
+    { method: "GET", path: "/harness/usage/runs/run_1", search: "", body: undefined },
+  ])
+})
+
 test("configFiles.list with no folder asks for the global layers only", async () => {
   const calls: HarnessCall[] = []
   recordingHarness(calls)

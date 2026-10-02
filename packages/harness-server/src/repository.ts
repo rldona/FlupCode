@@ -1,7 +1,15 @@
 import { Database } from "bun:sqlite"
-import type { UsageRow } from "./usage"
+import type { UsageDimension, UsageRow, UsageTotalRow } from "./usage"
 import { KIND_PURPOSE, repositoryRoot } from "./usage-ledger"
-import type { LedgerEvent, SessionAttribution, ToolEvent, UsageEvent, UsagePurpose } from "./usage-ledger"
+import type {
+  Billing,
+  CostBasis,
+  LedgerEvent,
+  SessionAttribution,
+  ToolEvent,
+  UsageEvent,
+  UsagePurpose,
+} from "./usage-ledger"
 import { safeEvent } from "./stream"
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
 import { homedir } from "node:os"
@@ -516,6 +524,24 @@ const LEGACY_SCHEMA_VERSION = 1
 
 /** How many pre-migration backups are kept beside the database; older ones are removed. */
 const BACKUPS_KEPT = 3
+
+/**
+ * The ledger's columns behind each summary dimension but `tag` (UL-05, audit §8.4), named as the
+ * summary's `fields`. A day is the local one, as `dayOf` counts it, of when the fact happened.
+ */
+const USAGE_COLUMNS: Record<Exclude<UsageDimension, "tag">, Record<string, string>> = {
+  run: { runID: "run_id" },
+  task: { taskID: "task_id", runID: "run_id", attempt: "attempt" },
+  workflow: { workflowName: "workflow_name", workflowHash: "workflow_hash" },
+  routine: { routineID: "routine_id" },
+  agent: { agent: "agent" },
+  model: { providerID: "provider_id", modelID: "model_id", variant: "variant" },
+  provider: { providerID: "provider_id" },
+  directory: { directory: "directory" },
+  purpose: { purpose: "purpose" },
+  day: { day: "date(COALESCE(ended_at, started_at) / 1000, 'unixepoch', 'localtime')" },
+  session: { sessionID: "session_id" },
+}
 
 type RoutineRow = {
   id: string
@@ -1377,6 +1403,18 @@ export class SqliteRoutineRepository implements RoutineRepository {
             })
         },
       },
+      {
+        // The usage summary (UL-05) reads the ledger by when each fact happened: the end of a step,
+        // or the start of a compaction the transcript gives no end for. An index on that moment keeps
+        // a month's summary of a million-row ledger in tens of milliseconds. No rollup table: rows are
+        // stamped after they land (UL-04) and re-priced when a model turns out to have no price, so a
+        // copy of their sums would go stale, and a day is local, so it moves with the time zone. An
+        // index only, but flagged as rewriting so the file is copied first, as every schema change is.
+        version: 8,
+        name: "usage-summary",
+        rewrites: true,
+        up: () => this.db.exec("CREATE INDEX IF NOT EXISTS usage_event_at ON usage_event(COALESCE(ended_at, started_at))"),
+      },
     ]
   }
 
@@ -2119,6 +2157,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
    *
    * One query rather than walking runs and asking for each one's tasks: the adding up happens in
    * `summarise`, and this only has to hand it rows.
+   *
+   * A view of the usage ledger since UL-05: a task's tokens and cost are its ledger rows' (its
+   * session, its subagents and its retried steps), no longer the last answer's input and output the
+   * task kept. Tokens are input, output and reasoning, without the cache, as before. A task whose
+   * rows have no price at all has no cost; the old shape has no word for unpriced, so its sums add
+   * it as nothing. The summary (`usageTotals`) is what says unpriced.
    */
   usageRows(filter: { directory?: string; since?: number } = {}): UsageRow[] {
     const where: string[] = []
@@ -2133,11 +2177,18 @@ export class SqliteRoutineRepository implements RoutineRepository {
     }
     const rows = this.db
       .query(
-        `SELECT tasks.*, runs.directory AS run_directory
+        // Per task through the run index, so the ledger is not grouped whole for every read.
+        `SELECT tasks.*, runs.directory AS run_directory,
+           (SELECT SUM(tokens_input + tokens_output + tokens_reasoning) FROM usage_event e
+             WHERE e.run_id = tasks.run_id AND e.task_id = tasks.id) AS ledger_tokens,
+           (SELECT SUM(CASE WHEN cost_basis != 'unpriced' THEN cost_usd END) FROM usage_event e
+             WHERE e.run_id = tasks.run_id AND e.task_id = tasks.id) AS ledger_cost
          FROM tasks JOIN runs ON runs.id = tasks.run_id
          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
       )
-      .all(...(values as never[])) as Array<TaskRow & { run_directory: string | null }>
+      .all(...(values as never[])) as Array<
+      TaskRow & { run_directory: string | null; ledger_tokens: number | null; ledger_cost: number | null }
+    >
     return rows.map((row) => {
       const model = row.model_json ? (JSON.parse(row.model_json) as { providerID: string; id: string }) : undefined
       return {
@@ -2153,8 +2204,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         ...(model ? { model } : {}),
         ...(row.started_at ? { startedAt: row.started_at } : {}),
         ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
-        ...(row.tokens !== null ? { tokens: row.tokens } : {}),
-        ...(row.cost !== null ? { cost: row.cost } : {}),
+        ...(row.ledger_tokens !== null ? { tokens: row.ledger_tokens } : {}),
+        ...(row.ledger_cost !== null ? { cost: row.ledger_cost } : {}),
       }
     })
   }
@@ -3126,6 +3177,141 @@ export class SqliteRoutineRepository implements RoutineRepository {
   usageEvents(sessionID: string): LedgerEvent[] {
     const rows = this.db.query("SELECT * FROM usage_event WHERE session_id = ?1 ORDER BY rowid").all(sessionID) as UsageEventRow[]
     return rows.map(ledgerEventFromRow)
+  }
+
+  // ---- the usage summary (UL-05) ----------------------------------------------------------------
+
+  /**
+   * The ledger added up per value of a dimension (none for the plain total), per cost basis and
+   * billing, and per whether the row carries a price. The folding into groups and money lines is
+   * `summariseUsage`'s; this only filters and sums, so the arithmetic is tested without a database.
+   *
+   * `from` and `to` bound when a fact happened (`[from, to)`, its end, or its start without one);
+   * `directory` is a repository root, as rows store it.
+   */
+  usageTotals(
+    input: {
+      groupBy?: UsageDimension
+      tag?: string
+      from?: number
+      to?: number
+      directory?: string
+      runID?: string
+      sessionIDs?: string[]
+    } = {},
+  ): UsageTotalRow[] {
+    const values: Array<string | number> = []
+    const bind = (value: string | number) => {
+      values.push(value)
+      return `?${values.length}`
+    }
+    const at = "COALESCE(ended_at, started_at)"
+    const where = [
+      ...(input.from !== undefined ? [`${at} >= ${bind(input.from)}`] : []),
+      ...(input.to !== undefined ? [`${at} < ${bind(input.to)}`] : []),
+      ...(input.directory !== undefined ? [`directory = ${bind(input.directory)}`] : []),
+      ...(input.runID !== undefined ? [`run_id = ${bind(input.runID)}`] : []),
+      ...(input.sessionIDs !== undefined ? [`session_id IN (${input.sessionIDs.map(bind).join(", ") || "NULL"})`] : []),
+    ]
+    const columns: Record<string, string> = !input.groupBy
+      ? {}
+      : input.groupBy === "tag"
+        ? { tag: `json_extract(tags_json, ${bind(`$."${(input.tag ?? "").replaceAll('"', '""')}"`)})` }
+        : USAGE_COLUMNS[input.groupBy]
+    const keys = Object.entries(columns).map(([name, expression]) => `${expression} AS "${name}"`)
+    // A row is priced when it has a basis other than unpriced and a cost; anything else is unpriced
+    // whatever its basis says, so a missing cost is never added up as $0.
+    const priced = "(cost_basis != 'unpriced' AND cost_usd IS NOT NULL)"
+    const rows = this.db
+      .query(
+        `SELECT ${[...keys, ""].join(", ")}
+           cost_basis AS basis, billing, ${priced} AS priced, COUNT(*) AS events,
+           SUM(tokens_input) AS input, SUM(tokens_output) AS output, SUM(tokens_reasoning) AS reasoning,
+           SUM(tokens_cache_read) AS cacheRead, SUM(tokens_cache_write) AS cacheWrite,
+           COALESCE(SUM(CASE WHEN ${priced} THEN cost_usd END), 0) AS usd
+         FROM usage_event
+         ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+         GROUP BY ${[...Object.keys(columns).map((name) => `"${name}"`), "basis", "billing", "priced"].join(", ")}`,
+      )
+      .all(...values) as Array<Record<string, string | number | null>>
+    return rows.map((row) => ({
+      fields: Object.fromEntries(Object.keys(columns).map((name) => [name, row[name] ?? null])),
+      basis: row.basis as CostBasis,
+      billing: row.billing as Billing,
+      priced: row.priced === 1,
+      events: Number(row.events),
+      tokens: {
+        input: Number(row.input),
+        output: Number(row.output),
+        reasoning: Number(row.reasoning),
+        cacheRead: Number(row.cacheRead),
+        cacheWrite: Number(row.cacheWrite),
+      },
+      usd: Number(row.usd),
+    }))
+  }
+
+  /**
+   * Which session each subagent belongs to, as the ledger and the attribution table know it: the
+   * engine's own `parentID` on a row first, then what the server learnt or stamped.
+   */
+  usageSessionParents() {
+    const rows = this.db
+      .query(
+        `SELECT session_id AS sessionID, parent_session_id AS parentSessionID FROM usage_event WHERE parent_session_id IS NOT NULL
+         UNION ALL
+         SELECT session_id, parent_session_id FROM session_attribution WHERE parent_session_id IS NOT NULL`,
+      )
+      .all() as Array<{ sessionID: string; parentSessionID: string }>
+    const parents = new Map<string, string>()
+    for (const row of rows) if (!parents.has(row.sessionID)) parents.set(row.sessionID, row.parentSessionID)
+    return parents
+  }
+
+  /** A session and every session under it, by the same links as `usageSessionParents`, nearest first. */
+  usageSessionTree(sessionID: string) {
+    return this.db
+      .query(
+        `WITH RECURSIVE links(session_id, parent_session_id) AS (
+           SELECT DISTINCT session_id, parent_session_id FROM usage_event WHERE parent_session_id IS NOT NULL
+           UNION
+           SELECT session_id, parent_session_id FROM session_attribution WHERE parent_session_id IS NOT NULL
+         ),
+         tree(session_id, parent_session_id, depth) AS (
+           SELECT ?1, NULL, 0
+           UNION
+           SELECT links.session_id, links.parent_session_id, tree.depth + 1 FROM links
+             JOIN tree ON links.parent_session_id = tree.session_id WHERE tree.depth < 32
+         )
+         SELECT session_id AS sessionID, parent_session_id AS parentSessionID, MIN(depth) AS depth FROM tree
+           GROUP BY session_id ORDER BY depth, session_id`,
+      )
+      .all(sessionID) as Array<{ sessionID: string; parentSessionID: string | null; depth: number }>
+  }
+
+  /**
+   * Re-label as unpriced the rows of models the engine has no price for (UL-05). Such a model can
+   * only ever have been reported at $0, so only $0 rows are touched: a row with a cost had a price
+   * when it happened. The cost is dropped with it, since that $0 was never a price. Returns how many
+   * rows changed.
+   */
+  markUnpriced(models: Array<{ providerID: string; modelID: string }>) {
+    if (models.length === 0) return 0
+    const update = this.db.query(
+      `UPDATE usage_event SET cost_basis = 'unpriced', cost_usd = NULL
+       WHERE provider_id = ?1 AND model_id = ?2 AND cost_basis = 'engine-list-price' AND COALESCE(cost_usd, 0) = 0`,
+    )
+    return this.db.transaction(() =>
+      models.reduce((changed, model) => changed + update.run(model.providerID, model.modelID).changes, 0),
+    )()
+  }
+
+  /** Whether the run exists or the ledger holds rows for it. */
+  knowsRunUsage(runID: string) {
+    return (
+      this.getRun(runID) !== undefined ||
+      this.db.query("SELECT 1 FROM usage_event WHERE run_id = ?1 LIMIT 1").get(runID) !== null
+    )
   }
 
   /** A session's finished tools, in the order they were stored. */

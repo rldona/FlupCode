@@ -62,6 +62,7 @@ import { episodeTrace } from "./adaptive/learning/heuristics"
 import type { LearningRunner } from "./adaptive/learning/manager"
 import { learningLimitStatus } from "./adaptive/learning/limits"
 import { createProposalReview } from "./adaptive/learning/review"
+import { createUsagePricing } from "./usage-pricing"
 import { createUsageReconciler } from "./usage-reconciler"
 
 export type HarnessServerOptions = {
@@ -395,11 +396,14 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         now: Date.now(),
       }),
   })
+  // What the server can tell of a ledger row's money (UL-05), shared by the ingest and the reconciler.
+  const usagePricing = createUsagePricing({ engine: scheduler.engine, repository })
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname,
     fetch: createHarnessHandler(repository, scheduler, {
       hostname,
+      usagePricing,
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(pluginToken ? { pluginToken } : {}),
@@ -475,7 +479,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   learning.start()
   // The usage ledger converges on what the engine kept (UL-03): every session at the first pass, which
   // is also the one-time backfill, then each session that went idle since.
-  const usage = createUsageReconciler({ repository, engine: scheduler.engine })
+  const usage = createUsageReconciler({ repository, engine: scheduler.engine, classify: usagePricing.classify })
   usage.start()
   void runtimeProbe.refresh()
   const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)

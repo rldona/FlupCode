@@ -71,6 +71,13 @@ const json = (value: unknown, status = 200) =>
 
 const error = (message: string, status: number) => json({ error: message }, status)
 
+/** A route kept for a screen that still reads it, pointing at the one that replaces it (RFC 9745). */
+const deprecate = (response: Response, successor: string) => {
+  response.headers.set("deprecation", "true")
+  response.headers.set("link", `<${successor}>; rel="successor-version"`)
+  return response
+}
+
 /** A folder a caller named that is not inside a project the engine knows (TI-11). */
 const notAProject = () => error("That folder is not a project FlupCode knows", 403)
 
@@ -409,8 +416,9 @@ import { drop, dropAll, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
 import { registerDocuments } from "./documents"
-import { summarise } from "./usage"
+import { handleUsageRead, summarise } from "./usage"
 import { handleUsageIngest } from "./usage-ledger"
+import type { createUsagePricing } from "./usage-pricing"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./context"
 
@@ -475,6 +483,8 @@ export type HarnessHandlerOptions = {
   overrides?: SessionOverrides
   /** The address the server listens on, so a `Host` naming it is accepted (AH-A05). */
   hostname?: string
+  /** The basis and billing the server can tell for a ledger row before it is stored (UL-05). */
+  usagePricing?: Pick<ReturnType<typeof createUsagePricing>, "classify">
   /** The folders a caller may name (TI-11); the engine's projects and worktrees when absent. */
   projectRoots?: ProjectRoots
 }
@@ -544,7 +554,12 @@ export const createHarnessHandler = (
     // the route takes their token and not the app's. Without a plugin token it is an ordinary 404.
     if (path[1] === "usage" && path[2] === "events" && path.length === 3 && request.method === "POST" && options.pluginToken) {
       if (!pluginCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleUsageIngest(request, repository, (sessionID) => scheduler.engine.describeSession(sessionID))
+      return handleUsageIngest(
+        request,
+        repository,
+        (sessionID) => scheduler.engine.describeSession(sessionID),
+        options.usagePricing?.classify,
+      )
     }
     // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
     // needs the profile id and the shape the form wrote.
@@ -825,7 +840,9 @@ export const createHarnessHandler = (
     ) {
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleSessionSummaryRead(request, repository)
+      // Deprecated as a cost source (UL-05): its money is the adaptive baseline's per-turn fold, not
+      // the ledger. UL-06 moves the session costs to `/harness/usage/sessions/:id`.
+      return deprecate(handleSessionSummaryRead(request, repository), "/harness/usage/summary?groupBy=session")
     }
     // The read side of the guardrails (FH-062): only a browser reads the live advisory, so it takes
     // the artifacts bearer like `/harness/adaptive/decisions`, never the acting token. Reading only —
@@ -1365,17 +1382,20 @@ export const createHarnessHandler = (
     if (path[1] === "memory" && request.method === "DELETE" && path[2] && !path[3]) {
       return repository.removeProjectMemory(path[2]) ? json({ data: true }) : error("Note not found", 404)
     }
-    // What the runs cost (H-16). Only runs: the harness never sees an ordinary chat turn, and
-    // adding the engine's session totals on top would count every task twice.
-    if (path[1] === "usage" && request.method === "GET") {
+    // The usage ledger read back (UL-05): the summary by any dimension, a session with its subagents
+    // and a run, every figure with its basis. The UI's bearer, never the plugins'.
+    const usage = handleUsageRead(request, path, repository)
+    if (usage) return usage
+    // What the runs cost (H-16), in its old shape for the screen that still reads it. A view of the
+    // ledger since UL-05 and deprecated: UL-06 moves that screen to `/harness/usage/summary`.
+    if (path[1] === "usage" && path.length === 2 && request.method === "GET") {
       const params = new URL(request.url).searchParams
       const days = Number(params.get("days"))
       const since = Number.isFinite(days) && days > 0 ? Date.now() - days * 86_400_000 : undefined
-      return json({
-        data: summarise(
-          repository.usageRows({ directory: params.get("directory") ?? undefined, since }),
-        ),
-      })
+      return deprecate(
+        json({ data: summarise(repository.usageRows({ directory: params.get("directory") ?? undefined, since })) }),
+        "/harness/usage/summary",
+      )
     }
 
     // What the model was given (H-17): which instruction files a turn in this folder would load.
