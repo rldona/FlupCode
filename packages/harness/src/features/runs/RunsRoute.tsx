@@ -1,9 +1,47 @@
 import { pairingCard } from "./pairing"
+import { Show } from "solid-js"
 import { RunsPanel } from "../../components/RunsPanel"
+import { RemoteRuns } from "../../components/RemoteRuns"
 import { useApp } from "../../app-context"
 
-/** The runs screen: what the server is running and what it ran (H-12). */
+/**
+ * The runs screen: what the server is running and what it ran (H-12). A phone controlling a computer
+ * gets its own, with what the remote scope allows (HE-02).
+ */
 export default function RunsRoute() {
+  const app = useApp()
+  return (
+    <Show when={!app.settings.mobileRemote()} fallback={<PhoneRuns />}>
+      <DeskRuns />
+    </Show>
+  )
+}
+
+function PhoneRuns() {
+  const app = useApp()
+  return (
+    <Show when={app.router.runsOpen()}>
+      <RemoteRuns
+        runs={app.runs.runs()}
+        attention={app.runs.runsAttention()}
+        serverAvailable={app.runs.routinesServerAvailable()}
+        focus={app.runs.runFocus()?.runID}
+        onApprove={app.runs.approveRun}
+        onStop={app.runs.stopRun}
+        onOpenSession={(id) => {
+          app.router.leaveScreen()
+          app.sessions.openMobileSession(id)
+        }}
+        onBack={() => {
+          app.runs.setRunFocus(undefined)
+          app.router.leaveScreen()
+        }}
+      />
+    </Show>
+  )
+}
+
+function DeskRuns() {
   const app = useApp()
   return (
     <RunsPanel

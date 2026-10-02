@@ -7,6 +7,7 @@ import type { AppView } from "../chat"
 import type { ProjectItem, Run } from "../types"
 import type { Attention } from "../attention"
 import { AttentionMark, attentionLabel } from "./AttentionMark"
+import { runTitle } from "../run-title"
 
 /** Phone home screen while controlling a computer: devices, sessions and a new-session action. */
 
@@ -31,12 +32,15 @@ type RemoteHomeProps = {
   sessions: RemoteSessionItem[]
   loading: boolean
   projects: ProjectItem[]
-  /** The runs still going, so a phone can see what the harness is working on (H-12). */
+  /** The runs that need the reader: going, or ended since the Runs view was last open (H-12, UX-02). */
   runs: Run[]
   /** What each run needs from the reader (UX-02), by run id. */
   runAttention: Record<string, Attention | undefined>
+  /** Whether the computer's harness answers, so its Runs view is worth offering (HE-02). */
+  runsAvailable: boolean
   onOpen: (sessionID: string) => void
-  onOpenRun: (sessionID: string) => void
+  /** Opens the Runs view, on one run when given. */
+  onShowRuns: (runID?: string) => void
   onNew: (directory: string | undefined) => void
   onAddDevice: () => void
 }
@@ -138,9 +142,14 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
         a session should also be able to see which run needs it, which is the one thing a person away
         from the desk wants.
       */}
-      <Show when={props.view === "code" && props.runs.length > 0}>
+      <Show when={props.view === "code" && (props.runs.length > 0 || props.runsAvailable)}>
         <section class="fc-remote-home-section">
-          <h2 class="fc-remote-home-heading">{t("Runs")}</h2>
+          <div class="fc-remote-home-row">
+            <h2 class="fc-remote-home-heading">{t("Runs")}</h2>
+            <button class="fc-remote-pill" type="button" onClick={() => props.onShowRuns()}>
+              {t("All")}
+            </button>
+          </div>
           <For each={props.runs}>
             {(run) => {
               const tasks = () => run.tasks ?? []
@@ -150,15 +159,10 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
                 tasks().filter((task) => task.status !== "running" && task.status !== "queued").length
               const level = () => props.runAttention[run.id] ?? "running"
               return (
-                <button
-                  class="fc-remote-card"
-                  type="button"
-                  disabled={!run.sessionID}
-                  onClick={() => run.sessionID && props.onOpenRun(run.sessionID)}
-                >
+                <button class="fc-remote-card" type="button" onClick={() => props.onShowRuns(run.id)}>
                   <AttentionMark level={level()} />
                   <span class="fc-remote-card-main">
-                    <span class="fc-remote-card-title">{current()?.name ?? t("Run")}</span>
+                    <span class="fc-remote-card-title">{current()?.name ?? runTitle(run)}</span>
                     <span class="fc-remote-card-meta">
                       {attentionLabel(level())}
                       {tasks().length > 1 ? ` · ${done()}/${tasks().length}` : ""}

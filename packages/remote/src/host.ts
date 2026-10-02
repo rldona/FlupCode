@@ -16,7 +16,8 @@ import {
 } from "./webpush"
 
 /**
- * A remote control host: relay connection, one-time pairing, paired devices and the engine tunnel.
+ * A remote control host: relay connection, one-time pairing, paired devices and the tunnel to the
+ * engine and the harness.
  * Runtime-agnostic; the desktop app and the `flupcode remote` CLI supply storage and presentation.
  */
 
@@ -43,6 +44,12 @@ export type RemoteHostOptions = {
   harness?: string
   /** The harness's loopback bearer, which its event stream asks for when one is configured (AH-A05). */
   harnessToken?: string
+  /**
+   * The harness's `remote`-scoped bearer (HE-02), which a paired phone's `/harness/*` calls are made
+   * with: runs and artifacts, a gate's approval and a stop. Read on each call; without it (or without
+   * `harness`) those calls stay the engine's, as before.
+   */
+  remoteToken?: () => string | undefined
   defaultRelay: string
   /** Web app that opens pairing links, e.g. `https://app.flupcode.com/`. */
   appUrl: string
@@ -165,7 +172,13 @@ export function createRemoteHost(options: RemoteHostOptions) {
       return device ? fromBase64Url(device.key) : undefined
     })
       .then((accepted) => {
-        const tunnel = serveTunnel(accepted.channel, { target: options.engine, credentials: options.engineCredentials })
+        const tunnel = serveTunnel(accepted.channel, {
+          target: options.engine,
+          credentials: options.engineCredentials,
+          ...(options.harness && options.remoteToken
+            ? { harness: { target: options.harness, token: options.remoteToken } }
+            : {}),
+        })
         const device = accepted.mode === "device" ? findDevice(accepted.id) : enrol()
         if (!device) return accepted.channel.close()
         if (accepted.mode === "pair")

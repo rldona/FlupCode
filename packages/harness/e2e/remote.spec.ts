@@ -5,13 +5,17 @@ import { fileURLToPath } from "node:url"
 import { expect, test } from "@playwright/test"
 import {
   acceptChannel,
+  connectChannel,
+  connectRelayClient,
   createHostIdentity,
+  createTunnelClient,
   pairingUrl,
   random,
   serveTunnel,
   startRelayHost,
   toBase64Url,
 } from "../../remote/src"
+import { REFUSED } from "../../harness-server/src/remote-scope.fixture"
 
 // A free port, not a fixed one, so suites running side by side never share a relay.
 let relayPort = 0
@@ -442,6 +446,102 @@ test.describe("on a phone", () => {
     await expect(page.locator(".fc-mobile-header")).toContainText("Fix the login flow", { timeout: 15_000 })
     await expect(page).not.toHaveURL(/session=/)
     host.stop()
+  })
+
+  test("a paired phone approves a run's gate and stops a run, and nothing more (HE-02)", async ({ page, baseURL }) => {
+    // The real harness routes over two runs held at a gate, beside the fake engine.
+    const harnessPort = await freePort()
+    const harnessUrl = `http://127.0.0.1:${harnessPort}`
+    const harness = spawn("bun", [fileURLToPath(new URL("./remote-harness.fixture.ts", import.meta.url))], {
+      env: { ...process.env, PORT: String(harnessPort) },
+      stdio: "ignore",
+    })
+    await expect
+      .poll(() => fetch(`${harnessUrl}/harness/health`).then((response) => response.ok, () => false), { timeout: 15_000 })
+      .toBe(true)
+    // What the desk sees, with the UI's token: how the runs stand on the server.
+    const status = async (name: string) => {
+      const response = await fetch(`${harnessUrl}/harness/runs`, { headers: { authorization: "Bearer ui-token" } })
+      const runs = (await response.json()).data as Array<{ status: string; workflow?: { name: string } }>
+      return runs.find((run) => run.workflow?.name === name)?.status
+    }
+
+    const pairingId = toBase64Url(random(16))
+    const secret = random(32)
+    const deviceKey = random(32)
+    const statuses: string[] = []
+    const host = startRelayHost({
+      relay: relayUrl,
+      identity: await createHostIdentity(),
+      onStatus: (next) => statuses.push(next),
+      onChannel: (wire) =>
+        void acceptChannel(wire, (mode, id) =>
+          mode === "pair" && id === pairingId ? secret : mode === "device" && id === "e2e-phone" ? deviceKey : undefined,
+        )
+          .then((accepted) => {
+            // As the desktop and `flupcode remote` do: `/harness/*` with the remote scope's token.
+            const tunnel = serveTunnel(accepted.channel, {
+              target: engineUrl,
+              harness: { target: harnessUrl, token: () => "remote-token" },
+            })
+            if (accepted.mode === "pair")
+              tunnel.sendControl({
+                type: "enrolled",
+                deviceId: "e2e-phone",
+                deviceKey: toBase64Url(deviceKey),
+                hostName: "e2e-mac",
+              })
+          })
+          .catch(() => undefined),
+    })
+    await expect.poll(() => statuses.at(-1)).toBe("online")
+    const hostId = await host.hostId
+    await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))
+    await page.goto(
+      pairingUrl(`${baseURL}/`, { v: 1, relay: relayUrl, host: hostId, id: pairingId, secret: toBase64Url(secret), name: "e2e-mac" }),
+    )
+
+    // The home lists the runs that need the reader, on the attention scale (UX-02).
+    const home = page.locator(".fc-remote-home")
+    await expect(home.getByRole("button", { name: /Write the notes/ })).toBeVisible({ timeout: 15_000 })
+    await expect(home.getByRole("button", { name: /Write the notes/ }).getByRole("img", { name: "Needs approval" })).toBeVisible()
+
+    // The Runs view: each run with the answers its gate takes.
+    await home.getByRole("button", { name: "All" }).click()
+    const view = page.getByRole("region", { name: "Runs" })
+    await expect(view.locator(".fc-mobile-title")).toHaveText("Runs")
+    const release = view.locator("article", { hasText: "release" })
+    const nightly = view.locator("article", { hasText: "nightly-review" })
+    await expect(release.getByRole("img", { name: "Needs approval" })).toBeVisible()
+    await release.getByRole("button", { name: "Approve" }).click()
+    // Let through, the run goes on (and, with no engine here, fails at its next task).
+    await expect.poll(() => status("release")).not.toBe("awaiting")
+    await nightly.getByRole("button", { name: "Stop" }).click()
+    await expect.poll(() => status("nightly-review")).toBe("stopped")
+    await expect(nightly.getByRole("button", { name: "Stop" })).toHaveCount(0)
+    await page.getByRole("button", { name: "Back" }).click()
+    await expect(home).toBeVisible()
+
+    // The same paired device, through the same relay, reaches nothing else of the harness: every route
+    // outside the remote scope answers 403, whatever token it brings.
+    const channel = await connectChannel(await connectRelayClient({ relay: relayUrl, hostId }), {
+      mode: "device",
+      id: "e2e-phone",
+      psk: deviceKey,
+    })
+    const phone = createTunnelClient(channel)
+    expect((await phone.fetch("https://phone.invalid/harness/runs")).status).toBe(200)
+    for (const [method, path] of REFUSED) {
+      const refused = await phone.fetch(`https://phone.invalid${path}`, {
+        method,
+        headers: { authorization: "Bearer ui-token", "content-type": "application/json" },
+        ...(method === "GET" ? {} : { body: "{}" }),
+      })
+      expect([method, path, refused.status]).toEqual([method, path, 403])
+    }
+    phone.close()
+    host.stop()
+    harness.kill()
   })
 
   test("the welcome screen offers to control a computer first", async ({ page }) => {

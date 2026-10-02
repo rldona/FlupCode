@@ -12,7 +12,10 @@ import {
   adaptiveTokenFile,
   pluginTokenFile,
   readOrCreatePluginToken,
+  readOrCreateRemoteToken,
   readPluginToken,
+  readRemoteToken,
+  remoteTokenFile,
   browserTokenFile,
   isLoopbackHostname,
   readAdaptiveToken,
@@ -90,6 +93,9 @@ export type HarnessServerOptions = {
   /** The engine plugins' bearer (TI-10); resolved from the file when omitted. */
   pluginToken?: string
   pluginTokenFile?: string
+  /** The remote host's bearer (HE-02); read from `remoteTokenFile` when absent. */
+  remoteToken?: string
+  remoteTokenFile?: string
   /** Browser tabs paired with a one-time code (HE-01); only on a loopback host with a UI token. */
   pairing?: Pairing
 }
@@ -111,6 +117,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // passing even when there is no browser to guard, so the token is not lost with the runtime.
   const browserToken = options.browserToken ?? readBrowserToken(options.browserTokenFile ?? browserTokenFile())
   const pluginToken = options.pluginToken ?? readPluginToken(options.pluginTokenFile ?? pluginTokenFile())
+  const remoteToken = options.remoteToken ?? readRemoteToken(options.remoteTokenFile ?? remoteTokenFile())
   // A vault exists only when there is a key to open it: without one, a profile that names a
   // credential fails closed rather than running with an empty field, and `/harness/credentials/*`
   // is an ordinary 404 (WA-5).
@@ -172,7 +179,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const egress = createAdaptiveEgressGuard({
     config: () => adaptive.current(),
     secrets: () =>
-      [browserToken, pluginToken, adaptiveToken, process.env.TYPESAFE_API_KEY?.trim() || undefined, ...(vault?.secrets() ?? [])].filter(
+      [browserToken, pluginToken, remoteToken, adaptiveToken, process.env.TYPESAFE_API_KEY?.trim() || undefined, ...(vault?.secrets() ?? [])].filter(
         (secret) => secret !== undefined,
       ),
   })
@@ -419,6 +426,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(pluginToken ? { pluginToken } : {}),
+      ...(remoteToken ? { remoteToken } : {}),
       // A paired tab is a UI caller, so pairing exists only where the UI's token does, on the loopback.
       ...(options.pairing && browserToken && isLoopbackHostname(hostname) ? { pairing: options.pairing } : {}),
       ...(actions ? { actions } : {}),
@@ -591,6 +599,16 @@ const createPluginToken = (): string | undefined => {
   }
 }
 
+// The remote host's bearer (HE-02). Only in its file, never in an environment: the hosts read it there.
+const createRemoteToken = (): string | undefined => {
+  try {
+    return readOrCreateRemoteToken(remoteTokenFile())
+  } catch (cause) {
+    console.warn(`Could not write the remote token: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return undefined
+  }
+}
+
 /**
  * The acting line's dedicated secret (FH-04, ADR-0022).
  *
@@ -638,6 +656,7 @@ if (import.meta.main) {
   // the harness from serving everything else, so it starts without a browser instead.
   const token = createBrowserToken()
   const pluginToken = createPluginToken()
+  const remoteToken = createRemoteToken()
   const vaultKey = createVaultKey()
   // The acting line's secret is only ever created on a loopback host (ADR-0022 §1): off the loopback
   // the feature is inert, so the entrypoint must not leave the dedicated token on disk either. The
@@ -647,6 +666,7 @@ if (import.meta.main) {
   const app = createHarnessServer({
     ...(token ? { browserToken: token } : {}),
     ...(pluginToken ? { pluginToken } : {}),
+    ...(remoteToken ? { remoteToken } : {}),
     ...(vaultKey ? { vaultKey } : {}),
     ...(adaptiveToken ? { adaptiveToken } : {}),
     pairing: createPairing(),

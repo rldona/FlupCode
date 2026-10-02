@@ -21,6 +21,7 @@ import {
   engineEnvBesideHarness,
   harnessHealthy,
   harnessServerEnv,
+  readRemoteToken,
   resolveHarnessServer,
 } from "@flupcode/remote/harness-host"
 import { flupcodeDataDir, reapOrphan, superviseChild } from "@flupcode/remote/supervisor"
@@ -50,7 +51,7 @@ Options:
   --relay <url>    Relay (default: wss://relay.flupcode.com)
   --app <url>      Web app that opens pairing links (default: https://app.flupcode.com/)
   --no-serve       Do not start "opencode serve" when the engine is not running
-  --harness-port <port>  serve, pair: where FlupCode's harness listens (default: 4097)
+  --harness-port <port>  serve, pair, remote: where FlupCode's harness listens (default: 4097)
   --from <path|url>  import-v1: the 1.x database (default: ~/.local/share/opencode/opencode.db);
                      import-memory: the running 1.x engine (default: http://127.0.0.1:4096)
   -h, --help       Show this help
@@ -716,7 +717,7 @@ function statusLine(state: RemoteHostState) {
   return red(`● offline${state.detail ? ` (${state.detail})` : ""}`)
 }
 
-async function runHost(options: { engine: string; relay?: string; app: string; serve: boolean }) {
+async function runHost(options: { engine: string; harness: string; relay?: string; app: string; serve: boolean }) {
   const other = runningHost()
   if (other) fail(`flupcode remote is already running (pid ${other})`)
   const engine = await ensureEngine(options.engine, engineCredentials(), options.serve)
@@ -733,6 +734,9 @@ async function runHost(options: { engine: string; relay?: string; app: string; s
     save: writeStore,
     engine: options.engine,
     engineCredentials: credentials,
+    // A paired phone reaches the harness `flupcode serve` or the desktop runs, with its remote scope (HE-02).
+    harness: options.harness,
+    remoteToken: () => readRemoteToken(configDir()),
     defaultRelay: "wss://relay.flupcode.com",
     appUrl: options.app,
     hostName: hostname(),
@@ -882,6 +886,7 @@ if (subcommand) fail(`unknown command "remote ${subcommand}"; see flupcode --hel
 
 await runHost({
   engine: args.values.engine ?? process.env.FLUPCODE_ENGINE_URL ?? "http://127.0.0.1:4096",
+  harness: `http://127.0.0.1:${harnessPort}`,
   relay: args.values.relay ?? process.env.FLUPCODE_RELAY_URL,
   app: args.values.app ?? process.env.FLUPCODE_APP_URL ?? "https://app.flupcode.com/",
   serve: args.values["no-serve"] !== true,

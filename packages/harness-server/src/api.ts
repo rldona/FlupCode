@@ -24,6 +24,7 @@ import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
 import type { RecipeDriver } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
+import { remoteEvent, remoteScopeAllows } from "./remote-scope"
 import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, hostedWebOrigin, preflightResponse } from "./cors"
 import { pairCookie, pairCookieFrom, type Pairing, type PairingGrant, type PairingRefusal } from "./pairing"
 import type { ActionApprover } from "./action-approval"
@@ -539,6 +540,11 @@ export type HarnessHandlerOptions = {
    * the origin that paired; without it `/harness/pair/*` is an ordinary 404.
    */
   pairing?: Pairing
+  /**
+   * The remote host's bearer (HE-02): what a paired phone reaches through the tunnel. Only the
+   * routes `remoteScopeAllows` lists; anything else is refused before it is looked at.
+   */
+  remoteToken?: string
 }
 
 export const createHarnessHandler = (
@@ -549,6 +555,8 @@ export const createHarnessHandler = (
   const roots = options.projectRoots ?? projectRoots(() => scheduler.engine.projectRoots())
   const pluginCaller = (request: Request) =>
     !!options.pluginToken && tokenMatches(options.pluginToken, bearerFrom(request))
+  const remoteCaller = (request: Request) =>
+    !!options.remoteToken && tokenMatches(options.remoteToken, bearerFrom(request))
   // A paired tab's token, from the origin it paired on (HE-01).
   const pairedCaller = (request: Request) =>
     !!options.pairing && options.pairing.verify(bearerFrom(request), request.headers.get("origin") ?? undefined)
@@ -573,6 +581,9 @@ export const createHarnessHandler = (
     // below stops it reading; only its `Host`, which still names the attacker's domain, gives it away.
     if (!allowedHarnessHost(request.headers.get("host") ?? undefined, options.hostname ?? "127.0.0.1"))
       return json({ error: "Forbidden", code: "invalid_host" }, 403)
+    // A phone over remote control (HE-02) reaches the allow-list and nothing else, pairing included.
+    if (remoteCaller(request) && !remoteScopeAllows(request.method, path))
+      return json({ error: "Not allowed over remote control", code: "out_of_scope" }, 403)
     if (path[1] === "pair" && options.pairing) return handlePairRequest(request, path, options.pairing)
     // The hosted web app reads nothing but the health check until it pairs (HE-01). Decided here, not
     // by CORS alone: a request CORS hides the answer of still runs.
@@ -1037,11 +1048,14 @@ export const createHarnessHandler = (
       options.token &&
       !openToAnyCaller(request, path) &&
       !uiCaller(request) &&
+      !remoteCaller(request) &&
       !(pluginCaller(request) && evidenceRead(request, path))
     )
       return json({ error: "Forbidden", code: "invalid_token" }, 403)
     // Everything the server changes, in order, so a client follows along instead of asking.
-    if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
+    // A phone follows its runs and artifacts, not the reader's stash, routines or browser (HE-02).
+    if (path[1] === "events" && request.method === "GET")
+      return eventStream(repository, resumeFrom(request), remoteCaller(request) ? remoteEvent : undefined)
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
