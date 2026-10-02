@@ -13,6 +13,7 @@
  * from it (Jev's lives in `providers/jev.ts`), so the guard stays the same whichever model is asked.
  */
 
+import { createHash } from "node:crypto"
 import type { AnyDecisionRequest, DecisionKind } from "./decision"
 import { decisionInputsHash } from "./decision"
 import type { AdaptiveConfig } from "./config"
@@ -66,6 +67,21 @@ const redactValue = (value: unknown, secrets: readonly string[]): unknown => {
     return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactValue(entry, secrets)]))
   return value
 }
+
+/**
+ * The state as a model may see it. A project is named by its absolute path on the acting paths (a
+ * run's directory), which says who the person is and how their disk is laid out (PI-03): the state
+ * carries a stable digest of it instead, so one project still reads as one project. The request's own
+ * `projectID` keeps the path, because the consent check and a local engine session need it, and it
+ * never leaves.
+ */
+const outwardState = (state: unknown): unknown =>
+  isPlainObject(state) && typeof state.projectID === "string" && state.projectID !== ""
+    ? { ...state, projectID: projectDigest(state.projectID) }
+    : state
+
+const projectDigest = (projectID: string): string =>
+  `project:${createHash("sha256").update(projectID).digest("hex").slice(0, 16)}`
 
 /** Counters, lengths and field names only: a summary that can never carry a secret or raw text. */
 const summarize = (state: unknown): Record<string, unknown> => {
@@ -167,7 +183,7 @@ export function createAdaptiveEgressGuard(deps: {
     // chosen (every decision is hashed, answered by a model or not), so it cannot depend on which
     // provider is asked; a per-provider bound would need a second, per-model preparation.
     const bounded = boundInput(
-      redactText(JSON.stringify(request.state), secrets),
+      redactText(JSON.stringify(outwardState(request.state)), secrets),
       asked,
       Math.max(0, config.jev.maxInputTokens),
     )

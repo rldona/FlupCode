@@ -187,3 +187,26 @@ describe("decision fixtures over the FH-007 sessions (FH-015)", () => {
     })
   }
 })
+
+// PI-03: what a model would be sent for each fixture names no directory of the machine. The episode's
+// project is its run directory, an absolute path; the egress input carries a digest of it instead.
+describe("the egress input of every fixture (PI-03)", () => {
+  for (const name of Object.keys(EXPECTED)) {
+    test(`${name}: names no absolute path`, () => {
+      const fixture = load(name)
+      const { repository, episode } = capture(fixture)
+      const config = resolveAdaptiveConfig({ block: {}, env: {} })
+      const egress = createAdaptiveEgressGuard({ config: () => config })
+      expect(episode.projectID).toStartWith("/")
+      for (const request of [
+        completionRequest(episode, config.decisions.completion),
+        contextRequest(episode, config.decisions.contextItem),
+      ]) {
+        const prepared = egress.prepare(request)
+        expect(prepared.serialized).not.toContain(episode.projectID)
+        expect(prepared.serialized).not.toMatch(/"\/[A-Za-z]/)
+      }
+      repository.close()
+    })
+  }
+})
