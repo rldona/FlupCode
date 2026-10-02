@@ -129,15 +129,24 @@ malformed value falls back to the conservative default rather than being guessed
 {
   "flupcode": {
     "adaptive": {
-      "enabled": true,            // kill switch; false (or FLUPCODE_ADAPTIVE_DISABLED=1) stops decisions, shadow, Jev, relevance, learning and the context plan
+      "enabled": true,            // kill switch; false (or FLUPCODE_ADAPTIVE_DISABLED=1) stops decisions, shadow, every predictive model, relevance, learning and the context plan
       "shadow": true,             // record decisions without acting on them
       "context": { "enabled": true, "apply": false },   // apply is off until the offline evaluation promotes it
       "learning": { "enabled": false },
       "relevance": { "enabled": false },
-      "jev": { "enabled": false, "endpoint": "…", "model": "…", "timeoutMs": 0, "maxInputTokens": 0 },
+      "models": { "completion": "<provider id>" },   // which predictive provider answers each decision; absent ⇒ built-in rules
+      "providers": {              // per-provider settings (PI-01); every field optional, the provider has its own defaults
+        "<provider id>": {
+          "endpoint": "…", "model": "…", "timeoutMs": 400,
+          "maxInputChars": 32000,  // the most characters of serialized input it is sent
+          "keyRef": "…",           // the vault name of its key; also read from FLUPCODE_<KEYREF> (upper case, - as _)
+          "budget": { "monthlyTokens": 50000 }   // lowers the layer's monthly budget for this provider
+        }
+      },
       "egress": {
-        "projects": [],           // project paths allowed to leave the machine; empty ⇒ no egress
-        "kinds": {}               // per-kind opt-in map (the four shipped kinds)
+        "providers": {            // consent per provider; nothing leaves the machine without it
+          "<provider id>": { "enabled": false, "projects": [], "kinds": {} }
+        }
       },
       "budget": { "monthlyTokens": 100000, "hotReserveFraction": 0.2 },
       "retention": {              // ADR-0022; off by default
@@ -157,21 +166,28 @@ malformed value falls back to the conservative default rather than being guessed
 From the app's **Adaptive** settings section you may move the **switches** only:
 
 `enabled`, `shadow`, `context.enabled`, `context.apply`, `learning.enabled`, `relevance.enabled`,
-`jev.enabled`, `egress.projects`, `egress.kinds`, `retention.enabled` and `budget.monthlyTokens`.
-Everything else above is read-only there — the thresholds, timeouts, models and retention windows are
-edited in the file, not from the panel. The predictive model's key is never read from
-the config block: `TYPESAFE_API_KEY` in the environment wins, and otherwise the panel can save one,
-write-only, in the encrypted vault (ADR-0017, amended 2026-09-30).
+`models.<kind>`, `egress.providers.<id>.{enabled,projects,kinds}`, `retention.enabled` and
+`budget.monthlyTokens`. Everything else above is read-only there — the thresholds, timeouts, provider
+settings and retention windows are edited in the file, not from the panel. A provider's key is never
+read from the config block: `FLUPCODE_<KEYREF>` in the environment wins, and otherwise the panel can
+save one, write-only, in the encrypted vault under the provider's `keyRef`, bound to its endpoint's
+origin (ADR-0017, amended 2026-09-30).
+
+Names written before PI-01 are still read, never written, for one release: the `jev` block
+(`enabled` as the old single switch, `endpoint`, `model`, `timeoutMs`, `maxInputTokens` as
+`providers.jev.maxInputChars`), `decisions.<kind>.allowJev` (as `allowModel`), the top-level
+`egress.projects`/`egress.kinds` (as Jev's consent) and `TYPESAFE_API_KEY` (as
+`FLUPCODE_TYPESAFE_API_KEY`). A field the new shape sets wins. `jev.enabled` is no longer writable:
+choosing a model for one decision turns it off and pins the other decisions to what it resolved to.
 
 The switches keep their guards, so the panel cannot promise more than the engine does:
 
-- `learning.enabled` and `jev.enabled` need an **egress allowlist** first: a project in
-  `egress.projects` and the relevant kind (`skillReflection` for learning; any kind for Jev). With
-  neither, the toggle is drawn disabled with the reason.
+- A provider's `egress.providers.<id>.enabled` needs an **egress allowlist** first: a project and
+  a kind for that provider. With neither, the toggle is drawn disabled with the reason.
 - `relevance.enabled` needs the harness's resolved `adaptive-token`; without it the toggle is
   disabled.
-- `retention.enabled`, `jev.enabled` and **widening** `egress.projects`/`egress.kinds` ask for a
-  confirmation before the write.
+- `retention.enabled`, `learning.enabled`, a provider's consent and **widening** its projects or
+  kinds ask for a confirmation before the write.
 - With `FLUPCODE_ADAPTIVE_DISABLED=1`, the master switch is off and disabled and `enabled=true` is
   refused with `env-disabled`.
 - The egress kind list shows only the **four kinds the server ships** — `completion`,

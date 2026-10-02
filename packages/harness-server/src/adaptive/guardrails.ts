@@ -8,7 +8,7 @@
  * was asked beside it until PI-03 removed it: nothing read it.)
  *
  * The state is in memory and bounded: a ring per session (window and count) and a deterministic
- * decision cache, so a loop that persists neither re-spends Jev nor rewrites its audit row. A restart
+ * decision cache, so a loop that persists neither re-spends a model nor rewrites its audit row. A restart
  * forgets both, which is the deliberate price of not storing per-observation state.
  */
 
@@ -124,7 +124,7 @@ export function createGuardrailService(deps: {
     }
 
     // The deterministic id names the loop: the same tool and digest converge on one row, and the
-    // cache keeps a persistent loop from re-spending Jev or rewriting it (ADR-0023 §6).
+    // cache keeps a persistent loop from re-spending a model or rewriting it (ADR-0023 §6).
     const digest = signal.argsDigest ?? signal.errorDigest ?? "none"
     const scopeID = `${input.sessionID}:${signal.tool ?? "tool"}:${digest}`
     const id = decisionID("failure", scopeID)

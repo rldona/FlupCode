@@ -5,7 +5,6 @@ import {
   DEFAULT_BUDGET_CONFIG,
   DEFAULT_COMPACTION_CONFIG,
   DEFAULT_CONTEXT_CONFIG,
-  DEFAULT_JEV_CONFIG,
   DEFAULT_GUARDRAILS_CONFIG,
   DEFAULT_TOOL_TRIM_CONFIG,
   DEFAULT_SELECTION_CONFIG,
@@ -61,7 +60,7 @@ describe("resolveAdaptiveConfig", () => {
     const config = resolveAdaptiveConfig({
       block: {
         models: { toolRisk: "jev", modelRoute: "jev", completion: "jev" },
-        decisions: { toolRisk: { minConfidence: 0.9 }, agentRoute: { allowJev: false } },
+        decisions: { toolRisk: { minConfidence: 0.9 }, agentRoute: { allowModel: false } },
         egress: { providers: { jev: { enabled: true, projects: ["/a"], kinds: { toolRisk: true, completion: true } } } },
       },
       env: {},
@@ -80,7 +79,7 @@ describe("resolveAdaptiveConfig", () => {
       episode: DEFAULT_EPISODE_BOUNDARY_CONFIG,
       decisions: allPolicies(),
       models: {},
-      jev: DEFAULT_JEV_CONFIG,
+      providers: {},
       budget: DEFAULT_BUDGET_CONFIG,
       egress: { providers: { jev: { enabled: false, projects: [], kinds: allKindsOff() } } },
       governor: DEFAULT_GOVERNOR_CONFIG,
@@ -101,7 +100,7 @@ describe("resolveAdaptiveConfig", () => {
       compaction: DEFAULT_COMPACTION_CONFIG,
       selection: DEFAULT_SELECTION_CONFIG,
     })
-    expect(config.jev.enabled).toBe(false)
+    expect(config.models).toEqual({})
     expect(config.learning.enabled).toBe(false)
     expect(config.relevance.enabled).toBe(false)
     expect(config.retention.enabled).toBe(false)
@@ -116,19 +115,15 @@ describe("resolveAdaptiveConfig", () => {
         jev: { enabled: true, model: "jev-x", timeoutMs: 900, maxInputTokens: 1000 },
         budget: { monthlyTokens: 5000, hotReserveFraction: 0.5 },
         egress: { projects: ["/work/project"], kinds: { completion: true, nope: true } },
-        decisions: { completion: { minConfidence: 0.9, allowJev: false } },
+        decisions: { completion: { minConfidence: 0.9, allowModel: false } },
       },
       env: {},
     })
     expect(config.enabled).toBe(false)
     expect(config.shadow).toBe(false)
-    expect(config.jev).toEqual({
-      enabled: true,
-      endpoint: DEFAULT_JEV_CONFIG.endpoint,
-      model: "jev-x",
-      timeoutMs: 900,
-      maxInputTokens: 1000,
-    })
+    // The legacy block is read as the legacy provider's settings and its single switch (PI-01).
+    expect(config.providers).toEqual({ jev: { model: "jev-x", timeoutMs: 900, maxInputChars: 1000 } })
+    expect(config.models.completion).toBe("jev")
     expect(config.budget).toEqual({ monthlyTokens: 5000, hotReserveFraction: 0.5 })
     expect(config.governor.monthlyTokenBudget).toBe(5000)
     expect(config.governor.hotReserveFraction).toBe(0.5)
@@ -138,7 +133,7 @@ describe("resolveAdaptiveConfig", () => {
     expect(config.egress.providers.jev?.kinds.completion).toBe(true)
     expect(config.egress.providers.jev?.kinds.skillRelevance).toBe(false)
     expect(config.egress.providers.jev?.kinds.skillReflection).toBe(false)
-    expect(config.decisions.completion).toEqual({ allowJev: false, minConfidence: 0.9, minProbability: 0.5, timeoutMs: 400 })
+    expect(config.decisions.completion).toEqual({ allowModel: false, minConfidence: 0.9, minProbability: 0.5, timeoutMs: 400 })
     expect(config.decisions.skillRelevance).toEqual(DEFAULT_DECISION_POLICY)
   })
 
@@ -170,13 +165,14 @@ describe("resolveAdaptiveConfig", () => {
         jev: { enabled: "yes" },
         budget: { monthlyTokens: -1, hotReserveFraction: 2 },
         egress: { projects: ["/p", 7], kinds: [] },
-        decisions: { completion: { minConfidence: 2, allowJev: "yes", timeoutMs: -1 } },
+        decisions: { completion: { minConfidence: 2, allowModel: "yes", timeoutMs: -1 } },
       },
       env: {},
     })
     expect(config.enabled).toBe(true)
     expect(config.shadow).toBe(true)
-    expect(config.jev).toEqual(DEFAULT_JEV_CONFIG)
+    expect(config.providers).toEqual({})
+    expect(config.models).toEqual({})
     expect(config.budget).toEqual(DEFAULT_BUDGET_CONFIG)
     expect(config.egress.providers.jev?.projects).toEqual(["/p"])
     expect(config.egress.providers.jev?.kinds).toEqual(allKindsOff())

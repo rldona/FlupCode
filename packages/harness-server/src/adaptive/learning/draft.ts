@@ -1,7 +1,7 @@
 /**
  * The small model that drafts one learned skill (FH-032).
  *
- * Jev only classifies: *whether* a lesson is reusable and *what* change it calls for. The text is
+ * The predictive model only classifies: *whether* a lesson is reusable and *what* change it calls for. The text is
  * written here, by the small model, through a throwaway engine session — the same pattern
  * `Engine.commitMessage`/`handoff` already use, because `harness-server` has no LLM client of its own
  * (ADR-0016 §2). The seam is narrow on purpose: `DraftEngine` is the slice of `Engine` this needs, so

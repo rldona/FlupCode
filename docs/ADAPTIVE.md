@@ -985,8 +985,14 @@ _AH-C03._ Consent is given **per remote provider**, never as a generic "egress" 
   surface to `egress.providers.jev.*` carries the legacy values over into the new entry, so the move
   changes no behaviour; the old keys are left in the file and ignored from then on. The legacy
   `egress.projects` / `egress.kinds` are no longer writable through the surface.
-- **Budget.** The input bound is still `jev.maxInputTokens`: the neutral input is prepared before a
-  model is chosen, so it is the same whichever provider is asked.
+- **Provider settings (PI-01).** `adaptive.providers.<id>.{endpoint, model, timeoutMs, maxInputChars,
+  keyRef, budget}` are each provider's own. The input bound is the `maxInputChars` of the provider the
+  kind is assigned to (32,000 characters when it names none); the assignment is in the config, so the
+  guard reads it before the service asks. A provider's `budget.monthlyTokens` lowers the layer's
+  monthly cap for that provider; the ledger is one per month, shared by every provider. Its key is
+  stored in the vault under `keyRef` (Jev's default is the name it always had, `typesafe-api-key`, so
+  a saved key keeps working) and read from `FLUPCODE_<KEYREF>` first. The old `jev.*` block,
+  `allowJev` and `TYPESAFE_API_KEY` are read through `legacy.ts` for one release.
 - **Choosing models in Settings.** Settings → Adaptive → Predictive model lists the decisions with a
   selector each — None (built-in rules) or a registered model that can answer it, by the name the
   server's registry gives it — and writes `models.<kind>`. Each row names what its model still waits
@@ -996,16 +1002,17 @@ _AH-C03._ Consent is given **per remote provider**, never as a generic "egress" 
   skills fit: Small model (through the engine) · Whether the task is finished: Jev (key missing)", or
   "Not configured".
 - **Migrating off `jev.enabled`.** A config with `jev.enabled: true` and no `models` block shows Jev on
-  every decision. The first choice writes, in one patch, an explicit `models` entry for every kind as it
-  resolves today (the chosen one changed) and `jev.enabled: false`, and Jev's legacy consent moves into
-  `egress.providers.jev`; nothing else changes. The server applies the same move to any client that
-  writes a `models.*` leaf while `jev.enabled` is on ([ADR-0017](adr/0017-jev-egress-and-governance.md),
+  every decision. `jev.enabled` is read-only (PI-01): the first choice writes only its `models.<kind>`
+  leaf, and the server adds, in the same write, an explicit `models` entry for every other kind as it
+  resolves today and `jev.enabled: false`, and moves Jev's legacy consent into `egress.providers.jev`;
+  nothing else changes. The server applies the same move to any client that writes a `models.*` leaf
+  while `jev.enabled` is on ([ADR-0017](adr/0017-jev-egress-and-governance.md),
   amended).
 
 ## The `small-llm` model
 
 _AH-C04._ The global `small_model`, asked through the engine, as a second `PredictiveModel`
-(`providers/small-llm.ts`), so the live evaluation pipeline runs without `TYPESAFE_API_KEY`.
+(`providers/small-llm.ts`), so the live evaluation pipeline runs without a remote provider's key.
 
 - **Registration.** It is registered only when `small_model` resolves (`provider/model`) at startup,
   and the key is read again on every call. No kind is assigned to it by default: it answers only
@@ -1276,7 +1283,6 @@ always safe.
   | `learning.limits.{proposalsPerDay,maxLearnedSkills,patchesPerWeek}` | whole number ≥ 1 (clamped to its ceiling) | — ; no control in the panel | — |
   | `relevance.enabled` | boolean | a resolved `adaptive-token` ([ADR-0021](adr/0021-skill-relevance-acting.md)) | — |
   | `guardrails.enabled` | boolean | a resolved `adaptive-token` ([ADR-0023](adr/0023-failure-loop-guardrails.md)); shown as "Loop warnings" | — |
-  | `jev.enabled` | boolean | Jev's consent: `egress.providers.jev.enabled`, a project and a kind; legacy, no control when the server lists `models.*` | **yes** |
   | `models.<kind>` | registered model id supporting the kind, `"baseline"` or `null` | unknown id ⇒ `unknown-model`; warning `model-no-consent` when that provider may not receive the kind; while `jev.enabled` is on the write also pins the other kinds to Jev and turns it off ([Egress consent per provider](#egress-consent-per-provider)) | — : assigning is not consent |
   | `egress.providers.<id>.enabled` | boolean | that provider's project and a kind | **yes** |
   | `egress.providers.<id>.projects` | string[] | — | **yes** when it widens |
@@ -1287,13 +1293,15 @@ always safe.
   | `selection.coldGapMs` | number > 0 | — ; replay only | — |
 
   Read-only in E8: `runtime.*`, `episode.*`, `decisions.*`,
-  `jev.{endpoint,model,timeoutMs,maxInputTokens}`, `budget.hotReserveFraction`,
+  `providers.<id>.*`, the legacy `jev.*` (read-only since PI-01), `budget.hotReserveFraction`,
   `context.{keepThreshold,dropThreshold,budget}`, `learning.{minToolCalls,snapshotKeep,maxInputChars,
   maxBodyChars,draftTimeoutMs,archiveAfter,model}`, `relevance.{maxSkills,rosterTtlMs,
-  timeoutMs}` and `retention.*Days`. The predictive model's key is never in the config block: it comes
-  from `TYPESAFE_API_KEY` (which keeps precedence, and which the panel only reports) or from the
-  encrypted vault, where the panel saves it write-only behind a confirmation
-  (`/harness/adaptive/model-key`, capability `adaptive-model-key`); it is read on every request, so
+  timeoutMs}` and `retention.*Days`. A provider's key is never in the config block: it comes from
+  `FLUPCODE_<KEYREF>` (which keeps precedence, and which the panel only reports, by the name the view
+  serves on the provider's `key.env`) or from the encrypted vault, where the panel saves it write-only
+  behind a confirmation (`/harness/adaptive/model-key`, with the provider's id, capability
+  `adaptive-model-key`); the view serves each provider's key status on its `providers[]` entry. It is
+  read on every request, so
   saving needs no restart ([ADR-0017](adr/0017-jev-egress-and-governance.md), amended 2026-09-30).
 - **Provenance and precedence.** The panel shows each switch's effective value and where it comes
   from — `env > block > default`, the same precedence the resolver applies

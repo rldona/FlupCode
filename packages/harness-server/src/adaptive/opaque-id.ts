@@ -2,7 +2,7 @@
  * The opaque reference for an observed context value (FH-020).
  *
  * Context item ids name what a run or an episode touched, but a path, a command or a failure summary
- * is content: putting it in an id would ship it to Jev and keep it in the audit. The id is an HMAC
+ * is content: putting it in an id would ship it to a model and keep it in the audit. The id is an HMAC
  * under the install's key — a keyless digest of a path or a command would be a dictionary oracle — so
  * a re-capture converges and `explain` shows a stable id, while the content stays in the episode and
  * is reached by `evidence_refs` (ADR-0017 §3). The key is never returned or logged.

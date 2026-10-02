@@ -69,7 +69,6 @@ describe("the writable allowlist", () => {
       "relevance.enabled",
       "guardrails.enabled",
       "toolTrim.enabled",
-      "jev.enabled",
       "models.*",
       "egress.providers.*.enabled",
       "egress.providers.*.projects",
@@ -277,22 +276,13 @@ describe("guards", () => {
     ])
   })
 
-  test("enabling Jev needs a project and at least one kind", () => {
-    const error = rejection({ patch: { jev: { enabled: true } }, confirm: true })
-    expect(error).toMatchObject({
-      code: "guard:egress-allowlist-required",
-      missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds"],
-    })
-  })
-
-  test("in the new shape, enabling Jev also needs Jev's consent switched on", () => {
-    const consent = { projects: ["/p"], kinds: { completion: true } }
-    const block = { egress: { providers: { jev: consent } } }
-    expect(rejection({ patch: { jev: { enabled: true } }, block, confirm: true }).missing).toEqual([
-      "egress.providers.jev.enabled",
-    ])
-    const on = { egress: { providers: { jev: { ...consent, enabled: true } } } }
-    expect(plan({ patch: { jev: { enabled: true } }, block: on, confirm: true }).leaves).toHaveLength(1)
+  test("the old single switch is read-only: a patch naming it is refused (PI-01)", () => {
+    const on = { egress: { providers: { jev: { enabled: true, projects: ["/p"], kinds: { completion: true } } } } }
+    for (const value of [true, false])
+      expect(rejection({ patch: { jev: { enabled: value } }, block: on, confirm: true })).toMatchObject({
+        code: "unsupported-field",
+        fields: ["jev.enabled"],
+      })
   })
 
   test("consenting to a provider needs a project and a kind for that provider", () => {
@@ -311,7 +301,9 @@ describe("guards", () => {
   })
 
   test("a missing allowlist is refused before confirmation is considered", () => {
-    expect(rejection({ patch: { jev: { enabled: true } } }).code).toBe("guard:egress-allowlist-required")
+    expect(rejection({ patch: { egress: { providers: { jev: { enabled: true } } } } }).code).toBe(
+      "guard:egress-allowlist-required",
+    )
   })
 })
 
@@ -324,10 +316,10 @@ describe("confirmation", () => {
     expect(plan({ patch: { retention: { enabled: true } }, confirm: true }).leaves).toHaveLength(1)
   })
 
-  test("Jev needs confirmation once its allowlist is satisfied", () => {
+  test("a provider's consent needs confirmation once its allowlist is satisfied", () => {
     const shared = {
-      block: { egress: { projects: ["/p"], kinds: { completion: true } } },
-      patch: { jev: { enabled: true } },
+      block: { egress: { providers: { jev: { projects: ["/p"], kinds: { completion: true } } } } },
+      patch: { egress: { providers: { jev: { enabled: true } } } },
     }
     expect(rejection(shared).code).toBe("confirmation-required")
     expect(plan({ ...shared, confirm: true }).leaves).toHaveLength(1)
@@ -426,7 +418,6 @@ describe("moving an old config to per-provider consent (AH-C03)", () => {
     const smallAfter = resolveAdaptiveConfig({ block: small.blockAfter, env: {} })
     expect(smallAfter.egress.providers["small-llm"]?.enabled).toBe(true)
     expect(smallAfter.egress.providers.jev?.enabled).toBe(false)
-    expect(smallAfter.jev.enabled).toBe(false)
     expect(smallAfter.models).toEqual({})
 
     const jev = plan({ patch: { egress: { providers: { jev: { enabled: true, ...consent } } } }, confirm: true })
@@ -505,22 +496,24 @@ describe("assigning a model per decision (models.*)", () => {
     const before = resolveAdaptiveConfig({ block, env: {} })
     const result = assign({ patch: { models: { skillRelevance: "small-llm" } }, block })
     const after = resolveAdaptiveConfig({ block: result.blockAfter, env: {} })
-    expect(after.jev.enabled).toBe(false)
+    expect(result.blockAfter.jev).toEqual({ enabled: false })
     expect(after.models).toEqual({ ...before.models, skillRelevance: "small-llm" })
     // Jev's legacy consent moves to its own entry, so turning jev.enabled off revokes nothing.
     expect(after.egress.providers.jev).toEqual(before.egress.providers.jev)
     expect(result.blockAfter.egress).toMatchObject({ providers: { jev: { enabled: true, projects: ["/p"] } } })
   })
 
-  test("the panel's own migration patch, every kind named and jev.enabled off, is written as sent", () => {
+  test("an assignment naming several kinds retires the old switch once, and the rest keep the legacy provider", () => {
     const block = { jev: { enabled: true }, egress: { providers: { jev: { enabled: true, projects: ["/p"], kinds: { completion: true } } } } }
     const result = assign({
-      patch: { jev: { enabled: false }, models: { completion: "jev", skillRelevance: null, contextItem: "jev" } },
+      patch: { models: { completion: "jev", skillRelevance: null, contextItem: "jev" } },
       block,
     })
-    expect(result.leaves.filter((leaf) => leaf.path === "jev.enabled")).toHaveLength(1)
+    expect(result.leaves.filter((leaf) => leaf.path === "jev.enabled")).toEqual([
+      { path: "jev.enabled", segments: ["jev", "enabled"], value: false },
+    ])
     const after = resolveAdaptiveConfig({ block: result.blockAfter, env: {} })
-    expect(after.jev.enabled).toBe(false)
+    expect(result.blockAfter.jev).toEqual({ enabled: false })
     expect(after.models.completion).toBe("jev")
     expect(after.models.skillRelevance).toBeUndefined()
     // The kinds the patch did not name keep Jev, as they resolved before it.
@@ -611,7 +604,6 @@ describe("source provenance (env > block > default)", () => {
     const source = adaptiveSource({ enabled: false, relevance: { enabled: true } }, {})
     expect(source.enabled).toBe("block")
     expect(source["relevance.enabled"]).toBe("block")
-    expect(source["jev.enabled"]).toBe("default")
   })
 
   test("runtime and episode read their env first", () => {
@@ -698,7 +690,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
     expect(effective.guardrails.enabled).toBe(false)
     expect(effective.toolTrim.enabled).toBe(false)
     expect(effective.selection).toEqual(DEFAULT_SELECTION_CONFIG)
-    expect(effective.jev.enabled).toBe(false)
+    expect(effective.models).toEqual({})
     expect(effective.retention.enabled).toBe(false)
     expect(effective.egress.providers.jev?.projects).toEqual([])
     expect(Object.values(effective.egress.providers.jev?.kinds ?? {}).some(Boolean)).toBe(false)
@@ -744,21 +736,24 @@ describe("the read model", () => {
     ...overrides,
   })
 
-  test("the model key is present from either source, and the view says which (ADR-0017, amended)", () => {
-    const stored = adaptiveConfigView(viewInput({ modelKey: { source: "stored", storable: true } }))
-    expect(stored.env).toMatchObject({ typesafeKeyPresent: true, typesafeKeySource: "stored" })
-    expect(stored.modelKeyStorable).toBe(true)
-    const none = adaptiveConfigView(viewInput({ modelKey: { source: "none", storable: false } }))
-    expect(none.env).toMatchObject({ typesafeKeyPresent: false, typesafeKeySource: "none" })
-    expect(none.modelKeyStorable).toBe(false)
-    // Without the key service only the environment is read, and a blank value is no key.
-    expect(adaptiveConfigView(viewInput({ env: { TYPESAFE_API_KEY: "  " } })).env.typesafeKeySource).toBe("none")
+  test("each provider that needs a key says where its key comes from, by provider (PI-01)", () => {
+    const models = [
+      { id: "jev", locality: "remote", name: "Jev", needsKey: true },
+      { id: "small-llm", locality: "remote" },
+    ] as const
+    const key = { source: "stored", storable: true, env: "FLUPCODE_TYPESAFE_API_KEY" } as const
+    const [keyed, plain] = adaptiveConfigView(viewInput({ models, keys: { jev: key, "small-llm": key } })).providers
+    expect(keyed?.key).toEqual(key)
+    // A provider that needs no key carries none, whatever the key service says.
+    expect(plain?.key).toBeUndefined()
+    // Without the key service no provider claims a key.
+    expect(adaptiveConfigView(viewInput({ models })).providers[0]?.key).toBeUndefined()
   })
 
-    test("assembles the documented shape", () => {
-    const view = adaptiveConfigView(viewInput({ env: { TYPESAFE_API_KEY: "k" } }))
-    expect(view.env).toEqual({ adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" })
-    expect(view.modelKeyStorable).toBe(false)
+  test("assembles the documented shape", () => {
+    const view = adaptiveConfigView(viewInput())
+    expect(view.env).toEqual({ adaptiveDisabled: false })
+    expect(view.legacySwitch).toBe(false)
     expect(view.runtime).toEqual({ runtime: "legacy", degraded: false, checkedAt: 0, alerts: [] })
     expect(view.canWrite).toBe(true)
     expect(view.writer).toEqual({ path: "/cfg/opencode.jsonc", exists: true })
@@ -812,18 +807,20 @@ describe("the read model", () => {
       { id: "small-llm", locality: "remote", name: "Small model (through the engine)", supports: ["completion"] },
       { id: "local-embed", locality: "local" },
     ] as const
-    expect(adaptiveConfigView(viewInput({ models })).models).toEqual([
+    expect(adaptiveConfigView(viewInput({ models })).providers).toEqual([
       { id: "jev", name: "Jev", locality: "remote", supports: expect.arrayContaining(["completion", "skillReflection"]), needsConsent: true, needsKey: true },
       { id: "small-llm", name: "Small model (through the engine)", locality: "remote", supports: ["completion"], needsConsent: true, needsKey: false },
       // A model without a name is shown by its id; a local one needs no consent.
       { id: "local-embed", name: "local-embed", locality: "local", supports: expect.any(Array), needsConsent: false, needsKey: false },
     ])
-    expect(adaptiveConfigView(viewInput()).models).toEqual([])
+    expect(adaptiveConfigView(viewInput()).providers).toEqual([])
   })
 
-  test("the legacy jev.enabled reads as every kind assigned to Jev", () => {
-    const resolved = createAdaptiveConfig({ read: () => ({ jev: { enabled: true } }), env: {} }).current()
-    const view = adaptiveConfigView(viewInput({ resolved }))
+  test("the legacy jev.enabled reads as every kind assigned to Jev, and the view says the switch is on", () => {
+    const block = { jev: { enabled: true } }
+    const resolved = createAdaptiveConfig({ read: () => block, env: {} }).current()
+    const view = adaptiveConfigView(viewInput({ block, resolved }))
+    expect(view.legacySwitch).toBe(true)
     expect(view.effective.models.completion).toBe("jev")
     expect(view.effective.models.skillRelevance).toBe("jev")
   })
@@ -1009,6 +1006,31 @@ describe("the surface against a real config file", () => {
     expect(result.view.source.enabled).toBe("default")
     expect(result.view.source.shadow).toBe("default")
     expect(JSON.parse(readFileSync(path, "utf8")).flupcode.adaptive).toEqual({})
+  })
+
+  test("choosing None for one decision under the old switch writes the move to the file (PI-01)", async () => {
+    const path = join(config, "opencode.jsonc")
+    writeFileSync(path, JSON.stringify({ flupcode: { adaptive: { jev: { enabled: true } } } }))
+    const { globalAdaptiveBlock } = await import("../config-files")
+    const service = createAdaptiveConfigSurface({
+      config: createAdaptiveConfig({ read: globalAdaptiveBlock, env: {} }),
+      runtime: () => ({ runtime: "legacy", degraded: false, checkedAt: 0 }),
+      capabilities: () => capabilities,
+      repository: { adaptiveUsage: () => ({ tokens: 0, calls: 0 }), addAdaptiveUsage: () => {} },
+      canWrite: true,
+      adaptiveTokenPresent: true,
+      env: {},
+      models: [{ id: "jev", locality: "remote" }],
+    })
+
+    // Deleting a leaf whose parent the file does not have yet is nothing to delete, not a failure.
+    const result = await service.update({ models: { skillRelevance: null } }, false)
+    expect(result.view.legacySwitch).toBe(false)
+    expect(result.view.effective.models.skillRelevance).toBeUndefined()
+    expect(result.view.effective.models.completion).toBe("jev")
+    const written = JSON.parse(readFileSync(path, "utf8")).flupcode.adaptive
+    expect(written.jev).toEqual({ enabled: false })
+    expect(written.models).toEqual({ completion: "jev", contextItem: "jev", failure: "jev", skillReflection: "jev" })
   })
 
   test("an old config reads the same, and a consent write lands in the new shape without dropping it", async () => {

@@ -815,11 +815,11 @@ export type EpisodeRepository = {
   listEpisodes(filter?: EpisodeFilter): SessionEpisode[]
 }
 
-/** What the Jev budget has spent, by UTC month (FH-013). */
+/** What the predictive models' budget has spent, by UTC month (FH-013). */
 export type AdaptiveUsage = { tokens: number; calls: number }
 
 /**
- * The monthly Jev budget ledger, persisted so a restart cannot reset the cap (FH-013).
+ * The predictive models' monthly budget ledger, persisted so a restart cannot reset the cap (FH-013).
  *
  * It is small on purpose: the governor reads the month it is about to spend and adds to it after a
  * call succeeds. A missing month reads as zero rather than as an error.
@@ -976,7 +976,7 @@ export type ContextPlan = {
   applied: boolean
   tokensBefore: number
   tokensAfter: number
-  /** The `contextItem` decision row when Jev was asked, so the plan can explain itself. */
+  /** The `contextItem` decision row when a model was asked, so the plan can explain itself. */
   decisionID?: string
   createdAt: number
 }

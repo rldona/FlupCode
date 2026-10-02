@@ -259,7 +259,11 @@ export function createDecisionService(deps: {
       }
       // The governor records the outcome once per flight, so this caller records nothing: a shared
       // failure seen by several joiners must count once toward the breaker and the limiter.
-      const raw = mode === "hot" ? await governor.runHot(key, tokens, work) : await governor.runBatch(key, tokens, work)
+      // The provider's own budget (PI-01) lowers the month's limit for it alone.
+      const providers = deps.config().providers
+      const cap = Object.hasOwn(providers, model.id) ? providers[model.id]?.budget?.monthlyTokens : undefined
+      const raw =
+        mode === "hot" ? await governor.runHot(key, tokens, work, cap) : await governor.runBatch(key, tokens, work, cap)
       const latencyMs = now() - startedAt
       // Confidence is calibrated here, once, for every model: a model reports its distributions and,
       // optionally, its own confidence in the chosen answer; the recorded confidence is the weakest of

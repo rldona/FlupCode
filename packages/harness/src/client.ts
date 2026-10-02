@@ -1082,19 +1082,20 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           }),
       },
       /**
-       * The predictive model's key: written, removed, never read back. Both writes are sent only
-       * after a person confirmed them, so `confirm` travels with them.
+       * A predictive provider's key: written, removed, never read back. Both writes are sent only
+       * after a person confirmed them, so `confirm` travels with them, and name the provider (an older
+       * server, which has one key, ignores it).
        */
       modelKey: {
-        set: (key: string) =>
+        set: (provider: string, key: string) =>
           harnessAuthorizedEnvelope<AdaptiveModelKeyStatus>(baseUrl, "/harness/adaptive/model-key", {
             method: "PUT",
-            body: JSON.stringify({ key, confirm: true }),
+            body: JSON.stringify({ provider, key, confirm: true }),
           }),
-        remove: () =>
+        remove: (provider: string) =>
           harnessAuthorizedEnvelope<AdaptiveModelKeyStatus>(baseUrl, "/harness/adaptive/model-key", {
             method: "DELETE",
-            body: JSON.stringify({ confirm: true }),
+            body: JSON.stringify({ provider, confirm: true }),
           }),
       },
       runtime: {

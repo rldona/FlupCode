@@ -191,13 +191,15 @@ describe("createHarnessServer runtime probe wiring", () => {
       body: JSON.stringify({ key: secret, confirm: true }),
     })
     expect(await saved.text()).not.toContain(secret)
-    expect(await app.modelKey.resolve()).toBe(secret)
+    const slot = app.modelKeys.slots().jev!
+    expect(await app.modelKeys.keys.resolve(slot)).toBe(secret)
     expect(JSON.stringify(app.egress.redact({ note: `k=${secret}` }))).not.toContain(secret)
     const view = await fetch(new URL("/harness/adaptive/config", app.server.url), { headers })
     const text = await view.text()
     expect(text).not.toContain(secret)
-    expect(JSON.parse(text).data.env).toMatchObject({ typesafeKeyPresent: true, typesafeKeySource: "stored" })
-    expect(JSON.parse(text).data.modelKeyStorable).toBe(true)
+    expect(JSON.parse(text).data.providers).toContainEqual(
+      expect.objectContaining({ id: "jev", needsKey: true, key: { source: "stored", storable: true, env: "FLUPCODE_TYPESAFE_API_KEY" } }),
+    )
   })
 
   test("stop clears the probe interval so it stops refreshing", async () => {

@@ -22,7 +22,7 @@ export type ContextPartKind = "objective" | "handoff" | "memory" | "artifact" | 
 export type ContextPart = {
   id: string
   kind: ContextPartKind
-  /** The rendered text of the part (it never travels to Jev or the plan). */
+  /** The rendered text of the part (it never travels to a model or the plan). */
   text?: string
   /** A `file` part of the engine (the engine reads it); not text. */
   file?: { path: string }

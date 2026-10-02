@@ -790,7 +790,7 @@ describe("the decision audit (FH-015)", () => {
     source: "model",
     degraded: false,
     latencyMs: 12,
-    policy: { allowJev: true, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
+    policy: { allowModel: true, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
     shadow: true,
     ...overrides,
   })
@@ -1068,7 +1068,7 @@ describe("the adaptive retention purge (FH-082, ADR-0022 §2)", () => {
     source: "baseline",
     degraded: false,
     latencyMs: 1,
-    policy: { allowJev: false, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
+    policy: { allowModel: false, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
     shadow: true,
     ...overrides,
   })

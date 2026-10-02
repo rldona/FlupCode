@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal } from "solid-js"
 import { createResource } from "../../resource"
 import { setAdaptiveModels } from "../../adaptive-copy"
+import { viewProviders } from "../../adaptive-legacy"
 import {
   addSource,
   removeSource,
@@ -42,9 +43,12 @@ export function createCatalog(app: AppStores) {
     (url) =>
       createHarnessClient(url)
         .adaptive.config.get()
-        .then((view) => view.models ?? []),
+        .then((view) => viewProviders(view) ?? []),
   )
-  createEffect(() => setAdaptiveModels(adaptiveSettings()?.models ?? adaptiveRegistry() ?? []))
+  createEffect(() => {
+    const view = adaptiveSettings()
+    setAdaptiveModels((view ? viewProviders(view) : undefined) ?? adaptiveRegistry() ?? [])
+  })
   // The value gate (AH-C05) says whether the predictive model is paused for low value; an older server
   // that does not announce it is not asked.
   const [adaptiveVoi] = createResource(
@@ -78,13 +82,13 @@ export function createCatalog(app: AppStores) {
       .catch(adaptiveFailed)
       .finally(() => setAdaptiveSaving(false))
   }
-  // The predictive model's key: saved or removed, then the view is re-read so the panel says where
+  // A predictive provider's key: saved or removed, then the view is re-read so the panel says where
   // the key now comes from. The key is passed straight through and kept nowhere here.
   const changeModelKey = (change: ModelKeyChange) => {
     setAdaptiveSaving(true)
     setAdaptiveError(undefined)
     const modelKey = createHarnessClient(app.connection.harnessServerUrl()).adaptive.modelKey
-    void ("key" in change ? modelKey.set(change.key) : modelKey.remove())
+    void ("key" in change ? modelKey.set(change.provider, change.key) : modelKey.remove(change.provider))
       .then(() => {
         setAdaptiveWarnings([])
         setAdaptiveRevision((value) => value + 1)

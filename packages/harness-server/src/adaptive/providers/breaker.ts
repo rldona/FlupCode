@@ -1,5 +1,5 @@
 /**
- * The circuit breaker that keeps one failing Jev from becoming a latency storm (FH-013).
+ * The circuit breaker that keeps one failing model from becoming a latency storm (FH-013).
  *
  * It is deliberately small and synchronous: consecutive failures open the circuit for a cooldown,
  * then exactly one probe is allowed through. A success closes it; a failed probe reopens it. The

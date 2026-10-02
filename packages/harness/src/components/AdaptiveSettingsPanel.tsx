@@ -2,11 +2,13 @@ import { For, Show, createEffect, createSignal, type Component, type JSX } from 
 import { getLocale, t } from "../i18n"
 import { adaptiveSurfaces } from "../client"
 import { modelDisplayName } from "../adaptive-copy"
+import { LEGACY_PROVIDER, LEGACY_SWITCH, legacyKey, legacySwitchOn, viewProviders } from "../adaptive-legacy"
 import type { AdaptiveConfigError } from "../client"
 import type {
   AdaptiveConfigView,
   AdaptiveLearningLimitHit,
   AdaptiveModel,
+  AdaptiveModelKeyStatus,
   AdaptiveRuntimeAlert,
   AdaptiveProvenance,
   AdaptiveProviderConsent,
@@ -46,7 +48,7 @@ export function writableField(view: AdaptiveConfigView, path: string): AdaptiveW
  * the config file mentions) is shown as it is.
  */
 export function modelName(view: AdaptiveConfigView, id: string): string {
-  return modelDisplayName(id, view.models ?? [])
+  return modelDisplayName(id, viewProviders(view) ?? [])
 }
 
 /**
@@ -55,7 +57,7 @@ export function modelName(view: AdaptiveConfigView, id: string): string {
  * older server that does not serve its registry is shown the four kinds it shipped with.
  */
 export function modelKinds(view: AdaptiveConfigView): string[] {
-  const models = view.models
+  const models = viewProviders(view)
   if (!models) return [...ADAPTIVE_KINDS]
   const supported = new Set(models.flatMap((model) => model.supports))
   return [
@@ -66,13 +68,13 @@ export function modelKinds(view: AdaptiveConfigView): string[] {
 
 /** The registered models that can answer a kind, for its selector. */
 export function assignableModels(view: AdaptiveConfigView, kind: string): AdaptiveModel[] {
-  return (view.models ?? []).filter((model) => model.supports.includes(kind))
+  return (viewProviders(view) ?? []).filter((model) => model.supports.includes(kind))
 }
 
 /**
- * The model that answers a kind, or undefined for none. The server resolves the legacy `jev.enabled`
- * into `effective.models` (every kind the block does not name asks Jev), so this is the effective
- * assignment either way.
+ * The model that answers a kind, or undefined for none. The server resolves the old single switch
+ * into `effective.models` (every kind the block does not name asks its provider), so this is the
+ * effective assignment either way.
  */
 export function assignedModel(view: AdaptiveConfigView, kind: string): string | undefined {
   const models = view.effective.models ?? {}
@@ -81,18 +83,13 @@ export function assignedModel(view: AdaptiveConfigView, kind: string): string | 
 }
 
 /**
- * The leaves choosing a model for a kind writes; null is none. While the legacy `jev.enabled` is on it
- * assigns Jev to every kind without an entry, so the first choice writes the whole effective assignment
- * as an explicit `models` block and turns `jev.enabled` off in the same patch: the two never disagree,
- * and no kind changes but the one chosen.
+ * The leaves choosing a model for a kind writes; null is none. While the old single switch is on it
+ * assigns its provider to every kind without an entry; the server then pins every other kind to what
+ * it resolves to today and turns the switch off in the same write, so the two never disagree and no
+ * kind changes but the one chosen. The switch itself is read-only, so the panel never names it.
  */
-export function assignmentLeaves(view: AdaptiveConfigView, kind: string, id: string | null): Record<string, unknown> {
-  if (!view.effective.jev.enabled) return { [`models.${kind}`]: id }
-  return {
-    ...Object.fromEntries(Object.entries(view.effective.models ?? {}).map(([entry, model]) => [`models.${entry}`, model])),
-    [`models.${kind}`]: id,
-    "jev.enabled": false,
-  }
+export function assignmentLeaves(kind: string, id: string | null): Record<string, unknown> {
+  return { [`models.${kind}`]: id }
 }
 
 /**
@@ -100,7 +97,7 @@ export function assignmentLeaves(view: AdaptiveConfigView, kind: string, id: str
  * a project, this decision, sending data turned on, then the key. A local model needs no consent.
  */
 export function missingForKind(view: AdaptiveConfigView, kind: string, id: string): MissingItem[] {
-  const model = view.models?.find((entry) => entry.id === id)
+  const model = viewProviders(view)?.find((entry) => entry.id === id)
   const provider = modelName(view, id)
   const consent = consentOf(view, id)
   const needsConsent = model?.needsConsent ?? true
@@ -112,7 +109,7 @@ export function missingForKind(view: AdaptiveConfigView, kind: string, id: strin
     ...(needsConsent && consent?.enabled !== true
       ? [{ key: "sending data to {provider} turned on", params: { provider } }]
       : []),
-    ...(model?.needsKey === true && !view.env.typesafeKeyPresent ? [{ key: "the model key" }] : []),
+    ...(model?.needsKey === true && (model.key?.source ?? "none") === "none" ? [{ key: "the model key" }] : []),
   ]
 }
 
@@ -163,7 +160,7 @@ export function fieldProblem(
     if (!consent || consent.projects.length === 0 || (needsEnabled && !consent.enabled)) return false
     return Object.values(consent.kinds).some(Boolean)
   }
-  if (path === "jev.enabled") return ready("jev", true) ? undefined : "egress-allowlist"
+  if (path === LEGACY_SWITCH) return ready(LEGACY_PROVIDER, true) ? undefined : "egress-allowlist"
   const consent = consentPath(path)
   if (consent && !ready(consent.provider, false)) return "egress-allowlist"
   return undefined
@@ -187,16 +184,17 @@ export type MissingItem = { key: string; params?: Record<string, string> }
  */
 export function missingFor(view: AdaptiveConfigView, path: string): MissingItem[] {
   const consent = consentPath(path)
-  const provider = path === "jev.enabled" ? "jev" : consent?.leaf === "enabled" ? consent.provider : undefined
+  const legacy = path === LEGACY_SWITCH
+  const provider = legacy ? LEGACY_PROVIDER : consent?.leaf === "enabled" ? consent.provider : undefined
   if (provider === undefined) return []
   const current = consentOf(view, provider)
   return [
     ...((current?.projects.length ?? 0) === 0 ? [{ key: "a project" }] : []),
     ...(Object.values(current?.kinds ?? {}).some(Boolean) ? [] : [{ key: "a decision" }]),
-    ...(path === "jev.enabled" && current?.enabled !== true
+    ...(legacy && current?.enabled !== true
       ? [{ key: "sending data to {provider} turned on", params: { provider: modelName(view, provider) } }]
       : []),
-    ...(path === "jev.enabled" && !view.env.typesafeKeyPresent ? [{ key: "the model key" }] : []),
+    ...(legacy && legacyKey(view).source === "none" ? [{ key: "the model key" }] : []),
   ]
 }
 
@@ -207,16 +205,17 @@ export function missingText(items: readonly MissingItem[]): string {
 }
 
 /**
- * Where the predictive model's key stands: set by the environment (read-only here), saved in the
- * encrypted vault, missing, or missing on a machine that cannot store one. An older server that does
- * not say the source is read from the presence flag alone.
+ * Where a provider's key stands: set by the environment (read-only here), saved in the encrypted
+ * vault, missing, or missing on a machine that cannot store one.
  */
 export type ModelKeyState = "env" | "stored" | "none" | "unavailable"
 
-export function modelKeyState(view: AdaptiveConfigView): ModelKeyState {
-  const source = view.env.typesafeKeySource ?? (view.env.typesafeKeyPresent ? "env" : "none")
-  if (source !== "none") return source
-  return view.modelKeyStorable === true ? "none" : "unavailable"
+/** A provider that needs a key but whose status the server did not send: missing, and not storable. */
+const NO_KEY: AdaptiveModelKeyStatus = { source: "none", storable: false, env: "" }
+
+export function modelKeyState(key: AdaptiveModelKeyStatus): ModelKeyState {
+  if (key.source !== "none") return key.source
+  return key.storable ? "none" : "unavailable"
 }
 
 /** The switches the master `enabled` stops on the server; retention sweeps run regardless of it. */
@@ -227,7 +226,7 @@ const MASTER_GATED = new Set([
   "learning.enabled",
   "relevance.enabled",
   "guardrails.enabled",
-  "jev.enabled",
+  LEGACY_SWITCH,
 ])
 
 /**
@@ -588,7 +587,7 @@ const CLAIMED = new Set([
   "guardrails.enabled",
   "learning.enabled",
   "learning.frozen",
-  "jev.enabled",
+  LEGACY_SWITCH,
   "retention.enabled",
   "budget.monthlyTokens",
 ])
@@ -753,7 +752,7 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
     return t(
       "Cleaning up removes adaptive history older than its retention window. Learned skills are never removed. The change is written to the config file.",
     )
-  if (path === "jev.enabled" && value === true)
+  if (path === LEGACY_SWITCH && value === true)
     return t(
       "The predictive model receives redacted, size-limited decision inputs for the projects and decisions you allowed. The change is written to the config file.",
     )
@@ -854,12 +853,15 @@ export type AdaptiveSettingsState = {
   voi?: ValueGateSnapshot
 }
 
-/** A change to the predictive model's key, sent only after the reader confirmed it. */
-export type ModelKeyChange = { key: string } | { remove: true }
+/**
+ * A change to a provider's key, sent only after the reader confirmed it. `provider` is empty for a
+ * server too old to serve its registry, which has one key.
+ */
+export type ModelKeyChange = { provider: string; key: string } | { provider: string; remove: true }
 
 type AdaptiveSettingsPanelProps = AdaptiveSettingsState & {
   onPatch: (patch: Record<string, unknown>, confirm: boolean) => void
-  /** Saves or removes the predictive model's key; offered only when the server announced the route. */
+  /** Saves or removes a provider's key; offered only when the server announced the route. */
   onModelKey?: (change: ModelKeyChange) => void
   /** Dismisses the runtime alerts (AH-D05); offered only when the server announced the route. */
   onAcknowledgeRuntime: () => void
@@ -893,10 +895,13 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
   const [budget, setBudget] = createSignal("")
   // The key itself lives only in the password field until the confirmed save reads and clears it: no
   // signal ever holds it, only whether the field has something in it.
-  const [keyPending, setKeyPending] = createSignal<"save" | "remove">()
-  const [keyDraft, setKeyDraft] = createSignal(false)
-  const [keyEditing, setKeyEditing] = createSignal(false)
-  let keyInput: HTMLInputElement | undefined
+  // Each provider's row has its own field, so the pending action, the drafts and the edits are per
+  // provider.
+  const [keyPending, setKeyPending] = createSignal<{ action: "save" | "remove"; provider: string }>()
+  const [keyDrafts, setKeyDrafts] = createSignal<Record<string, boolean>>({})
+  const [keyEditing, setKeyEditing] = createSignal<string>()
+  const keyInputs = new Map<string, HTMLInputElement>()
+  const setKeyDraft = (provider: string, draft: boolean) => setKeyDrafts((drafts) => ({ ...drafts, [provider]: draft }))
 
   // The server's budget as last seen, so a write to another switch does not wipe an unsaved draft.
   let serverBudget: string | undefined
@@ -1164,8 +1169,8 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
             {t("Needs confirmation. Covers {provider} only.", { provider: name() })}
           </span>
         </Switch>
-        <Show when={row.view.models?.find((model) => model.id === row.provider)?.needsKey}>
-          <ModelKeyRow view={row.view} />
+        <Show when={viewProviders(row.view)?.find((model) => model.id === row.provider && model.needsKey)}>
+          {(model) => <ModelKeyRow provider={row.provider} status={model().key ?? NO_KEY} />}
         </Show>
       </>
     )
@@ -1205,7 +1210,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
             const next = event.currentTarget.value
             // The select shows the server's value until the answer comes back with the new one.
             event.currentTarget.value = current() ?? ""
-            proposeLeaves(assignmentLeaves(row.view, row.kind, next === "" ? null : next))
+            proposeLeaves(assignmentLeaves(row.kind, next === "" ? null : next))
           }}
         >
           <option value="">{t("None (built-in rules)")}</option>
@@ -1216,14 +1221,14 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
   }
 
   /**
-   * The predictive model's key, write-only: the environment's is only reported, a saved one offers
-   * Change and Remove, and a new one goes through a password field and a confirmation. The value is
-   * never shown back, and the field is cleared the moment the confirmed save reads it.
+   * A provider's key, write-only: the environment's is only reported, a saved one offers Change and
+   * Remove, and a new one goes through a password field and a confirmation. The value is never shown
+   * back, and the field is cleared the moment the confirmed save reads it.
    */
-  const ModelKeyRow = (row: { view: AdaptiveConfigView }) => {
-    const state = () => modelKeyState(row.view)
+  const ModelKeyRow = (row: { provider: string; status: AdaptiveModelKeyStatus }) => {
+    const state = () => modelKeyState(row.status)
     const writable = () => adaptiveSurfaces(props.capabilities).modelKey && !!props.onModelKey && !readOnly()
-    const editing = () => writable() && (state() === "none" || (state() === "stored" && keyEditing()))
+    const editing = () => writable() && (state() === "none" || (state() === "stored" && keyEditing() === row.provider))
     return (
       <>
         <div class="fc-settings-subtitle">{t("Model key")}</div>
@@ -1231,7 +1236,9 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
           <p class="fc-adaptive-status" data-tone="active">
             {t("Key set by the environment.")}
           </p>
-          <p class="fc-settings-hint">{t("It can only be changed where FlupCode is started (TYPESAFE_API_KEY).")}</p>
+          <p class="fc-settings-hint">
+            {t("It can only be changed where FlupCode is started ({env}).", { env: row.status.env })}
+          </p>
         </Show>
         <Show when={state() === "stored" && !editing()}>
           <div class="fc-settings-row">
@@ -1240,10 +1247,10 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
             </p>
             <Show when={writable()}>
               <span class="fc-settings-actions">
-                <button class="fc-button" type="button" disabled={locked()} onClick={() => setKeyEditing(true)}>
+                <button class="fc-button" type="button" disabled={locked()} onClick={() => setKeyEditing(row.provider)}>
                   {t("Change")}
                 </button>
-                <button class="fc-button" type="button" disabled={locked()} onClick={() => setKeyPending("remove")}>
+                <button class="fc-button" type="button" disabled={locked()} onClick={() => setKeyPending({ action: "remove", provider: row.provider })}>
                   {t("Remove")}
                 </button>
               </span>
@@ -1253,7 +1260,8 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         <Show when={state() === "unavailable"}>
           <p class="fc-settings-hint">
             {t(
-              "This machine cannot store the key: its encrypted store is not available. Set TYPESAFE_API_KEY where FlupCode is started instead.",
+              "This machine cannot store the key: its encrypted store is not available. Set {env} where FlupCode is started instead.",
+              { env: row.status.env },
             )}
           </p>
         </Show>
@@ -1265,20 +1273,20 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
             <label class="fc-field">
               <span>{t("Predictive model key")}</span>
               <input
-                ref={keyInput}
+                ref={(input) => keyInputs.set(row.provider, input)}
                 class="fc-question-custom"
                 type="password"
                 dir="ltr"
                 autocomplete="off"
                 spellcheck={false}
-                onInput={(event) => setKeyDraft(event.currentTarget.value.trim() !== "")}
+                onInput={(event) => setKeyDraft(row.provider, event.currentTarget.value.trim() !== "")}
               />
             </label>
             <button
               class="fc-button"
               type="button"
-              disabled={locked() || !keyDraft()}
-              onClick={() => setKeyPending("save")}
+              disabled={locked() || !keyDrafts()[row.provider]}
+              onClick={() => setKeyPending({ action: "save", provider: row.provider })}
             >
               {t("Save key")}
             </button>
@@ -1287,8 +1295,8 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                 class="fc-button"
                 type="button"
                 onClick={() => {
-                  setKeyEditing(false)
-                  setKeyDraft(false)
+                  setKeyEditing(undefined)
+                  setKeyDraft(row.provider, false)
                 }}
               >
                 {t("Cancel")}
@@ -1444,7 +1452,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
               <Show when={field("models.completion")}>
                 <h4 class="fc-settings-subtitle">{t("Which model answers each decision")}</h4>
                 <For each={modelKinds(view())}>{(kind) => <KindModel kind={kind} view={view()} />}</For>
-                <Show when={view().effective.jev.enabled}>
+                <Show when={legacySwitchOn(view())}>
                   <p class="fc-settings-hint">
                     {t(
                       "These choices come from the older single switch. Changing one saves a choice per decision and turns that switch off.",
@@ -1460,11 +1468,11 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
               </For>
               {/* An older server neither names its models nor assigns them per decision: its key row and
                   its single switch stay as they were. */}
-              <Show when={!view().models}>
-                <ModelKeyRow view={view()} />
+              <Show when={!viewProviders(view())}>
+                <ModelKeyRow provider="" status={legacyKey(view())} />
               </Show>
               <Show when={!field("models.completion")}>
-                <Switch path="jev.enabled" label="Use the predictive model">
+                <Switch path={LEGACY_SWITCH} label="Use the predictive model">
                   <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
                 </Switch>
               </Show>
@@ -1626,9 +1634,9 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
       />
       <ConfirmDialog
         open={!!keyPending()}
-        title={keyPending() === "remove" ? t("Remove the key?") : t("Save the key?")}
+        title={keyPending()?.action === "remove" ? t("Remove the key?") : t("Save the key?")}
         message={
-          keyPending() === "remove"
+          keyPending()?.action === "remove"
             ? t(
                 "The saved key is deleted from this machine. Until another key is set, built-in rules decide instead of the predictive model.",
               )
@@ -1636,16 +1644,19 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                 "The key is stored encrypted on this machine and used only for calls to the predictive model's provider. It is never shown again.",
               )
         }
-        confirmLabel={keyPending() === "remove" ? t("Remove") : t("Save key")}
+        confirmLabel={keyPending()?.action === "remove" ? t("Remove") : t("Save key")}
         onConfirm={() => {
-          const action = keyPending()
+          const pendingKey = keyPending()
           setKeyPending(undefined)
-          if (action === "remove") return props.onModelKey?.({ remove: true })
-          const key = keyInput?.value.trim() ?? ""
-          if (keyInput) keyInput.value = ""
-          setKeyDraft(false)
-          setKeyEditing(false)
-          if (key) props.onModelKey?.({ key })
+          if (!pendingKey) return
+          const provider = pendingKey.provider
+          if (pendingKey.action === "remove") return props.onModelKey?.({ provider, remove: true })
+          const input = keyInputs.get(provider)
+          const key = input?.value.trim() ?? ""
+          if (input) input.value = ""
+          setKeyDraft(provider, false)
+          setKeyEditing(undefined)
+          if (key) props.onModelKey?.({ provider, key })
         }}
         onClose={() => setKeyPending(undefined)}
       />

@@ -279,28 +279,34 @@ describe("refusals", () => {
     expect(await response.json()).toMatchObject({ code: "confirmation-required", fields: ["learning.enabled"] })
   })
 
-  test("guard:egress-allowlist-required for Jev, with both missing leaves", async () => {
-    const response = await patch({ patch: { jev: { enabled: true } }, confirm: true })
+  test("guard:egress-allowlist-required for a provider's consent, with both missing leaves", async () => {
+    const response = await patch({ patch: { egress: { providers: { jev: { enabled: true } } } }, confirm: true })
     expect(response.status).toBe(422)
     expect(await response.json()).toMatchObject({
       code: "guard:egress-allowlist-required",
-      fields: ["jev.enabled"],
+      fields: ["egress.providers.jev.enabled"],
       missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds"],
     })
   })
 
-  test("confirmation-required for Jev once its allowlist is satisfied", async () => {
+  test("confirmation-required for a provider's consent once its allowlist is satisfied", async () => {
     const handler = open({
       adaptiveConfig: surface({ block: { egress: { projects: ["/p"], kinds: { completion: true } } } }),
       token: TOKEN,
     })
     const response = await call(handler, "/harness/adaptive/config", {
       method: "PATCH",
-      body: { patch: { jev: { enabled: true } } },
+      body: { patch: { egress: { providers: { jev: { enabled: true } } } } },
       token: TOKEN,
     })
     expect(response.status).toBe(422)
-    expect(await response.json()).toMatchObject({ code: "confirmation-required", fields: ["jev.enabled"] })
+    expect(await response.json()).toMatchObject({ code: "confirmation-required", fields: ["egress.providers.jev.enabled"] })
+  })
+
+  test("the old single switch is refused as a field this surface does not write (PI-01)", async () => {
+    const response = await patch({ patch: { jev: { enabled: true } }, confirm: true })
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ code: "unsupported-field", fields: ["jev.enabled"] })
   })
 
   test("widening a provider's projects needs confirmation, and confirming writes it", async () => {

@@ -10,13 +10,14 @@
  * invariant as a rule at the writer, not as a separate service.
  *
  * The guard writes a neutral input, not a wire body: each remote model serializes its own envelope
- * from it (Jev's lives in `providers/jev.ts`), so the guard stays the same whichever model is asked.
+ * from it in its own provider module, so the guard stays the same whichever model is asked.
  */
 
 import { createHash } from "node:crypto"
 import type { AnyDecisionRequest, DecisionKind } from "./decision"
 import { decisionInputsHash } from "./decision"
 import type { AdaptiveConfig } from "./config"
+import { DEFAULT_MAX_INPUT_CHARS } from "./config"
 import { redactText } from "./redaction"
 import { questionID, questionsFor } from "./questions"
 import type { PredictionState, PredictiveModel, Question } from "./predictive/model"
@@ -179,13 +180,16 @@ export function createAdaptiveEgressGuard(deps: {
         options: question.options.map((option) => redactText(option, secrets)),
       }
     })
-    // The bound is still read from the Jev slot of the config. The input is prepared before a model is
-    // chosen (every decision is hashed, answered by a model or not), so it cannot depend on which
-    // provider is asked; a per-provider bound would need a second, per-model preparation.
+    // The bound is the `maxInputChars` of the provider the kind is assigned to (PI-01). The input is
+    // prepared before the service checks that model may be asked (every decision is hashed, answered
+    // by a model or not), but the assignment is already known: it is the config's, read here.
+    const assigned = config.models[request.kind]
+    const provider =
+      assigned !== undefined && Object.hasOwn(config.providers, assigned) ? config.providers[assigned] : undefined
     const bounded = boundInput(
       redactText(JSON.stringify(outwardState(request.state)), secrets),
       asked,
-      Math.max(0, config.jev.maxInputTokens),
+      Math.max(0, provider?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS),
     )
     const serialized = JSON.stringify({ state: bounded.state, questions: bounded.questions })
     const hash = decisionInputsHash(request.kind, serialized)

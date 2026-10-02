@@ -12,7 +12,7 @@
  * breaker or limiter feedback. The budget is charged per attempt (the first before the call, each
  * retry through the gate handed to `work`) and its limits are read from the live config.
  *
- * The transport lives in each model (Jev's in `jev.ts`) and the retries in `retry.ts`; this module
+ * The transport lives in each model and the retries in `retry.ts`; this module
  * knows about work, not about HTTP.
  */
 
@@ -65,11 +65,15 @@ export type GovernorState = {
  */
 export type GovernedWork<T> = (signal: AbortSignal, retry: () => boolean) => Promise<T>
 
+/**
+ * `cap` is the asked provider's own monthly budget (PI-01), a lower limit on the shared month's spend;
+ * without one the layer's budget is the only limit.
+ */
 export type Governor = {
   /** Hot path: no queue, only breaker and budget. */
-  runHot<T>(key: string, tokens: number, work: GovernedWork<T>): Promise<T>
+  runHot<T>(key: string, tokens: number, work: GovernedWork<T>, cap?: number): Promise<T>
   /** Batch: adaptive concurrency, still sharing breaker, budget and single-flight with the hot path. */
-  runBatch<T>(key: string, tokens: number, work: GovernedWork<T>): Promise<T>
+  runBatch<T>(key: string, tokens: number, work: GovernedWork<T>, cap?: number): Promise<T>
   recordSuccess(): void
   recordFailure(reason: DegradedReason): void
   recordRateLimit(retryAfterMs?: number): void
@@ -128,8 +132,8 @@ export function createGovernor(input: {
   let softCapLoggedFor: string | undefined
 
   /** Reserves the estimated spend, logs an exhausted budget, and reports the soft cap once a month. */
-  const reserve = (tokens: number, mode: "hot" | "batch"): boolean => {
-    if (!budget.reserve(tokens, mode)) {
+  const reserve = (tokens: number, mode: "hot" | "batch", cap?: number): boolean => {
+    if (!budget.reserve(tokens, mode, cap)) {
       onLog?.({ kind: "budget-exhausted", month: budget.month() })
       return false
     }
@@ -157,7 +161,13 @@ export function createGovernor(input: {
     if (reason === "rate-limited") recordRateLimit(retryAfterMs)
   }
 
-  const run = async <T>(mode: "hot" | "batch", key: string, tokens: number, work: GovernedWork<T>): Promise<T> => {
+  const run = async <T>(
+    mode: "hot" | "batch",
+    key: string,
+    tokens: number,
+    work: GovernedWork<T>,
+    cap?: number,
+  ): Promise<T> => {
     // Hot and batch never share an in-flight promise: a live turn must not join a background batch
     // and inherit its limiter wait (ADR-0017 §4). Breaker, budget and limiter stay shared below, and
     // the hot path keeps its own deadline. The accepted cost is that one identical question hot and
@@ -167,14 +177,14 @@ export function createGovernor(input: {
       if (!breaker.wouldAllow()) throw new DecisionUnavailable("breaker-open")
       // The reservation happens inside the flight: a deduped caller shares the answer and reserves
       // nothing, and the estimate is persisted before the call so a later failure still counts.
-      if (!reserve(tokens, mode)) throw new DecisionUnavailable("budget-exhausted")
+      if (!reserve(tokens, mode, cap)) throw new DecisionUnavailable("budget-exhausted")
       // Reserves the half-open probe only once the budget admitted the call, so an exhausted budget
       // never strands it. Nothing runs between `wouldAllow` and here, so this admits.
       breaker.allow()
       const controller = new AbortController()
       if (mode === "batch") await limiter.acquire()
       try {
-        const value = await work(controller.signal, () => reserve(tokens, mode))
+        const value = await work(controller.signal, () => reserve(tokens, mode, cap))
         if (isDegraded(value)) recordDegraded(value.degradedReason ?? "network", value.retryAfterMs)
         else recordSuccess()
         return value
@@ -188,8 +198,8 @@ export function createGovernor(input: {
   }
 
   return {
-    runHot: (key, tokens, work) => run("hot", key, tokens, work),
-    runBatch: (key, tokens, work) => run("batch", key, tokens, work),
+    runHot: (key, tokens, work, cap) => run("hot", key, tokens, work, cap),
+    runBatch: (key, tokens, work, cap) => run("batch", key, tokens, work, cap),
     recordSuccess,
     recordFailure,
     recordRateLimit,

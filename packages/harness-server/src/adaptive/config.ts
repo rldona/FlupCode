@@ -2,8 +2,8 @@
  * The adaptive layer's settings, composed from the Phase 1 resolvers (FH-016).
  *
  * This is a compositor, not a new framework: it calls `resolveRuntimeConfig` and
- * `resolveEpisodeBoundaryConfig` unchanged, resolves the newer slices (decisions, Jev, budget,
- * egress) and hands back one object. `harness-server` has no `config/` self-export of its own, so the
+ * `resolveEpisodeBoundaryConfig` unchanged, resolves the newer slices (decisions, providers,
+ * budget, egress) and hands back one object. `harness-server` has no `config/` self-export of its own, so the
  * composition lives where the settings are read.
  *
  * Precedence is the Phase 1 one — environment, then the global `flupcode.adaptive` block, then the
@@ -23,14 +23,35 @@ import { DROP_THRESHOLD, KEEP_THRESHOLD } from "./scoring"
 import type { ContextBudget } from "./scoring"
 import { DEFAULT_GOVERNOR_CONFIG } from "./providers/governor"
 import type { GovernorConfig } from "./providers/governor"
+import {
+  LEGACY_PROVIDER,
+  legacyConsentBlock,
+  legacyProviderBlock,
+  legacySwitchOn,
+  policyAllowsModel,
+} from "./legacy"
 
-export type JevConfig = {
-  enabled: boolean
-  endpoint: string
-  model: string
-  timeoutMs: number
-  maxInputTokens: number
+/**
+ * One predictive provider's settings (PI-01): `adaptive.providers.<id>`. Every field is optional and
+ * only what the block sets is here; the provider applies its own defaults for the rest.
+ *
+ * - `endpoint`, `model`, `timeoutMs`: where and what a remote provider asks, and its per-attempt deadline.
+ * - `maxInputChars`: the most characters of serialized input (state and questions) it is sent.
+ * - `keyRef`: the name its key is stored under in the vault, and read from as `FLUPCODE_<REF>`.
+ * - `budget.monthlyTokens`: the month's spend, counted across every provider, past which it is no
+ *   longer asked. It can only lower the layer's own `budget.monthlyTokens`.
+ */
+export type ProviderSettings = {
+  endpoint?: string
+  model?: string
+  timeoutMs?: number
+  maxInputChars?: number
+  keyRef?: string
+  budget?: { monthlyTokens: number }
 }
+
+/** The input bound for a provider whose settings name none. */
+export const DEFAULT_MAX_INPUT_CHARS = 32_000
 
 /**
  * Which registered predictive model each kind asks (AH-C01), by model id. A kind that is absent asks
@@ -38,7 +59,7 @@ export type JevConfig = {
  */
 export type ModelAssignments = Partial<Record<DecisionKind, string>>
 
-/** The id that pins a kind to the deterministic baseline, overriding the legacy Jev assignment. */
+/** The id that pins a kind to the deterministic baseline, overriding the legacy single switch. */
 export const BASELINE_MODEL = "baseline"
 
 export type BudgetConfig = { monthlyTokens: number; hotReserveFraction: number }
@@ -51,16 +72,16 @@ export type EgressProviderConfig = {
 }
 
 /**
- * Consent per remote provider (AH-C03), keyed by the predictive model id (`jev`, `small-llm`). One
- * provider's consent never covers another; a `local` model needs none (the kill switch still applies).
+ * Consent per remote provider (AH-C03), keyed by the predictive model id. One provider's consent never
+ * covers another; a `local` model needs none (the kill switch still applies).
  */
 export type EgressConfig = { providers: Record<string, EgressProviderConfig> }
 
-/** The shape a provider id must have to be read from, or written to, `egress.providers.<id>`. */
+/**
+ * The shape a provider id must have to be read from, or written to, `egress.providers.<id>` and
+ * `providers.<id>`; a `keyRef` has the same shape.
+ */
 export const PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
-
-/** The provider the legacy top-level egress keys (`jev.enabled`, `egress.projects/kinds`) consent for. */
-export const LEGACY_EGRESS_PROVIDER = "jev"
 
 export type ContextConfig = {
   /** Whether a plan is computed at all; with the shadow on it is computed even when not applied. */
@@ -243,7 +264,7 @@ export type SelectionConfig = {
 }
 
 export type AdaptiveConfig = {
-  /** Kill switch: stops decisions, shadow and Jev. It does not touch episodes or the base harness. */
+  /** Kill switch: stops decisions, shadow and every model. It does not touch episodes or the base harness. */
   enabled: boolean
   shadow: boolean
   runtime: RuntimeProbeConfig
@@ -251,7 +272,8 @@ export type AdaptiveConfig = {
   decisions: Record<DecisionKind, DecisionPolicy>
   /** The predictive model per kind; see `resolveModelAssignments` for the legacy fallback. */
   models: ModelAssignments
-  jev: JevConfig
+  /** Each provider's own settings, by id; see `ProviderSettings`. */
+  providers: Record<string, ProviderSettings>
   budget: BudgetConfig
   egress: EgressConfig
   governor: GovernorConfig
@@ -265,14 +287,6 @@ export type AdaptiveConfig = {
   compaction: CompactionConfig
   toolTrim: ToolTrimConfig
   selection: SelectionConfig
-}
-
-export const DEFAULT_JEV_CONFIG: JevConfig = {
-  enabled: false,
-  endpoint: "https://api.typesafe.ai/v1/systemone",
-  model: "jev-1.13.0",
-  timeoutMs: 400,
-  maxInputTokens: 32_000,
 }
 
 /** A conservative monthly cap; the budget policy is fixed, the number is configuration. */
@@ -340,7 +354,7 @@ export const LEARNING_LIMIT_CEILINGS: LearningLimitsConfig = {
 
 /**
  * The relevance slice defaults: opt-in (ADR-0021 §6), top-3, a 5 s cache and a 400 ms hot deadline
- * (the same budget the decision policy uses, so the Jev deadline fires before the plugin's).
+ * (the same budget the decision policy uses, so a model's deadline fires before the plugin's).
  */
 export const DEFAULT_RELEVANCE_CONFIG: RelevanceConfig = {
   enabled: false,
@@ -495,7 +509,7 @@ const resolveEnabled = (block: Record<string, unknown>, env: NodeJS.ProcessEnv):
 const policyFrom = (base: DecisionPolicy, value: unknown): DecisionPolicy => {
   if (!isPlainObject(value)) return base
   return {
-    allowJev: typeof value.allowJev === "boolean" ? value.allowJev : base.allowJev,
+    allowModel: typeof policyAllowsModel(value) === "boolean" ? policyAllowsModel(value) === true : base.allowModel,
     minConfidence: unitFrom(value.minConfidence) ?? base.minConfidence,
     minProbability: unitFrom(value.minProbability) ?? base.minProbability,
     timeoutMs: positiveNumberFrom(value.timeoutMs) ?? base.timeoutMs,
@@ -530,29 +544,56 @@ function resolveDecisionPolicies(
   }
 }
 
-function resolveJevConfig(block: Record<string, unknown>): JevConfig {
-  const jev = isPlainObject(block.jev) ? block.jev : {}
+/**
+ * The providers' settings: `providers.<id>.{ endpoint, model, timeoutMs, maxInputChars, keyRef, budget }`.
+ *
+ * The legacy provider's old block is read under it field by field (`legacy.ts`), so an old file keeps
+ * its endpoint, model, deadline and input bound, and a field the new block sets wins over the old one.
+ * A malformed field is dropped, never guessed, and an id or key reference of the wrong shape is ignored.
+ */
+function resolveProviders(block: Record<string, unknown>): Record<string, ProviderSettings> {
+  const providers = isPlainObject(block.providers) ? block.providers : {}
+  const configured = Object.fromEntries(
+    Object.entries(providers).flatMap(([id, entry]) =>
+      PROVIDER_ID_PATTERN.test(id) && isPlainObject(entry) ? [[id, resolveProviderSettings(entry)] as const] : [],
+    ),
+  )
+  const legacy = resolveProviderSettings(legacyProviderBlock(block))
+  if (Object.keys(legacy).length === 0) return configured
+  return { ...configured, [LEGACY_PROVIDER]: { ...legacy, ...configured[LEGACY_PROVIDER] } }
+}
+
+/** One provider's settings, keeping only the well-typed fields the entry sets. */
+function resolveProviderSettings(entry: Record<string, unknown>): ProviderSettings {
+  const endpoint = stringFrom(entry.endpoint)
+  const model = stringFrom(entry.model)
+  const timeoutMs = positiveNumberFrom(entry.timeoutMs)
+  const maxInputChars = positiveNumberFrom(entry.maxInputChars)
+  const keyRef = typeof entry.keyRef === "string" && PROVIDER_ID_PATTERN.test(entry.keyRef) ? entry.keyRef : undefined
+  const monthlyTokens = isPlainObject(entry.budget) ? positiveNumberFrom(entry.budget.monthlyTokens) : undefined
   return {
-    enabled: jev.enabled === true,
-    endpoint: stringFrom(jev.endpoint) ?? DEFAULT_JEV_CONFIG.endpoint,
-    model: stringFrom(jev.model) ?? DEFAULT_JEV_CONFIG.model,
-    timeoutMs: positiveNumberFrom(jev.timeoutMs) ?? DEFAULT_JEV_CONFIG.timeoutMs,
-    maxInputTokens: positiveNumberFrom(jev.maxInputTokens) ?? DEFAULT_JEV_CONFIG.maxInputTokens,
+    ...(endpoint !== undefined ? { endpoint } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(maxInputChars !== undefined ? { maxInputChars } : {}),
+    ...(keyRef !== undefined ? { keyRef } : {}),
+    ...(monthlyTokens !== undefined ? { budget: { monthlyTokens } } : {}),
   }
 }
 
 /**
  * The model per kind: `adaptive.models.<kind> = "<model id>"`.
  *
- * A kind the block does not name falls back to the behaviour before the registry existed: Jev when
- * `jev.enabled`, else no model. That fallback is per kind, so a config without a `models` block reads
- * exactly as it always did, and one that names a single kind leaves the others where they were.
- * `"baseline"` pins a kind to the deterministic answer even with Jev on. An id no model is registered
- * under also keeps the baseline: the service only asks a registered model that supports the kind.
+ * A kind the block does not name falls back to the behaviour before the registry existed: the legacy
+ * provider while the old single switch is on (`legacy.ts`), else no model. That fallback is per kind,
+ * so a config without a `models` block reads exactly as it always did, and one that names a single
+ * kind leaves the others where they were. `"baseline"` pins a kind to the deterministic answer even
+ * with the switch on. An id no model is registered under also keeps the baseline: the service only
+ * asks a registered model that supports the kind.
  */
 function resolveModelAssignments(block: Record<string, unknown>): ModelAssignments {
   const models = isPlainObject(block.models) ? block.models : {}
-  const legacy = isPlainObject(block.jev) && block.jev.enabled === true ? "jev" : undefined
+  const legacy = legacySwitchOn(block) ? LEGACY_PROVIDER : undefined
   return Object.fromEntries(
     decisionKinds().flatMap((kind) => {
       const id = stringFrom(models[kind]) ?? legacy
@@ -855,12 +896,12 @@ function resolveGovernorConfig(block: Record<string, unknown>): GovernorConfig {
 /**
  * The egress consent, per provider: `egress.providers.<id>.{ enabled, projects, kinds }`.
  *
- * A config written before AH-C03 has no `providers` block: its consent was global, switched by
- * `jev.enabled` and scoped by the top-level `egress.projects` and `egress.kinds`, and Jev was the only
- * remote model. That shape is read — never rewritten — as the consent of `jev` alone, so an old file
- * behaves exactly as it did. Once `egress.providers.jev` exists it is Jev's consent and the legacy keys
- * no longer grant anything; `jev.enabled` keeps only its model-assignment meaning. `egress.enabled`
- * was never read (the switch was `jev.enabled`), and still is not.
+ * A config written before AH-C03 has no `providers` block: its consent was global, switched by the
+ * old single switch and scoped by the top-level `egress.projects` and `egress.kinds`, and the legacy
+ * provider was the only remote model. That shape is read — never rewritten — as that provider's
+ * consent alone (`legacy.ts`), so an old file behaves exactly as it did. Once its own
+ * `egress.providers.<id>` entry exists the legacy keys no longer grant anything, and the switch keeps
+ * only its model-assignment meaning. `egress.enabled` was never read, and still is not.
  */
 function resolveEgressConfig(block: Record<string, unknown>): EgressConfig {
   const egress = isPlainObject(block.egress) ? block.egress : {}
@@ -868,7 +909,7 @@ function resolveEgressConfig(block: Record<string, unknown>): EgressConfig {
   const configured = Object.entries(providers).flatMap(([id, entry]) =>
     PROVIDER_ID_PATTERN.test(id) && isPlainObject(entry) ? [[id, resolveEgressProvider(entry)] as const] : [],
   )
-  return { providers: Object.fromEntries([[LEGACY_EGRESS_PROVIDER, legacyEgressProvider(block)], ...configured]) }
+  return { providers: Object.fromEntries([[LEGACY_PROVIDER, legacyEgressProvider(block)], ...configured]) }
 }
 
 /** One provider's consent: off, with no project and no kind, until the block says otherwise. */
@@ -880,16 +921,9 @@ function resolveEgressProvider(entry: Record<string, unknown>): EgressProviderCo
   }
 }
 
-/** The raw block's legacy egress keys as a `providers.jev` entry, for a writer moving to the new shape. */
-export function legacyEgressProvider(block: Record<string, unknown>): EgressProviderConfig {
-  const egress = isPlainObject(block.egress) ? block.egress : {}
-  const jev = isPlainObject(block.jev) ? block.jev : {}
-  return {
-    enabled: jev.enabled === true,
-    projects: stringListFrom(egress.projects),
-    kinds: resolveEgressKinds(egress.kinds),
-  }
-}
+/** The raw block's legacy egress keys as the legacy provider's entry, for a writer moving to the new shape. */
+export const legacyEgressProvider = (block: Record<string, unknown>): EgressProviderConfig =>
+  resolveEgressProvider(legacyConsentBlock(block))
 
 /** The whole adaptive config from a raw block, composing the Phase 1 resolvers unchanged. */
 export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.ProcessEnv } = {}): AdaptiveConfig {
@@ -904,7 +938,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     episode: resolveEpisodeBoundaryConfig({ block, env }),
     decisions: resolveDecisionPolicies(block, context, guardrails),
     models: resolveModelAssignments(block),
-    jev: resolveJevConfig(block),
+    providers: resolveProviders(block),
     budget: resolveBudgetConfig(block),
     egress: resolveEgressConfig(block),
     governor: resolveGovernorConfig(block),

@@ -11,6 +11,7 @@ import type { DecisionKind, DecisionLabel, DecisionPolicy, DecisionSource, Degra
 import { DEFAULT_DECISION_POLICY, DEGRADED_REASONS, isDecisionKind, isDecisionLabelOutcome, isDecisionSource } from "./decision"
 import type { StoredDecision, StoredDecisionInput } from "../types"
 import { isArm } from "./holdout"
+import { LEGACY_SOURCE, policyAllowsModel } from "./legacy"
 
 /** Deterministic id: a re-capture converges on the same row (the mirror of `runEpisodeID`). */
 export const decisionID = (kind: DecisionKind, scopeID: string): string => `${kind}:${scopeID}`
@@ -85,7 +86,8 @@ const parseNumberMap = (value: string | null): Record<string, number> | undefine
 const parsePolicy = (value: string): DecisionPolicy => {
   const parsed = parseObject(value)
   return {
-    allowJev: typeof parsed.allowJev === "boolean" ? parsed.allowJev : DEFAULT_DECISION_POLICY.allowJev,
+    allowModel:
+      typeof policyAllowsModel(parsed) === "boolean" ? policyAllowsModel(parsed) === true : DEFAULT_DECISION_POLICY.allowModel,
     minConfidence:
       typeof parsed.minConfidence === "number" ? parsed.minConfidence : DEFAULT_DECISION_POLICY.minConfidence,
     minProbability:
@@ -201,13 +203,13 @@ export const decisionFromRow = (row: DecisionRow): StoredDecision => {
 /**
  * The source, reading the v1 vocabulary as the v2 one (AH-C02).
  *
- * The migration rewrites `jev`/`deterministic` once, but an older build started against a migrated
+ * The migration rewrites the legacy source and `deterministic` once, but an older build started against a migrated
  * database can still write them afterwards, and the schema version would not let the migration run
  * again. Reading them the way the migration maps them keeps those rows correct too.
  */
 const readSource = (row: DecisionRow): { value: DecisionSource | "unknown"; providerID?: string } => {
   const providerID = row.provider_id ?? undefined
-  if (row.source === "jev") return { value: "model", providerID: providerID ?? row.attempted_provider ?? row.provider }
+  if (row.source === LEGACY_SOURCE) return { value: "model", providerID: providerID ?? row.attempted_provider ?? row.provider }
   if (row.source === "deterministic") return { value: "baseline", ...(providerID ? { providerID } : {}) }
   return { value: isDecisionSource(row.source) ? row.source : "unknown", ...(providerID ? { providerID } : {}) }
 }

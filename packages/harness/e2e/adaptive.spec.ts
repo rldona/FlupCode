@@ -27,7 +27,6 @@ const WRITABLE = [
   },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
-  { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
   { path: "models.*", type: "model", confirmation: "none", guard: "none", warning: "model-no-consent" },
   { path: "egress.providers.*.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
   { path: "egress.providers.*.projects", type: "string-list", confirmation: "widening", guard: "none" },
@@ -36,8 +35,25 @@ const WRITABLE = [
   { path: "budget.monthlyTokens", type: "number", confirmation: "none", guard: "none" },
 ]
 
-/** The registry the server serves (AH-C01), with the names the reader is shown. */
-const MODELS = [
+type KeyStatus = { source: "env" | "stored" | "none"; storable: boolean; env: string }
+
+/** Where Jev's key stands, as the server serves it on Jev's entry (PI-01). */
+const jevKey = (source: KeyStatus["source"] = "none", storable = false): KeyStatus => ({
+  source,
+  storable,
+  env: "FLUPCODE_TYPESAFE_API_KEY",
+})
+
+/** The registry the server serves (AH-C01, PI-01), with the names the reader is shown. */
+const MODELS: Array<{
+  id: string
+  name: string
+  locality: string
+  supports: string[]
+  needsConsent: boolean
+  needsKey: boolean
+  key?: KeyStatus
+}> = [
   {
     id: "jev",
     name: "Jev",
@@ -45,6 +61,7 @@ const MODELS = [
     supports: ["completion", "skillRelevance", "contextItem", "skillReflection", "failure"],
     needsConsent: true,
     needsKey: true,
+    key: jevKey(),
   },
   {
     id: "small-llm",
@@ -56,7 +73,7 @@ const MODELS = [
   },
 ]
 
-/** What the legacy `jev.enabled` resolves to: every decision the server knows answered by Jev. */
+/** What the old single switch resolves to: every decision the server knows answered by Jev. */
 const LEGACY_MODELS = {
   completion: "jev",
   skillRelevance: "jev",
@@ -64,6 +81,9 @@ const LEGACY_MODELS = {
   skillReflection: "jev",
   failure: "jev",
 }
+
+/** The registry with Jev's key at the given status. */
+const keyedProviders = (key: KeyStatus) => MODELS.map((model) => (model.id === "jev" ? { ...model, key } : model))
 
 type View = {
   effective: {
@@ -73,15 +93,14 @@ type View = {
     learning: { enabled: boolean; maxInputChars: number }
     relevance: { enabled: boolean }
     guardrails: { enabled: boolean }
-    jev: { enabled: boolean }
     models?: Record<string, string>
     egress: { providers: Record<string, { enabled: boolean; projects: string[]; kinds: Record<string, boolean> }> }
     retention: { enabled: boolean }
     budget: { monthlyTokens: number; hotReserveFraction: number }
   }
   source: Record<string, "env" | "block" | "default">
-  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean; typesafeKeySource?: "env" | "stored" | "none" }
-  modelKeyStorable?: boolean
+  env: { adaptiveDisabled: boolean }
+  legacySwitch?: boolean
   runtime: { runtime: string; degraded: boolean; checkedAt: number; alerts?: unknown[] }
   capabilities: Record<string, unknown>
   canWrite: boolean
@@ -89,7 +108,7 @@ type View = {
   usage: { month: string; tokensSpent: number; calls: number; monthlyTokens: number; hotReserveFraction: number }
   writable: typeof WRITABLE
   egressProviders?: string[]
-  models?: typeof MODELS
+  providers?: typeof MODELS
   learningDraft?: { model: string | null }
   learningClassifier?: { model: string | null; ready: boolean }
 }
@@ -102,21 +121,20 @@ const view = (over: Partial<View> = {}): View => ({
     learning: { enabled: false, maxInputChars: 8000 },
     relevance: { enabled: false },
     guardrails: { enabled: false },
-    jev: { enabled: false },
     models: {},
     egress: { providers: { jev: { enabled: false, projects: [], kinds: {} } } },
     retention: { enabled: false },
     budget: { monthlyTokens: 100_000, hotReserveFraction: 0.2 },
   },
   source: {},
-  env: { adaptiveDisabled: false, typesafeKeyPresent: false },
+  env: { adaptiveDisabled: false },
   runtime: { runtime: "legacy", degraded: false, checkedAt: now },
   capabilities: {},
   canWrite: true,
   writer: { path: "/work/.config/opencode/opencode.jsonc", exists: true },
   usage: { month: "2026-09", tokensSpent: 0, calls: 0, monthlyTokens: 100_000, hotReserveFraction: 0.2 },
   writable: WRITABLE,
-  models: MODELS,
+  providers: MODELS,
   ...over,
 })
 
@@ -445,9 +463,9 @@ test("every inert card says why: the level, the runtime, missing permission, a m
         ...base,
         relevance: { enabled: true },
         learning: { enabled: true, maxInputChars: 8000 },
-        jev: { enabled: true },
         models: LEGACY_MODELS,
       },
+      legacySwitch: true,
       learningDraft: { model: "openai/mini" },
       learningClassifier: { model: "jev", ready: false },
     }),
@@ -508,7 +526,7 @@ test("the value gate's pause is shown as the predictive model's state", async ({
   await openApp(page, {
     capabilities: ["adaptive-config", "adaptive-voi"],
     view: view({
-      env: { adaptiveDisabled: false, typesafeKeyPresent: true },
+      providers: keyedProviders(jevKey("env")),
       effective: {
         ...view().effective,
         models: { completion: "jev" },
@@ -558,7 +576,7 @@ test("retention asks for a confirmation before the write leaves; choosing a mode
   const calls = await openApp(page, {
     capabilities: ["adaptive-config"],
     view: view({
-      env: { adaptiveDisabled: false, typesafeKeyPresent: true },
+      providers: keyedProviders(jevKey("env")),
       effective: {
         ...view().effective,
         egress: { providers: { jev: { enabled: true, projects: ["/work/demo"], kinds: { skillReflection: true } } } },
@@ -796,7 +814,7 @@ test("FLUPCODE_ADAPTIVE_DISABLED=1 holds the level at Off and blocks every write
     capabilities: ACTING,
     view: view({
       source: { enabled: "env" },
-      env: { adaptiveDisabled: true, typesafeKeyPresent: false },
+      env: { adaptiveDisabled: true },
       effective: { ...view().effective, enabled: false },
     }),
   })
@@ -1352,7 +1370,12 @@ async function keyServer(page: Page, start: View) {
     const request = route.request()
     if (request.method() === "PATCH") {
       const body = request.postDataJSON() as { patch: Record<string, unknown> }
-      state.view = { ...state.view, effective: applyPatch(state.view.effective, body.patch) as View["effective"] }
+      // Like the server: choosing a model per decision retires the old single switch (PI-01).
+      state.view = {
+        ...state.view,
+        effective: applyPatch(state.view.effective, body.patch) as View["effective"],
+        ...(body.patch.models ? { legacySwitch: false } : {}),
+      }
     }
     return route.fulfill({ json: { data: state.view, warnings: [] } })
   })
@@ -1362,11 +1385,8 @@ async function keyServer(page: Page, start: View) {
     if (request.method() === "PUT") state.puts.push(body)
     if (request.method() === "DELETE") state.deletes.push(body)
     const source = request.method() === "PUT" ? "stored" : "none"
-    state.view = {
-      ...state.view,
-      env: { adaptiveDisabled: false, typesafeKeyPresent: source === "stored", typesafeKeySource: source },
-    }
-    return route.fulfill({ json: { data: { source, storable: true } } })
+    state.view = { ...state.view, providers: keyedProviders(jevKey(source, true)) }
+    return route.fulfill({ json: { data: jevKey(source, true) } })
   })
   return state
 }
@@ -1384,7 +1404,7 @@ test("Jev is chosen for a decision, and its row says what it still needs until c
   await openApp(page, { capabilities: ["adaptive-config", "adaptive-model-key"] })
   const server = await keyServer(
     page,
-    view({ egressProviders: ["jev"], modelKeyStorable: true, env: { adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" } }),
+    view({ egressProviders: ["jev"], providers: keyedProviders(jevKey("none", true)) }),
   )
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
@@ -1437,7 +1457,7 @@ test("Jev is chosen for a decision, and its row says what it still needs until c
   await expect(confirm).toContainText("used only for calls to the predictive model's provider")
   expect(server.puts).toHaveLength(0)
   await confirm.getByRole("button", { name: "Save key" }).click()
-  await expect.poll(() => server.puts).toEqual([{ key: KEY, confirm: true }])
+  await expect.poll(() => server.puts).toEqual([{ provider: "jev", key: KEY, confirm: true }])
 
   await expect(dialog.getByText("Key saved")).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Change" })).toBeVisible()
@@ -1521,10 +1541,10 @@ test("a config on the older single switch shows Jev on every decision, and the f
   await keyServer(
     page,
     view({
-      env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" },
+      providers: keyedProviders(jevKey("env")),
+      legacySwitch: true,
       effective: {
         ...view().effective,
-        jev: { enabled: true },
         models: LEGACY_MODELS,
         egress: { providers: { jev: { enabled: true, projects: ["/work/demo"], kinds: { completion: true, skillRelevance: true } } } },
       },
@@ -1543,18 +1563,9 @@ test("a config on the older single switch shows Jev on every decision, and the f
   await expect(dialog.getByText(/come from the older single switch/)).toBeVisible()
 
   await dialog.getByLabel("Which skills fit", { exact: true }).selectOption({ label: "Small model (through the engine)" })
-  // One patch: every decision written explicitly, the one chosen changed, and the older switch off.
-  await expect
-    .poll(() => patches)
-    .toEqual([
-      {
-        patch: {
-          models: { ...LEGACY_MODELS, skillRelevance: "small-llm" },
-          jev: { enabled: false },
-        },
-        confirm: false,
-      },
-    ])
+  // One patch naming only the choice: the server pins every other decision to what it resolves to
+  // and turns the older switch off in the same write (PI-01).
+  await expect.poll(() => patches).toEqual([{ patch: { models: { skillRelevance: "small-llm" } }, confirm: false }])
   await expect(dialog.getByText(/come from the older single switch/)).toHaveCount(0)
   await expect(dialog.getByLabel("Whether the task is finished", { exact: true })).toHaveValue("jev")
   await expect(dialog.getByLabel("Which skills fit", { exact: true })).toHaveValue("small-llm")
@@ -1563,7 +1574,7 @@ test("a config on the older single switch shows Jev on every decision, and the f
 test("a key set by the environment is only reported, with no field to change it", async ({ page }) => {
   await openApp(page, {
     capabilities: ["adaptive-config", "adaptive-model-key"],
-    view: view({ modelKeyStorable: true, env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" } }),
+    view: view({ providers: keyedProviders(jevKey("env", true)) }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
@@ -1577,7 +1588,7 @@ test("a saved key can be removed, after a confirmation that says what removing i
   await openApp(page, { capabilities: ["adaptive-config", "adaptive-model-key"] })
   const server = await keyServer(
     page,
-    view({ modelKeyStorable: true, env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "stored" } }),
+    view({ providers: keyedProviders(jevKey("stored", true)) }),
   )
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
@@ -1591,18 +1602,19 @@ test("a saved key can be removed, after a confirmation that says what removing i
   const confirm = page.getByRole("dialog", { name: "Remove the key?" })
   await expect(confirm).toContainText("built-in rules decide")
   await confirm.getByRole("button", { name: "Remove" }).click()
-  await expect.poll(() => server.deletes).toEqual([{ confirm: true }])
+  await expect.poll(() => server.deletes).toEqual([{ provider: "jev", confirm: true }])
   await expect(dialog.getByLabel("Predictive model key")).toBeVisible()
 })
 
 test("without a vault the panel says the key cannot be stored here and points to the environment", async ({ page }) => {
   await openApp(page, {
     capabilities: ["adaptive-config", "adaptive-model-key"],
-    view: view({ modelKeyStorable: false, env: { adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" } }),
+    view: view({ providers: keyedProviders(jevKey("none", false)) }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
   await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
-  await expect(dialog.getByText(/cannot store the key.*TYPESAFE_API_KEY/)).toBeVisible()
+  // The variable is the one the server names for this provider's key reference.
+  await expect(dialog.getByText(/cannot store the key.*FLUPCODE_TYPESAFE_API_KEY/)).toBeVisible()
   await expect(dialog.getByLabel("Predictive model key")).toHaveCount(0)
 })

@@ -44,7 +44,7 @@ async function openApp(page: Page, capabilities: string[]) {
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true, capabilities } } })
     // The settings view serves the model registry, so the chip names the model a reader knows.
     if (url.pathname === "/harness/adaptive/config" && request.method() === "GET")
-      return route.fulfill({ json: { data: { models: [{ id: "jev", name: "Jev", locality: "remote", supports: [], needsConsent: true, needsKey: true }] } } })
+      return route.fulfill({ json: { data: { providers: [{ id: "jev", name: "Jev", locality: "remote", supports: [], needsConsent: true, needsKey: true }] } } })
     if (url.pathname === "/harness/context")
       return route.fulfill({
         json: { data: { directory: "/work/demo", projectDirectory: "/work/demo", instructions: [] } },

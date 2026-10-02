@@ -2,9 +2,9 @@
  * The deterministic baseline: the answer that is always there (FH-011).
  *
  * Deterministic first is the rule of the whole phase: every kind has a safe, reproducible answer
- * that never calls a model, so with Jev off the harness behaves exactly as it did before Jev existed.
+ * that never calls a model, so with no model the harness behaves exactly as it did before models existed.
  * Three kinds carry the rich logic this phase tests; the others return their safe default until
- * their phase arrives — `skillReflection` answers the inert `no-reflection`, so without Jev no
+ * their phase arrives — `skillReflection` answers the inert `no-reflection`, so without a model no
  * lesson is ever learned.
  *
  * The handlers are a `Record<DecisionKind, …>`, so leaving one out is a compile error rather

@@ -1,0 +1,24 @@
+// A global config as builds before PI-01 wrote and documented it: the provider's own `jev` block,
+// the global egress consent keys and the `allowJev` policy switch. Read only through `legacy.ts`.
+{
+  "$schema": "https://opencode.ai/config.json",
+  "flupcode": {
+    "adaptive": {
+      "jev": {
+        "enabled": true,
+        "endpoint": "https://api.typesafe.test/v1/systemone",
+        "model": "jev-1.12.0",
+        "timeoutMs": 300,
+        "maxInputTokens": 900
+      },
+      "egress": {
+        "projects": ["/work/project"],
+        "kinds": { "completion": true, "skillRelevance": true }
+      },
+      "decisions": {
+        "skillRelevance": { "allowJev": false, "minConfidence": 0.7 }
+      },
+      "budget": { "monthlyTokens": 50000 }
+    }
+  }
+}

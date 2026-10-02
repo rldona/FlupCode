@@ -12,6 +12,7 @@ import { createHash } from "node:crypto"
 import type { ContextItemKind, DegradedReason, ItemDisposition, PlanScoreSource } from "./decision"
 import { DEGRADED_REASONS, isContextItemKind, ITEM_DISPOSITIONS } from "./decision"
 import type { ContextPlanEntry, StoredPlan, StoredPlanInput } from "../types"
+import { LEGACY_PROVIDER, LEGACY_SOURCE } from "./legacy"
 
 /** A plan never keeps more entries than this; the UI is deferred and the plan is one read. */
 export const PLAN_ITEM_LIMIT = 200
@@ -53,13 +54,13 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
 /**
- * The score source, reading the v1 vocabulary as the v2 one (AH-C02): the migration rewrites
- * `jev`/`deterministic` once, and an older build started against a migrated database can still write
- * them afterwards.
+ * The score source, reading the v1 vocabulary as the v2 one (AH-C02): the migration rewrites the
+ * legacy source and `deterministic` once, and an older build started against a migrated database can
+ * still write them afterwards.
  */
 const readScoreSource = (row: PlanRow): { value: PlanScoreSource | "unknown"; provider?: string } => {
   const provider = row.score_provider ?? undefined
-  if (row.score_source === "jev") return { value: "model", provider: provider ?? "jev" }
+  if (row.score_source === LEGACY_SOURCE) return { value: "model", provider: provider ?? LEGACY_PROVIDER }
   if (row.score_source === "deterministic") return { value: "baseline" }
   if (row.score_source === "baseline" || row.score_source === "model")
     return { value: row.score_source, ...(provider ? { provider } : {}) }

@@ -1742,11 +1742,11 @@ const ES: Record<string, string> = {
   "Model key": "Clave del modelo",
   "Predictive model key": "Clave del modelo predictivo",
   "Key set by the environment.": "Clave definida por el entorno.",
-  "It can only be changed where FlupCode is started (TYPESAFE_API_KEY).":
-    "Solo se puede cambiar donde se inicia FlupCode (TYPESAFE_API_KEY).",
+  "It can only be changed where FlupCode is started ({env}).":
+    "Solo se puede cambiar donde se inicia FlupCode ({env}).",
   "Key saved": "Clave guardada",
-  "This machine cannot store the key: its encrypted store is not available. Set TYPESAFE_API_KEY where FlupCode is started instead.":
-    "Este equipo no puede guardar la clave: su almacén cifrado no está disponible. Define TYPESAFE_API_KEY donde se inicia FlupCode.",
+  "This machine cannot store the key: its encrypted store is not available. Set {env} where FlupCode is started instead.":
+    "Este equipo no puede guardar la clave: su almacén cifrado no está disponible. Define {env} donde se inicia FlupCode.",
   "Save key": "Guardar clave",
   "Stored encrypted on this machine. It is never shown again.":
     "Se guarda cifrada en este equipo. No se vuelve a mostrar.",
