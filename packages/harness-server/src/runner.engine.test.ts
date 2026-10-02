@@ -74,6 +74,33 @@ describe.skipIf(!run)("the task runner on an OpenCode 2 engine", () => {
     expect(JSON.stringify(prompt)).toContain("Decided: notes")
   })
 
+  // TI-03: a run that stops at a gate is driven again by a new runner after approval, and the task
+  // behind the gate still starts from the gated task's closing note.
+  test("after a gate, the next task is handed the gated task's closing note", async () => {
+    const repository = open()
+    model.push(
+      { type: "text", text: "Plan: rename the parser" },
+      { type: "text", text: "Decided: rename the parser" },
+      { type: "text", text: "Renamed it" },
+      { type: "text", text: "Decided: renamed" },
+    )
+    const run = repository.startRun(manual, Date.now(), contract.project)
+    repository.addTasks(run.id, [
+      { name: "plan", prompt: "Plan it", gate: "human" },
+      { name: "implement", prompt: "Implement it", dependsOn: ["plan"] },
+    ])
+    expect(await new TaskRunner(repository, engine).execute(run, { directory: contract.project })).toBe("paused")
+    repository.resumeRun(run.id)
+    expect(
+      await new TaskRunner(repository, engine).execute(repository.getRun(run.id)!, { directory: contract.project }),
+    ).toBe("done")
+
+    const implement = repository.listTasks(run.id).find((task) => task.name === "implement")!
+    expect(implement.status).toBe("success")
+    const prompt = (await engine.messages(implement.sessionID!)).find((message) => message.info?.role === "user")
+    expect(JSON.stringify(prompt)).toContain("Decided: rename the parser")
+  })
+
   // TI-02: idle is not success. A provider that refuses the call (here a 401, as for a bad key)
   // leaves an errored step, and the task must fail with what the provider said.
   test("a task whose model call is refused fails with the provider's message", async () => {
