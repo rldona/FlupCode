@@ -731,11 +731,19 @@ export class TaskRunner {
       // task's session never becomes an episode of its own.
       this.episodes?.captureSession({ sessionID: session.id, runID: run.id, directory })
       const answer = await this.engine.lastAnswer(session.id)
-      this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
+      // A quiet session is not a successful one (TI-02): a refused or empty turn fails the task, with
+      // what the engine said as its error and what it spent kept all the same.
+      const failure = stopped() ? undefined : answer?.error
+      this.repository.finishTask(task.id, stopped() ? "stopped" : failure ? "failed" : "success", {
         output: answer?.text,
+        ...(failure ? { error: failure } : {}),
         tokens: answer?.tokens,
         cost: answer?.cost,
       })
+      if (failure) {
+        context.failure = failure
+        return
+      }
       context.directories.set(task.id, directory)
       // A stopped run has no next task to hand anything to, and a closing note is a turn of its own.
       if (stopped()) return
@@ -767,7 +775,14 @@ export class TaskRunner {
       }
       return this.afterTask(task, context, directory)
     } catch (cause) {
-      this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
+      // A turn cut short by a timeout or a tool ceiling still spent something; it is kept (TI-02).
+      const sessionID = this.repository.getTask(task.id)?.sessionID
+      const spent = sessionID ? await this.engine.lastAnswer(sessionID).catch(() => undefined) : undefined
+      this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", {
+        error: message(cause),
+        tokens: spent?.tokens,
+        cost: spent?.cost,
+      })
       if (!stopped()) context.failure = message(cause)
     }
   }

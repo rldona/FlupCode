@@ -74,6 +74,24 @@ describe.skipIf(!run)("the task runner on an OpenCode 2 engine", () => {
     expect(JSON.stringify(prompt)).toContain("Decided: notes")
   })
 
+  // TI-02: idle is not success. A provider that refuses the call (here a 401, as for a bad key)
+  // leaves an errored step, and the task must fail with what the provider said.
+  test("a task whose model call is refused fails with the provider's message", async () => {
+    const repository = open()
+    model.push({ type: "error", status: 401, message: "Invalid API key provided" })
+    const run = repository.startRun(manual, Date.now(), contract.project)
+    repository.addTasks(run.id, [{ name: "refused", prompt: "Do it" }])
+    await expect(new TaskRunner(repository, engine).execute(run, { directory: contract.project })).rejects.toThrow(
+      "Invalid API key provided",
+    )
+
+    const task = repository.listTasks(run.id)[0]!
+    expect(task.status).toBe("failed")
+    expect(task.error).toContain("Invalid API key provided")
+    // What the failed turn cost is kept, even when it is nothing.
+    expect(task.cost).toBe(0)
+  })
+
   test("a run stopped mid-turn finishes stopped, and the engine stops working on it", async () => {
     const repository = open()
     model.push({ type: "hang" })

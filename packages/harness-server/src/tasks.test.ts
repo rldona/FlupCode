@@ -659,6 +659,50 @@ describe("a task an external command runs", () => {
   })
 })
 
+// TI-02: a session that went quiet is not a task that succeeded. What the engine said went wrong
+// is the task's error, and what the turn spent is kept whether it worked or not.
+describe("a turn the engine failed", () => {
+  const engineAnswering = (answer: Record<string, unknown>, options: { busy?: Error } = {}) =>
+    ({
+      createSession: async () => ({ id: "ses_1" }),
+      prompt: async () => undefined,
+      waitForIdle: async () => {
+        if (options.busy) throw options.busy
+      },
+      lastAnswer: async () => answer,
+    }) as never
+
+  test("fails the task with the engine's error, keeps its cost, and runs nothing after it", async () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [
+      { name: "plan", prompt: "Write the plan" },
+      { name: "build", prompt: "Do it", dependsOn: ["plan"] },
+    ])
+    const engine = engineAnswering({ tokens: 12, cost: 0.003, error: "Rate limit reached for requests" })
+    await expect(new TaskRunner(repository, engine).execute(run)).rejects.toThrow("Rate limit reached")
+
+    const [plan, build] = repository.listTasks(run.id)
+    expect(plan).toMatchObject({ status: "failed", error: "Rate limit reached for requests", tokens: 12, cost: 0.003 })
+    expect(build!.status).toBe("queued")
+    repository.close()
+  })
+
+  test("a turn cut short by its timeout still keeps what it spent", async () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [{ name: "slow", prompt: "Take long" }])
+    const engine = engineAnswering(
+      { text: "half", tokens: 40, cost: 0.01 },
+      { busy: new Error("The work was still running after 30 minutes") },
+    )
+    await expect(new TaskRunner(repository, engine).execute(run)).rejects.toThrow("still running")
+
+    expect(repository.listTasks(run.id)[0]).toMatchObject({ status: "failed", tokens: 40, cost: 0.01 })
+    repository.close()
+  })
+})
+
 describe("a ceiling on one tool call", () => {
   test("the run's ceiling is what the wait is given, and a run without one is not watched", async () => {
     const repository = open()

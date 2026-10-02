@@ -132,6 +132,19 @@ describe.skipIf(!run)("engine contract on OpenCode 2", () => {
     })
   })
 
+  // TI-02: FlupCode fails a task on this shape, so a pin that changes it must show up here.
+  test("a provider refusal ends the turn with an errored step and a failed outcome", async () => {
+    const id = await createSession()
+    model.push({ type: "error", status: 401, message: "Invalid API key provided" })
+    await call("POST", `/api/session/${id}/prompt`, { text: "hi" })
+    expect(await finished(id)).toBe("session.execution.failed")
+
+    const messages = await transcript(id)
+    const assistant = messages.findLast((message) => message.type === "assistant")
+    expect(assistant?.error).toMatchObject({ message: "Invalid API key provided", status: 401 })
+    expect(messages.at(-1)).toMatchObject({ type: "idle", outcome: "failed" })
+  })
+
   test("interrupting a running turn ends it with an interrupted outcome", async () => {
     const id = await createSession()
     model.push({ type: "hang" })
