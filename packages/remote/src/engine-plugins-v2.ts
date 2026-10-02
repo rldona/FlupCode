@@ -15,6 +15,7 @@
  * `task`), since that is what every reader keys on.
  */
 import { CACHE_SELECTION_SOURCE } from "./cache-selection-source"
+import { SECRET_PATTERNS } from "./secret-patterns"
 
 /** reasoning-variants: effort levels for models 2.x's catalog lists without any. */
 export const REASONING_VARIANTS_PLUGIN_V2 = {
@@ -1978,10 +1979,12 @@ export default {
  * rebuilt as a plugin with the same behaviour and the same API shape: its own SQLite file under
  * FlupCode's data folder; the relevant memories retrieved by the same lexical score and rendered as
  * the same `<memory>` block after the system prompt (pinned per user turn, so later steps of a turn
- * send the same bytes); "remember that…" captured when the prompt is admitted; candidates extracted
- * by the model after a run, at most once per interval; the `memory` tool; and list, get, create,
- * update, remove, verify and used served over the plugin RPC (`flupcode.memory`), which the app's
- * OpenCode 2 adapter calls. Nothing is read from 1.x's database.
+ * send the same bytes), active memories only, so a candidate waits for review (TI-08); "remember
+ * that…" captured when the prompt is admitted; candidates extracted by the model after a run, at
+ * most once per interval; the `memory` tool, confined to the session's project, agent and session;
+ * nothing credential-shaped kept; and list, get, create, update, remove, verify and used served over
+ * the plugin RPC (`flupcode.memory`), which the app's OpenCode 2 adapter calls. Nothing is read from
+ * 1.x's database.
  */
 export const MEMORY_PLUGIN_V2 = {
   file: "flupcode-memory.js",
@@ -2011,6 +2014,11 @@ const DEFAULTS = {
 const KINDS = ["fact", "convention", "procedure", "preference", "constraint", "workflow", "decision", "issue", "solution"]
 const SCOPES = ["global", "project", "agent", "session"]
 const STATUSES = ["candidate", "active", "stale", "archived"]
+// The credential shapes harness-server's redactor sweeps (packages/remote/src/secret-patterns.ts): a
+// memory matching one is never kept, since every memory can end up in a prompt.
+const SECRET_PATTERNS = [
+${SECRET_PATTERNS.map((secret) => `  { label: ${JSON.stringify(secret.label)}, pattern: new RegExp(${JSON.stringify(secret.pattern.source)}, ${JSON.stringify(secret.pattern.flags.replace("g", ""))}) },`).join("\n")}
+]
 
 function databasePath() {
   if (process.env.FLUPCODE_MEMORY_DB) return process.env.FLUPCODE_MEMORY_DB
@@ -2298,7 +2306,16 @@ function writeRow(id, patch) {
 
 const newID = () => "mem_" + Date.now().toString(16).padStart(12, "0") + randomBytes(7).toString("hex")
 
+// Why a memory would not be kept, or undefined when it can be.
+function refusal(input) {
+  const text = (input.title || "") + "\n" + (input.content || "")
+  const secret = SECRET_PATTERNS.find((entry) => text.search(entry.pattern) !== -1)
+  return secret ? "it looks like a credential (" + secret.label + "). Store secrets in the vault, not in memory." : undefined
+}
+
 function create(input, location) {
+  const refused = refusal(input)
+  if (refused) throw new Error(refused)
   const scopeID =
     input.scopeID ||
     (input.scope === "global"
@@ -2352,6 +2369,8 @@ function create(input, location) {
 function update(id, patch) {
   const current = findRow(id)
   if (!current) return undefined
+  const refused = refusal({ title: patch.title ?? current.title, content: patch.content ?? current.content })
+  if (refused) throw new Error(refused)
   const content = patch.content ?? current.content
   const fp = fingerprint(content)
   const collision = fp === current.fingerprint ? undefined : findFingerprint(current.scope, current.scope_id, fp)
@@ -2436,7 +2455,7 @@ function retrieve(settings, input, location) {
   if (!settings.enabled) return []
   const rows = store()
     .query(
-      "SELECT * FROM memory WHERE status IN ('active', 'candidate') AND superseded_by IS NULL AND (scope = 'global' OR (scope = 'project' AND scope_id = ?) OR (scope = 'agent' AND scope_id = ?) OR (scope = 'session' AND scope_id = ?))",
+      "SELECT * FROM memory WHERE status = 'active' AND superseded_by IS NULL AND (scope = 'global' OR (scope = 'project' AND scope_id = ?) OR (scope = 'agent' AND scope_id = ?) OR (scope = 'session' AND scope_id = ?))",
     )
     .all(location.projectID, location.projectID + ":" + (input.agent || "default"), input.sessionID)
   const now = Date.now()
@@ -2511,7 +2530,7 @@ export default {
         const settings = await settingsFor(location.directory)
         const text = input.prompt && typeof input.prompt.text === "string" ? input.prompt.text : ""
         if (!settings.enabled || !text.trim()) return
-        for (const candidate of explicitCandidates(text))
+        for (const candidate of explicitCandidates(text).filter((candidate) => !refusal(candidate)))
           create(
             {
               scope: candidate.scope,
@@ -2573,7 +2592,9 @@ export default {
         const [providerID, ...rest] = (settings.model || "").split("/")
         const model = providerID && rest.length ? { providerID, id: rest.join("/") } : undefined
         const answer = await ctx.generate.text({ prompt: buildPrompt(transcript), ...(model ? { model } : {}) }).catch(() => undefined)
-        const candidates = parseCandidates((answer && answer.text) || "").slice(0, settings.maxCandidatesPerSession)
+        const candidates = parseCandidates((answer && answer.text) || "")
+          .filter((candidate) => !refusal(candidate))
+          .slice(0, settings.maxCandidatesPerSession)
         for (const candidate of candidates)
           create(
             { ...candidate, source: "agent_discovery", status: "candidate", createdBy: "extractor", directory: location.directory },
@@ -2605,23 +2626,42 @@ export default {
         execute: async (input, context) => {
           const say = (memories) =>
             ({ content: JSON.stringify(memories.map((memory) => ({ id: memory.id, scope: memory.scope, kind: memory.kind, title: memory.title, content: memory.content, status: memory.status }))) })
-          if (input.action === "list") return say(list({ text: input.query, limit: 20 }))
+          // An agent reads its project's, its own agent's and its session's memories plus the global
+          // ones, and changes only the first three: another project's memories are not there for it.
+          const owned = {
+            project: location.projectID,
+            agent: location.projectID + ":" + (context.agent || "default"),
+            session: context.sessionID,
+          }
+          const readable = (memory) => memory.scope === "global" || owned[memory.scope] === memory.scopeID
+          const writable = (id) => {
+            const row = id ? findRow(id) : undefined
+            return row && row.scope !== "global" && owned[row.scope] === row.scope_id ? row : undefined
+          }
+          if (input.action === "list") return say(list({ text: input.query, limit: 500 }).filter(readable).slice(0, 20))
           if (input.action === "forget") {
             if (!input.id) return { content: "id is required to forget a memory" }
+            if (!writable(input.id)) return { content: "No memory with id " + input.id }
             store().query("DELETE FROM memory WHERE id = ?").run(input.id)
             return say([])
           }
           if (input.action === "update") {
             if (!input.id) return { content: "id is required to update a memory" }
-            const updated = update(input.id, {
+            if (!writable(input.id)) return { content: "No memory with id " + input.id }
+            const patch = {
               ...(input.title !== undefined ? { title: input.title } : {}),
               ...(input.content !== undefined ? { content: input.content } : {}),
               ...(input.kind !== undefined ? { kind: input.kind } : {}),
               ...(input.tags !== undefined ? { tags: input.tags } : {}),
-            })
+            }
+            const refused = refusal({ title: patch.title ?? "", content: patch.content ?? "" })
+            if (refused) return { content: "Not kept: " + refused }
+            const updated = update(input.id, patch)
             return say(updated ? [updated] : [])
           }
           if (!input.title || !input.content) return { content: "title and content are required to add a memory" }
+          const refused = refusal(input)
+          if (refused) return { content: "Not kept: " + refused }
           return say([
             create(
               {
@@ -2644,7 +2684,8 @@ export default {
       })
     })
 
-    // The app's memory screens, over the plugin RPC: the 1.x routes' inputs and answers.
+    // The app's memory screens, over the plugin RPC: the 1.x routes' inputs and answers. A refused
+    // write answers { refused } rather than throwing, since the engine hides a plugin's error message.
     const method = { input: OBJECT, output: ANY }
     const registration = await ctx.rpc.register(
       { id: "flupcode.memory", methods: { list: method, get: method, create: method, update: method, remove: method, verify: method, used: method }, events: {} },
@@ -2654,8 +2695,10 @@ export default {
           const row = findRow(input.id)
           return row ? fromRow(row) : null
         },
-        create: async (input) =>
-          create(
+        create: async (input) => {
+          const refused = refusal({ title: String(input.title || ""), content: String(input.content || "") })
+          if (refused) return { refused }
+          return create(
             {
               scope: SCOPES.includes(input.scope) ? input.scope : "project",
               kind: KINDS.includes(input.kind) ? input.kind : "fact",
@@ -2671,9 +2714,13 @@ export default {
               ...(input.agent ? { agent: input.agent } : {}),
             },
             location,
-          ),
+          )
+        },
         update: async (input) => {
           const { id, ...patch } = input
+          const row = findRow(id)
+          const refused = row && refusal({ title: patch.title ?? row.title, content: patch.content ?? row.content })
+          if (refused) return { refused }
           return update(id, patch) || null
         },
         remove: async (input) => {

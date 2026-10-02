@@ -30,6 +30,8 @@ const isStatusFilter = (value: string): value is StatusFilter => value === "all"
 
 export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
   const [items, setItems] = createSignal<MemoryInfo[]>([])
+  // Candidates awaiting review, whatever the filters show: they never reach a prompt until approved.
+  const [candidates, setCandidates] = createSignal(0)
   const [text, setText] = createSignal("")
   const [scope, setScope] = createSignal<ScopeFilter>("all")
   const [status, setStatus] = createSignal<StatusFilter>("all")
@@ -50,14 +52,19 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
     try {
       const scopeValue = scope()
       const statusValue = status()
-      const result = await createClient(props.serverUrl).memory.list({
-        ...(text() ? { text: text() } : {}),
-        ...(isScopeValue(scopeValue) ? { scope: scopeValue } : {}),
-        ...(isStatusValue(statusValue) ? { status: statusValue } : {}),
-        limit: 200,
-      })
+      const client = createClient(props.serverUrl)
+      const [result, pending] = await Promise.all([
+        client.memory.list({
+          ...(text() ? { text: text() } : {}),
+          ...(isScopeValue(scopeValue) ? { scope: scopeValue } : {}),
+          ...(isStatusValue(statusValue) ? { status: statusValue } : {}),
+          limit: 200,
+        }),
+        client.memory.list({ status: "candidate", limit: 500 }),
+      ])
       if (generation !== current) return
       setItems(result.data ?? [])
+      setCandidates(pending.data?.length ?? 0)
     } catch (cause) {
       if (generation !== current) return
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -76,14 +83,17 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
     void load(current)
   })
 
+  // Whether the action went through: a refused write keeps what was typed.
   const act = async (action: (client: ReturnType<typeof createClient>) => Promise<unknown>) => {
     setError(undefined)
     try {
       await action(createClient(props.serverUrl))
       current += 1
       await load(current)
+      return true
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
+      return false
     }
   }
 
@@ -94,9 +104,9 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
   }
 
   const saveEdit = (id: string) =>
-    act((client) => client.memory.update({ id, title: editTitle(), content: editContent() })).then(() =>
-      setEditing(undefined),
-    )
+    act((client) => client.memory.update({ id, title: editTitle(), content: editContent() })).then((done) => {
+      if (done) setEditing(undefined)
+    })
 
   const addMemory = () =>
     act((client) =>
@@ -107,13 +117,12 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
         status: "active",
         source: "manual",
       }),
-    ).then(() => {
+    ).then((done) => {
+      if (!done) return
       setCreating(false)
       setNewTitle("")
       setNewContent("")
     })
-
-  const candidates = () => items().filter((memory) => memory.status === "candidate").length
 
   return (
     <Show when={props.open}>
@@ -129,7 +138,14 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
             <span class="fc-modal-heading">
               {t("Memory")}
               <Show when={candidates() > 0}>
-                <span class="fc-memory-badge">{t("{count} candidates", { count: candidates() })}</span>
+                <button
+                  class="fc-memory-badge"
+                  type="button"
+                  title={t("Candidates are not used in prompts until you approve them.")}
+                  onClick={() => setStatus("candidate")}
+                >
+                  {t("{count} candidates to review", { count: candidates() })}
+                </button>
               </Show>
             </span>
             <div class="fc-modal-actions">

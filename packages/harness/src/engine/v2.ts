@@ -468,6 +468,13 @@ export function createV2Domains(
       )
     ).output as T
 
+  // The plugin answers a write it refuses (a credential-shaped memory, TI-08) with the reason.
+  const memoryWrite = async (method: string, input: object) => {
+    const answer = await memoryCall<MemoryInfo | { refused: string } | null>(method, input)
+    if (answer && "refused" in answer) throw new EngineError("Not kept: " + answer.refused)
+    return answer as MemoryInfo
+  }
+
   /**
    * The rest of `EngineClient` (V2-11 groundwork). Most of it is the same `/api` route under its 2.x
    * name. What 2.x no longer has reads as the app's empty state: the tool id list and the Console org. 1.x's per-folder event stream is gone too;
@@ -568,8 +575,8 @@ export function createV2Domains(
         return { data: await memoryCall<MemoryInfo[]>("list", query, where?.directory).catch(() => []) }
       },
       get: async (input) => ({ data: await memoryCall<MemoryInfo>("get", input) }),
-      create: async (input) => ({ data: await memoryCall<MemoryInfo>("create", input) }),
-      update: async (input) => ({ data: await memoryCall<MemoryInfo>("update", input) }),
+      create: async (input) => ({ data: await memoryWrite("create", input) }),
+      update: async (input) => ({ data: await memoryWrite("update", input) }),
       remove: async (input) => {
         await memoryCall("remove", input)
         return nothing()

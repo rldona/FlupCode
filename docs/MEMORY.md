@@ -68,10 +68,17 @@ no se despliega a mano.` FlupCode captures the clause immediately and infers the
 3. **Background extraction.** After a session goes idle, FlupCode can summarize the recent turns
    with the configured small model and store new knowledge as **candidates**, for you to review.
 
-> **Today, candidates are injected too.** Retrieval reads `active` and `candidate` memories alike,
-> so an extracted memory you have not reviewed can reach a prompt, and the `memory` tool lists,
-> updates and forgets memories of any project. Both are being fixed (AUDIT-2026-10, TI-08); until
-> then, review or delete candidates in the Memory panel, or turn `auto` off.
+Only **active** memories reach a prompt. What background extraction and the `memory` tool add is a
+**candidate** until you approve it in the Memory panel, whose header counts the candidates waiting for
+review; a "remember that…" instruction or a memory you add by hand is active at once.
+
+The `memory` tool works within the session's reach: it lists the global memories and those of the
+current project, agent and session, and updates or forgets only the last three. Another project's
+memories do not exist for it.
+
+A memory that looks like a credential (an API key, a token, a private key, a password assignment,
+credentials in a URL — the same shapes harness-server redacts) is never kept, whichever way it
+arrives: the tool and the Memory panel say why, extraction and "remember that…" drop it.
 
 FlupCode deliberately ignores logs, stack traces, generated code, one-off errors, and ordinary
 question/answer chatter. When in doubt, it stores a candidate for you to review rather than silently

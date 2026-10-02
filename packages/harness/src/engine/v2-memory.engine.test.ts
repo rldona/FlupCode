@@ -94,6 +94,50 @@ describe.skipIf(!run)("memory on the OpenCode 2 adapter", () => {
       "Releases are cut from the power branch",
     ])
   })
+  test("a candidate stays out of the prompt until it is approved", async () => {
+    const candidate = await domains.memory.create({
+      title: "Amber branch",
+      content: "Hotfixes are tagged from the amber branch",
+      scope: "global",
+      status: "candidate",
+    })
+    expect(candidate.data).toMatchObject({ status: "candidate" })
+    const session = await domains.session.create({ location: { directory: engine.project } })
+    const ask = async (text: string) => {
+      const before = model.requests.length
+      model.push({ type: "text", text: "Noted" })
+      await domains.session.prompt({ sessionID: session.id, text })
+      const request = await until(
+        async () => model.requests.slice(before).find((body) => JSON.stringify(body).includes(text)),
+        (found) => found !== undefined,
+      )
+      await until(
+        async () => (await domains.session.active()).has(session.id),
+        (busy) => !busy,
+      )
+      return JSON.stringify(request)
+    }
+
+    expect(await ask("Which branch are hotfixes tagged from?")).not.toContain("amber branch")
+    expect((await domains.memory.used({ sessionID: session.id })).data.map((memory) => memory.id)).not.toContain(
+      candidate.data.id,
+    )
+
+    await domains.memory.update({ id: candidate.data.id, status: "active" })
+    expect(await ask("Which branch are hotfixes tagged from, again?")).toContain(
+      "Hotfixes are tagged from the amber branch",
+    )
+  })
+})
+
+describe.skipIf(!run)("memory refuses credentials", () => {
+  test("a memory that looks like a key is refused with the reason", async () => {
+    const key = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    await expect(
+      domains.memory.create({ title: "CI token", content: "The CI token is " + key, scope: "global" }),
+    ).rejects.toThrow("Not kept: it looks like a credential (GitHub token)")
+    expect((await domains.memory.list({ text: "CI token" })).data).toEqual([])
+  })
 })
 
 async function until<T>(read: () => Promise<T>, match: (value: T) => boolean) {
