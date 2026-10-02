@@ -1,7 +1,8 @@
-import { OpenCode, type SessionMessageInfo } from "@opencode/client"
+import { OpenCode, type SessionInfo, type SessionMessageInfo } from "@opencode/client"
 import { basename } from "node:path"
 import { pathToFileURL } from "node:url"
 import { detailOf, type Activity, type PermissionRule, type TranscriptMessage } from "./engine"
+import type { ToolEvent, UsageEvent } from "./usage-ledger"
 
 /**
  * What `Engine` does on an OpenCode 2 engine (V2-26), through its generated `@opencode/client`.
@@ -205,6 +206,52 @@ export class V2Engine {
     return answerOf(await this.transcript(sessionID))
   }
 
+  /**
+   * Every session whose last change is at or after `since` (the engine's clock), newest first, and
+   * whether a turn is still running in it. The engine lists across every folder, ordered by update.
+   */
+  async sessionsUpdatedSince(since: number) {
+    const active = await call(this.client.session.active())
+    const sessions: Array<{ id: string; updated: number; busy: boolean }> = []
+    let cursor: string | undefined
+    do {
+      const page = await call(this.client.session.list({ limit: 200, order: "desc", ...(cursor ? { cursor } : {}) }))
+      const recent = page.data.filter((session) => session.time.updated >= since)
+      sessions.push(
+        ...recent.map((session) => ({ id: session.id, updated: session.time.updated, busy: session.id in active })),
+      )
+      cursor =
+        page.data.length === 200 && recent.length === page.data.length ? (page.cursor.next ?? undefined) : undefined
+    } while (cursor)
+    return sessions
+  }
+
+  /**
+   * What a session's transcript says it spent (UL-03): a row per step, failed step and compaction, and
+   * one per finished tool, keyed as the session-metrics plugin keys the same facts. `undefined` for a
+   * session the engine no longer has.
+   */
+  async sessionUsage(sessionID: string) {
+    const session = await this.client.session.get({ sessionID }).catch((cause: unknown) => {
+      if ((cause as { _tag?: string })?._tag === "SessionNotFoundError") return undefined
+      throw failure(cause)
+    })
+    if (!session) return undefined
+    return usageOf(session, await this.rootOf(session), await this.transcript(sessionID))
+  }
+
+  /** The session a subagent's chain starts from: itself when it has no parent. */
+  private async rootOf(session: SessionInfo) {
+    let root = session
+    // Bounded: a chain longer than any real nesting is cut rather than followed forever.
+    for (let depth = 0; root.parentID && depth < 32; depth++) {
+      const parent = await this.client.session.get({ sessionID: root.parentID }).catch(() => undefined)
+      if (!parent) return root.parentID
+      root = parent
+    }
+    return root.id
+  }
+
   /** Every message, oldest first: 2.x pages newest first. */
   private async transcript(sessionID: string) {
     const pages: SessionMessageInfo[] = []
@@ -249,6 +296,115 @@ export function answerOf(messages: SessionMessageInfo[]) {
           ? "The turn was interrupted"
           : undefined
   return { text: text || undefined, tokens: tokens || undefined, cost, ...(error ? { error } : {}) }
+}
+
+/**
+ * A session's billable facts, from its transcript (UL-03).
+ *
+ * 2.x writes one assistant message per step, carrying its agent, model, tokens and cost, and one
+ * `compaction` message per compaction, paid for even when it failed. Ids are the session, the kind and
+ * the engine's message (or tool call) id, which is what the live plugin sees too, so the two paths
+ * store each fact once. What a transcript cannot show is not here: the title the engine generates
+ * (counted only on `SessionInfo.cost`) and a failed step the engine retried (replaced by the retry).
+ *
+ * A fork starts with a copy of its parent's history under new ids and its original times; that is
+ * the parent's spending, so every message older than the fork itself is skipped.
+ */
+export function usageOf(session: SessionInfo, rootSessionID: string, messages: SessionMessageInfo[]) {
+  const own = session.fork ? messages.filter((message) => message.time.created >= session.time.created) : messages
+  const where = {
+    ...(session.parentID ? { parentSessionID: session.parentID } : {}),
+    rootSessionID,
+    directory: session.location.directory,
+    engineProjectID: session.projectID,
+  }
+  const events = own.flatMap((message): UsageEvent[] => {
+    if (message.type === "compaction" && message.status !== "running")
+      return [
+        {
+          id: `${session.id}:compaction:${message.id}`,
+          kind: "compaction",
+          sessionID: session.id,
+          messageID: message.id,
+          ...where,
+          ...(message.status === "completed" && message.model
+            ? {
+                providerID: message.model.providerID,
+                modelID: message.model.id,
+                ...(message.model.variant ? { variant: message.model.variant } : {}),
+              }
+            : {}),
+          ...priced(message.cost, message.tokens),
+          startedAt: message.time.created,
+          ...(message.status === "failed" ? { errorType: message.error.type } : {}),
+        },
+      ]
+    // A step still streaming has nothing final to say yet: the next pass, once it ends, reads it.
+    if (message.type !== "assistant" || (!message.finish && !message.error)) return []
+    const kind = message.error ? "step_failed" : "step"
+    return [
+      {
+        id: `${session.id}:${kind}:${message.id}`,
+        kind,
+        sessionID: session.id,
+        messageID: message.id,
+        ...where,
+        agent: message.agent,
+        providerID: message.model.providerID,
+        modelID: message.model.id,
+        ...(message.model.variant ? { variant: message.model.variant } : {}),
+        ...priced(message.cost, message.tokens),
+        startedAt: message.time.created,
+        ...(message.time.completed !== undefined ? { endedAt: message.time.completed } : {}),
+        ...(message.time.streamed !== undefined ? { firstTokenMs: message.time.streamed - message.time.created } : {}),
+        ...(message.finish ? { finish: message.finish } : {}),
+        ...(message.error ? { errorType: message.error.type } : {}),
+        ...(message.retry ? { retryAttempt: message.retry.attempt } : {}),
+      },
+    ]
+  })
+  const tools = own.flatMap((message): ToolEvent[] =>
+    message.type !== "assistant"
+      ? []
+      : message.content.flatMap((item) => {
+          if (item.type !== "tool" || (item.state.status !== "completed" && item.state.status !== "error")) return []
+          const started = item.time.ran ?? item.time.created
+          return [
+            {
+              id: `${session.id}:tool:${item.id}`,
+              sessionID: session.id,
+              messageID: message.id,
+              tool: item.name,
+              startedAt: started,
+              ms: Math.max(0, (item.time.completed ?? started) - started),
+              error: item.state.status === "error",
+              bytes: (item.state.content ?? []).reduce(
+                (total, part) =>
+                  total + ("text" in part && typeof part.text === "string" ? Buffer.byteLength(part.text) : 0),
+                0,
+              ),
+            },
+          ]
+        }),
+  )
+  return { events, tools }
+}
+
+/** The engine's cost is its list price; a fact it put no cost on is unpriced, never $0. */
+function priced(cost: number | undefined, tokens: SessionInfo["tokens"] | undefined) {
+  return {
+    tokens: {
+      input: tokens?.input ?? 0,
+      output: tokens?.output ?? 0,
+      reasoning: tokens?.reasoning ?? 0,
+      cacheRead: tokens?.cache.read ?? 0,
+      cacheWrite: tokens?.cache.write ?? 0,
+    },
+    ...(cost === undefined
+      ? { costBasis: "unpriced" as const }
+      : { costUSD: Number(cost), costBasis: "engine-list-price" as const }),
+    billing: "unknown" as const,
+  }
 }
 
 /** A 1.x rule as a 2.x one: same meaning, 2.x names, and `bash` is `shell`. */

@@ -203,6 +203,16 @@ export class Engine {
     return (await this.v2()).messages(sessionID)
   }
 
+  /** The sessions changed since `since` (the engine's clock), newest first, and which are busy (UL-03). */
+  async sessionsUpdatedSince(since: number) {
+    return (await this.v2()).sessionsUpdatedSince(since)
+  }
+
+  /** A session's billable facts as its transcript records them (UL-03); `undefined` once it is gone. */
+  async sessionUsage(sessionID: string) {
+    return (await this.v2()).sessionUsage(sessionID)
+  }
+
   async rename(sessionID: string, title: string) {
     return (await this.v2()).rename(sessionID, title)
   }

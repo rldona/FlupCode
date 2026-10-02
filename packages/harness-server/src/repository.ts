@@ -1321,6 +1321,21 @@ export class SqliteRoutineRepository implements RoutineRepository {
           `),
       },
       {
+        // How far the usage reconciler (UL-03) has read each engine session: the session's own
+        // `time.updated` when its transcript was last turned into ledger rows. A session that has not
+        // changed since is not read again, so a restart does not replay every transcript. A new table
+        // only; flagged as rewriting so the file is copied first, as every schema change is.
+        version: 6,
+        name: "usage-reconciled",
+        rewrites: true,
+        up: () =>
+          this.db.exec(`CREATE TABLE IF NOT EXISTS usage_reconciled (
+            session_id TEXT PRIMARY KEY,
+            engine_updated INTEGER NOT NULL,
+            reconciled_at INTEGER NOT NULL
+          )`),
+      },
+      {
         // Who each session works for (UL-04, audit §8.4). The sessions of existing runs are known
         // from their tasks and threads, so they are attributed now and any ledger row already taken
         // for them is stamped. A closing note's or a commit message's session from before was never
@@ -3088,6 +3103,23 @@ export class SqliteRoutineRepository implements RoutineRepository {
         known.directory ?? null,
       )
     }
+  }
+
+  /** The engine's `time.updated` of a session when the reconciler last read it (UL-03). */
+  usageReconciled(sessionID: string) {
+    const row = this.db.query("SELECT engine_updated FROM usage_reconciled WHERE session_id = ?1").get(sessionID) as
+      | { engine_updated: number }
+      | null
+    return row?.engine_updated
+  }
+
+  markUsageReconciled(sessionID: string, engineUpdated: number, now = Date.now()) {
+    this.db
+      .query(
+        `INSERT INTO usage_reconciled (session_id, engine_updated, reconciled_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(session_id) DO UPDATE SET engine_updated = excluded.engine_updated, reconciled_at = excluded.reconciled_at`,
+      )
+      .run(sessionID, engineUpdated, now)
   }
 
   /** A session's billable facts, in the order they were stored. */

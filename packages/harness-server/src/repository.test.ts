@@ -307,6 +307,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 3, name: "workflow-identity", backup: join(dirname(path), backup!) },
       { version: 4, name: "referential-integrity", backup: join(dirname(path), backup!) },
       { version: 5, name: "usage-ledger", backup: join(dirname(path), backup!) },
+      { version: 6, name: "usage-reconciled", backup: join(dirname(path), backup!) },
       { version: 7, name: "usage-attribution", backup: join(dirname(path), backup!) },
     ])
     repository.close()
@@ -322,7 +323,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 7 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -336,6 +337,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 3, backup: null },
       { version: 4, backup: null },
       { version: 5, backup: null },
+      { version: 6, backup: null },
       { version: 7, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
@@ -344,7 +346,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 7 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }])
     repository.close()
   })
 
@@ -1448,6 +1450,36 @@ describe("the referential integrity migration (RP-02)", () => {
     // The backup still holds what the migration dropped.
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM tasks WHERE id = ?1").get(gone.task.id) as { count: number }).count).toBe(1)
+    copy.close()
+    repository.close()
+  })
+})
+
+describe("the usage-reconciled migration (UL-03)", () => {
+  test("a database at version 5 is backed up and migrated with its ledger and runs intact", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
+    const tokens = { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 }
+    const step = { id: "ses_1:step:msg_1", kind: "step" as const, sessionID: "ses_1", tokens, costUSD: 0.01, costBasis: "engine-list-price" as const, billing: "unknown" as const }
+    before.recordUsage({ events: [step], tools: [] })
+    before.db.exec("DELETE FROM schema_version WHERE version >= 6; DROP TABLE usage_reconciled;")
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v5-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 6").all()).toEqual([
+      { version: 6, name: "usage-reconciled" },
+    ])
+    expect(repository.getRun(run.id)?.id).toBe(run.id)
+    expect(repository.usageEvents("ses_1")).toEqual([step])
+    expect(repository.usageReconciled("ses_1")).toBeUndefined()
+    repository.markUsageReconciled("ses_1", 2_000, 3_000)
+    repository.markUsageReconciled("ses_1", 2_500, 3_500)
+    expect(repository.usageReconciled("ses_1")).toBe(2_500)
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM usage_event").get() as { count: number }).count).toBe(1)
     copy.close()
     repository.close()
   })

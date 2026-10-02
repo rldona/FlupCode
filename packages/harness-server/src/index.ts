@@ -62,6 +62,7 @@ import { episodeTrace } from "./adaptive/learning/heuristics"
 import type { LearningRunner } from "./adaptive/learning/manager"
 import { learningLimitStatus } from "./adaptive/learning/limits"
 import { createProposalReview } from "./adaptive/learning/review"
+import { createUsageReconciler } from "./usage-reconciler"
 
 export type HarnessServerOptions = {
   port?: number
@@ -472,6 +473,10 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   shadow.start()
   labeler.start()
   learning.start()
+  // The usage ledger converges on what the engine kept (UL-03): every session at the first pass, which
+  // is also the one-time backfill, then each session that went idle since.
+  const usage = createUsageReconciler({ repository, engine: scheduler.engine })
+  usage.start()
   void runtimeProbe.refresh()
   const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
   return {
@@ -488,6 +493,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     stop: async () => {
       clearInterval(sweep)
       clearInterval(probeInterval)
+      usage.stop()
       learning?.stop()
       shadow.stop()
       labeler.stop()
