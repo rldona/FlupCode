@@ -920,7 +920,8 @@ describe("the draft timeout (AH-A02)", () => {
 
     expect(await jobSettled(repository)).toMatchObject({ status: "skipped", reason: "draft-failed" })
     expect(repository.getProposal("proposal:episode:run:1")).toBeUndefined()
-    expect(engine.interrupted).toEqual(["draft-session"])
+    // The wait interrupts on its deadline (TI-01) and the drafter again on its way out; once is enough.
+    expect(engine.interrupted).toContain("draft-session")
     expect(engine.deleted).toEqual(["draft-session"])
   })
 })

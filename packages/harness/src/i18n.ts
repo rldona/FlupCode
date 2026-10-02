@@ -910,6 +910,7 @@ const ES: Record<string, string> = {
   "Run interrupted": "Ejecución interrumpida",
   "Routine stopped": "Rutina detenida",
   "Stop run": "Detener ejecución",
+  "Stopping…": "Deteniendo…",
   "Open run": "Abrir ejecución",
   "Session options": "Opciones de la sesión",
   "Delete this session?": "¿Eliminar esta sesión?",

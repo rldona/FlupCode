@@ -303,8 +303,11 @@ export class Engine {
     const pollMs = options.pollMs ?? 1000
     const checkEveryMs = options.checkEveryMs ?? CHECK_EVERY_MS
     const settleUntil = Date.now() + (options.settleMs ?? 3000)
+    // Stopped means the engine stopped (TI-01): the turn is interrupted before the caller is told,
+    // so nothing is written down as stopped while the session is still working.
+    const halt = () => this.interrupt(sessionID)
     while (Date.now() < settleUntil) {
-      if (stopped()) return
+      if (stopped()) return halt()
       if (await this.isBusy(sessionID)) break
       await new Promise((resolve) => setTimeout(resolve, Math.min(250, pollMs)))
     }
@@ -312,7 +315,7 @@ export class Engine {
     // per poll, and a run with no ceiling has nothing to check it against.
     let nextCheck = options.toolLimitMs ? Date.now() + checkEveryMs : Infinity
     while (Date.now() < deadline) {
-      if (stopped()) return
+      if (stopped()) return halt()
       if (!(await this.isBusy(sessionID))) return
       if (Date.now() >= nextCheck) {
         nextCheck = Date.now() + checkEveryMs
@@ -326,6 +329,8 @@ export class Engine {
       }
       await new Promise((resolve) => setTimeout(resolve, pollMs))
     }
+    // Out of time is the same: the turn ends before the task is written down as failed.
+    await halt().catch(() => undefined)
     throw new Error(
       `The work was still running after ${timeoutMs >= 60_000 ? `${timeoutMs / 60_000} minutes` : `${timeoutMs / 1000} seconds`}`,
     )

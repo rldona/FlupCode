@@ -58,6 +58,14 @@ describe("waiting for a turn to finish", () => {
     const engine = new Stub({ busy: () => true })
     const failure = await engine.waitForIdle("ses_1", { ...fast, timeoutMs: 100 }).catch((cause) => cause)
     expect((failure as Error).message).toBe("The work was still running after 0.1 seconds")
+    // Out of time ends the turn too, so the task is not written down as failed while it still runs.
+    expect(engine.interrupted).toBe(1)
+  })
+
+  test("a stop interrupts the turn before the wait returns", async () => {
+    const engine = new Stub({ busy: () => true })
+    await engine.waitForIdle("ses_1", { ...fast, stopped: () => true })
+    expect(engine.interrupted).toBe(1)
   })
 
   test("a run with no ceiling is never asked what it is doing", async () => {
@@ -119,8 +127,10 @@ describe("a tool call that outstays the run's ceiling", () => {
 
   test("a stop asked for by a person wins over both", async () => {
     const engine = new Stub({ busy: () => true, doing: () => ({ tool: "glob", since: 0 }) })
+    // Returns rather than throwing the limit, having interrupted the turn once, for the stop.
     await engine.waitForIdle("ses_1", { ...fast, toolLimitMs: 10 * 60_000, stopped: () => true })
-    expect(engine.interrupted).toBe(0)
+    expect(engine.interrupted).toBe(1)
+    expect(engine.looks).toBe(0)
   })
 })
 
