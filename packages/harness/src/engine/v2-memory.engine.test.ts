@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { join } from "node:path"
 import { CONTRACT_LINE, startEngine, type Engine } from "@flupcode/engine-contract/engine"
 import { startModel } from "@flupcode/engine-contract/model"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { setEngineTransport } from "../transport"
 import { createV2Domains } from "./v2"
 
@@ -25,9 +24,7 @@ beforeAll(async () => {
     modelUrl: model.url,
     // Plugins load only outside pure mode.
     env: { OPENCODE_PURE: undefined },
-    prepare: async (home) => {
-      await installEnginePlugins(join(home, ".config", "opencode"))
-    },
+    flupcodePlugins: true,
   })
   setEngineTransport({
     fetch: (input, init) => {

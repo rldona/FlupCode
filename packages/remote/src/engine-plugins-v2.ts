@@ -1,7 +1,7 @@
 /**
- * FlupCode's engine plugins for OpenCode 2 (V2-30), written into the same `plugins` folder under the
- * same file names as the 1.x ones (`engine-plugins.ts`), so installing one line's set replaces the
- * other's.
+ * FlupCode's engine plugins for OpenCode 2 (V2-30). `engine-plugins.ts` writes each into its own
+ * folder under FlupCode's config folder and names them in the config of the engines FlupCode starts,
+ * so no other engine loads them (HE-04).
  *
  * 2.x refuses the 1.x shape (named exports returning hooks) at load time; it takes one default export
  * `{ id, setup(ctx) }` and hands `setup` the plugin context: `ctx.tool.hook("execute.before" |
@@ -1825,8 +1825,12 @@ export default {
  * session. 2.x hands a plugin's tool no conversation, so the image a web action or a delivery needs is
  * taken from the composing tool's own result as it ends (`execute.after`). Inlined into both plugins.
  */
-const CONFIG_HELPERS = String.raw`// The plugin sits in <configDir>/plugins, so its parent is the config directory.
-const CONFIG_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+const CONFIG_HELPERS = String.raw`// The reader's global OpenCode config folder, the engine's rule: OPENCODE_CONFIG_DIR, else the XDG
+// one. Not the plugin's own folder, which is FlupCode's (HE-04).
+function configDir() {
+  if (process.env.OPENCODE_CONFIG_DIR) return process.env.OPENCODE_CONFIG_DIR
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "opencode")
+}
 const CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"]
 const IMAGE_FILE_LIMIT = 10 * 1024 * 1024
 
@@ -1893,7 +1897,7 @@ async function readJsonc(file) {
 async function loadConfig() {
   let merged = {}
   for (const name of CONFIG_FILES) {
-    const parsed = await readJsonc(path.join(CONFIG_DIR, name))
+    const parsed = await readJsonc(path.join(configDir(), name))
     if (isPlainObject(parsed)) merged = mergeConfig(merged, parsed)
   }
   return merged
@@ -2182,6 +2186,7 @@ export const DELIVERY_PLUGIN_V2 = {
 // flupcode.delivery: the guards run, then the piece comes back ready to copy, with its composed image.
 // Nothing is published. Regenerated when FlupCode starts the engine; edits here are overwritten.
 import { readFile } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -2193,7 +2198,7 @@ async function runGuards(paths, input) {
   const guards = []
   for (const entry of paths) {
     if (typeof entry !== "string" || !entry) continue
-    const mod = await import(pathToFileURL(path.resolve(CONFIG_DIR, entry)).href).catch(() => undefined)
+    const mod = await import(pathToFileURL(path.resolve(configDir(), entry)).href).catch(() => undefined)
     if (!mod || !Array.isArray(mod.guards)) return "No se entrega. GUARD_LOAD_ERROR: " + entry
     guards.push(...mod.guards)
   }

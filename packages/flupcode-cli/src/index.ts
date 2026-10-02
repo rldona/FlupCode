@@ -165,11 +165,13 @@ function runningEngine(engine: string, credentials: string | undefined) {
  */
 async function ensureEngine(engine: string, credentials: string | undefined, serve: boolean) {
   const running = await runningEngine(engine, credentials)
-  // Plugins live in this computer's OpenCode config, so they only matter for a local engine.
+  // Plugins live in this computer's FlupCode folder, so they only matter for a local engine.
   const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(engine).hostname)
   if (running.kind === "v2") {
+    // Only an engine FlupCode starts is told about its plugins (HE-04); the old global copies still go.
     const plugins = local ? await installEnginePlugins() : undefined
-    if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins."))
+    if (plugins?.changed)
+      console.log(dim("FlupCode's engine plugins load only in an engine flupcode starts; stop this one to let it start its own."))
     noteV2(running.version)
     return { child: undefined, credentials }
   }
@@ -188,7 +190,7 @@ async function ensureEngine(engine: string, credentials: string | undefined, ser
   const command = await resolveOpenCodeV2().catch((cause: unknown) =>
     fail(`could not get OpenCode ${OPENCODE_V2_VERSION}: ${cause instanceof Error ? cause.message : String(cause)}`),
   )
-  // Before it starts: an engine reads its plugins once, at startup.
+  // Before it starts: an engine reads its plugins once, at startup (`openCodeV2Env` names them).
   if (local) await installEnginePlugins()
   const password = process.env.OPENCODE_SERVER_PASSWORD || randomBytes(24).toString("hex")
   // 2.x has no user name setting: it always signs in as "opencode".

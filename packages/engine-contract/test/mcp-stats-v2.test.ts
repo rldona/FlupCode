@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { CONTRACT_LINE, startEngine, type Engine } from "../src/engine"
 import { mcpStdioCommand } from "../src/mcp"
 import { startModel } from "../src/model"
@@ -24,9 +23,7 @@ beforeAll(async () => {
     modelUrl: model.url,
     env: { OPENCODE_PURE: undefined },
     config: { mcp: { contract: { type: "local", command: mcpStdioCommand() } } },
-    prepare: async (home) => {
-      await installEnginePlugins(join(home, ".config", "opencode"))
-    },
+    flupcodePlugins: true,
   })
 }, 120_000)
 

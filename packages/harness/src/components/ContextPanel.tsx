@@ -442,7 +442,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
                   {props.promptsLoading
                     ? t("Reading…")
                     : t(
-                        "Nothing recorded yet. FlupCode's engine plugin captures it from the next turn, and an engine that was already running needs a restart to load it.",
+                        "Nothing recorded yet. FlupCode's engine plugin captures it from the next turn, in an engine FlupCode started.",
                       )}
                 </p>
               }

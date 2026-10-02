@@ -37,7 +37,7 @@ let engine: Supervisor | undefined
 let harness: Supervisor | undefined
 let proxy: Awaited<ReturnType<typeof startEngineProxy>> | undefined
 let prompted = false
-let promptedRestart = false
+let promptedForeign = false
 let promptedLocked = false
 
 /**
@@ -245,23 +245,24 @@ function promptLockedEngine() {
 }
 
 /**
- * An engine this app did not start reads its plugins once, when it starts.
+ * An engine this app did not start may run without FlupCode's plugins: they live in FlupCode's own
+ * folder and only an engine FlupCode (or `flupcode`) starts is told about them (HE-04).
  *
- * One that was already listening when FlupCode wrote them is running without them, and nothing says
- * so: the chat works, while the effort menu stays empty and the Context screen captures nothing. Not
- * fatal, so it is said once and the app carries on.
+ * Nothing else says so: the chat works, while the effort menu stays empty and the Context screen
+ * captures nothing. Not fatal, so it is said once, when the plugins were just written, and the app
+ * carries on.
  */
-function promptPluginRestart() {
-  if (promptedRestart) return
-  promptedRestart = true
+function promptForeignEngine() {
+  if (promptedForeign) return
+  promptedForeign = true
   void dialog.showMessageBox({
     type: "info",
-    title: "Restart the engine to load FlupCode's plugins",
-    message: "The engine was already running when FlupCode installed its plugins",
+    title: "FlupCode's plugins load only in an engine FlupCode starts",
+    message: "FlupCode found an engine already running",
     detail:
-      "An engine reads its plugins when it starts, and this one was already listening.\n\n" +
-      "Until it is restarted, the effort menu and the Context screen have nothing to show.\n\n" +
-      "Stop it and start it again, or close it and let FlupCode start its own.",
+      "FlupCode keeps its engine plugins in its own folder, and only an engine started by FlupCode or flupcode loads them.\n\n" +
+      "If you started this one yourself, the effort menu and the Context screen have nothing to show with it.\n\n" +
+      "Close it and reopen FlupCode, which starts its own.",
     buttons: ["Continue"],
   })
 }
@@ -270,8 +271,8 @@ export async function ensureServer() {
   if (process.env.FLUPCODE_NO_SERVER === "1") return
   const running = await runningEngine()
   if (running.kind === "v2") {
-    // An engine already running picks its plugins up on restart.
-    if ((await installEnginePlugins()).changed) promptPluginRestart()
+    // An engine started by hand never loads FlupCode's plugins; the old global copies still go.
+    if ((await installEnginePlugins()).changed) promptForeignEngine()
     console.info(`[flupcode] engine running: OpenCode ${running.version}`)
     return
   }
@@ -295,7 +296,7 @@ export async function ensureServer() {
     })
   }
   const command = resolved.command
-  // Before the engine starts, since it reads its plugins once, at startup.
+  // Before the engine starts, since it reads its plugins once, at startup; `openCodeV2Env` names them.
   await installEnginePlugins()
 
   // An engine an earlier launch left running holds the port behind a password nobody has any more.

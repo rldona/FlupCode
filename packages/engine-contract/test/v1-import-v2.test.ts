@@ -4,7 +4,6 @@ import { createHash } from "node:crypto"
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { importV1History, importV1Memories, rollbackV1Import } from "@flupcode/remote/v1-import"
 import { CONTRACT_LINE, startEngine, type Engine } from "../src/engine"
 import { startModel } from "../src/model"
@@ -50,9 +49,7 @@ describe.skipIf(!run)("importing OpenCode 1.x history into FlupCode's OpenCode 2
     const v2 = await startEngine({
       modelUrl: model.url,
       env: { OPENCODE_DB: target, OPENCODE_PURE: undefined },
-      prepare: async (home) => {
-        await installEnginePlugins(join(home, ".config", "opencode"))
-      },
+      flupcodePlugins: true,
     })
     try {
       await until(

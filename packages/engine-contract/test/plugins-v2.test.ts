@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
-import { basename, join } from "node:path"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { basename, dirname, join } from "node:path"
+import { enginePluginFolders } from "@flupcode/remote/engine-plugins"
 import { CONTRACT_LINE, startEngine, type Engine } from "../src/engine"
 import { recordEvents, type EngineEvent } from "../src/events"
 import { startModel } from "../src/model"
@@ -36,12 +36,16 @@ beforeAll(async () => {
       FLUPCODE_HARNESS_SERVER_URL: harness.url,
       FLUPCODE_PLUGIN_TOKEN: "plugin-token",
     },
+    flupcodePlugins: true,
     prepare: async (home) => {
-      installed = (await installEnginePlugins(join(home, ".config", "opencode"))).paths.map((file) => basename(file))
+      installed = enginePluginFolders({ XDG_CONFIG_HOME: join(home, ".config") }, home).map(
+        (folder) => `${basename(folder)}.js`,
+      )
       // The adaptive plugins only call a loopback harness, and only with the token the harness wrote.
       mkdirSync(join(home, ".config", "flupcode"), { recursive: true })
       writeFileSync(join(home, ".config", "flupcode", "adaptive-token"), "adaptive-token")
       // The deliver plugin registers one tool per profile it finds in the global config.
+      mkdirSync(join(home, ".config", "opencode"), { recursive: true })
       writeFileSync(
         join(home, ".config", "opencode", "opencode.json"),
         JSON.stringify({ flupcode: { delivery: { post: { tool: "flupcode_deliver_post", imageRequired: false } } } }),
@@ -320,10 +324,11 @@ describe.skipIf(!run)("FlupCode's OpenCode 2 plugins", () => {
     const plugins = (await call("GET", "/api/plugin")) as {
       data: Array<{ source?: { path?: string }; state?: { status?: string; error?: string } }>
     }
-    const ours = plugins.data.filter((plugin) => plugin.source?.path?.includes("/plugins/flupcode-"))
-    expect(Object.fromEntries(ours.map((plugin) => [basename(plugin.source!.path!), plugin.state?.status]))).toEqual(
-      Object.fromEntries(installed.map((file) => [file, "active"])),
-    )
+    // Each from its own folder under FlupCode's config folder (HE-04): `<folder>/index.js`.
+    const ours = plugins.data.filter((plugin) => plugin.source?.path?.includes("/flupcode/engine-plugins/"))
+    expect(
+      Object.fromEntries(ours.map((plugin) => [`${basename(dirname(plugin.source!.path!))}.js`, plugin.state?.status])),
+    ).toEqual(Object.fromEntries(installed.map((file) => [file, "active"])))
   })
 
   for (const [file, check] of Object.entries(evidence)) test(`${file} loads and fires`, check)

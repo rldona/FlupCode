@@ -1129,8 +1129,8 @@ const ES: Record<string, string> = {
   "The system prompt": "El system prompt",
   "Recorded as each request went out, so it is what the model was given and not a description of it. The longest is the turn; titles and compactions are recorded too.":
     "Grabado según salía cada petición, así que es lo que recibió el modelo y no una descripción. El más largo es el del turno; los títulos y las compactaciones también quedan grabados.",
-  "Nothing recorded yet. FlupCode's engine plugin captures it from the next turn, and an engine that was already running needs a restart to load it.":
-    "Todavía no hay nada grabado. El plugin de motor de FlupCode lo captura a partir del siguiente turno, y un motor que ya estaba en marcha necesita reiniciarse para cargarlo.",
+  "Nothing recorded yet. FlupCode's engine plugin captures it from the next turn, in an engine FlupCode started.":
+    "Todavía no hay nada grabado. El plugin de motor de FlupCode lo captura a partir del siguiente turno, en un motor que haya arrancado FlupCode.",
   "Agents, whose own prompt is part of what is above:": "Agentes, cuyo propio prompt forma parte de lo de arriba:",
   "The engine lists no tools for a server, only the calls that go through one. These are the tools this session used:":
     "El motor no lista las tools de un servidor, sólo las llamadas que pasan por él. Éstas son las que ha usado esta sesión:",

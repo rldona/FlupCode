@@ -455,8 +455,10 @@ describe("CACHE_SELECTION_PLUGIN_V2", () => {
     process.env.FLUPCODE_CONFIG_DIR = flupcode
     if (url) process.env.FLUPCODE_HARNESS_SERVER_URL = url
     if (token) await writeFile(path.join(flupcode, "adaptive-token"), token)
-    const { paths } = await installEnginePlugins(config)
-    const target = paths.find((entry) => entry.endsWith(CACHE_SELECTION_PLUGIN_V2.file))!
+    const { paths } = await installEnginePlugins({ FLUPCODE_CONFIG_DIR: config, OPENCODE_CONFIG_DIR: config }, config)
+    const target = paths.find((entry) =>
+      entry.endsWith(path.join(CACHE_SELECTION_PLUGIN_V2.file.replace(/\.js$/, ""), "index.js")),
+    )!
     const plugin = (await import(pathToFileURL(target).href)).default as { setup: (ctx: unknown) => Promise<unknown> }
     // The clock stands at the newest event once they are all seen, which is when the requests are made.
     const now = Math.max(T, ...events.map(([at]) => at))
@@ -636,8 +638,10 @@ describe("CACHE_SELECTION_PLUGIN_V2", () => {
 
   test("the engine loads it as a single default plugin", async () => {
     const config = await temp()
-    const { paths } = await installEnginePlugins(config)
-    const target = paths.find((entry) => entry.endsWith(CACHE_SELECTION_PLUGIN_V2.file))!
+    const { paths } = await installEnginePlugins({ FLUPCODE_CONFIG_DIR: config, OPENCODE_CONFIG_DIR: config }, config)
+    const target = paths.find((entry) =>
+      entry.endsWith(path.join(CACHE_SELECTION_PLUGIN_V2.file.replace(/\.js$/, ""), "index.js")),
+    )!
     const mod = await import(pathToFileURL(target).href)
     expect(Object.keys(mod)).toEqual(["default"])
     expect(mod.default.id).toBe("flupcode-cache-selection")
