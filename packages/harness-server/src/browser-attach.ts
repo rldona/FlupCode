@@ -222,6 +222,8 @@ export function createBrowserAttach(input: {
           })
           .catch(() => undefined)
           .then((answer) => input.policy.answer(question, readAnswer(answer)))
+          // An answer that lands after the server stopped has nowhere to be written: nothing runs on it.
+          .catch(() => undefined)
           .finally(() => asks.delete(key))
         asks.set(key, pending)
         return pending
