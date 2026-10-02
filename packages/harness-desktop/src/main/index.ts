@@ -4,7 +4,9 @@ import { execFile } from "node:child_process"
 import { extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
+import { editorCommand } from "./open-path"
 import { initRemoteHost } from "./remote"
+import { rendererCsp } from "./renderer-csp"
 import {
   engineCredentials,
   ensureHarnessServer,
@@ -24,6 +26,13 @@ const DEV_URL = process.env.FLUPCODE_DEV_URL ?? "http://localhost:4444"
 // Electron names the app after the package, so the menu bar and its Hide/Quit items read
 // "@flupcode/desktop". The bundle is called FlupCode; the app calls itself that too.
 app.setName("FlupCode")
+
+/**
+ * One copy per user (TI-17). A second would start its own engine and harness server and fight this
+ * one for their ports and locks; instead it quits before starting anything, and this one comes forward.
+ */
+const primaryInstance = app.requestSingleInstanceLock()
+if (!primaryInstance) app.quit()
 
 /** Where the page draws the window's top strip itself, controls and all. */
 const OWNS_TITLE_BAR = process.platform === "darwin" || process.platform === "win32"
@@ -57,7 +66,12 @@ function registerRendererProtocol() {
     // An address with no extension is a screen, not a file: the renderer is one page and reads the
     // path itself. A missing asset still 404s, so a broken build does not quietly serve the page.
     const target = extname(url.pathname) ? file : resolve(root, "index.html")
-    return net.fetch(pathToFileURL(target).toString()).catch(() => new Response("Not found", { status: 404 }))
+    const response = await net.fetch(pathToFileURL(target).toString()).catch(() => undefined)
+    if (!response) return new Response("Not found", { status: 404 })
+    // On every file, not just the page: a worker is governed by the policy its own script arrives with.
+    const headers = new Headers(response.headers)
+    headers.set("content-security-policy", rendererCsp(remote?.relay() ?? ""))
+    return new Response(response.body, { status: response.status, headers })
   })
 }
 
@@ -148,6 +162,7 @@ function createWindow() {
 let remote: ReturnType<typeof initRemoteHost> | undefined
 
 app.whenReady().then(async () => {
+  if (!primaryInstance) return
   // Native right-click menu for chats and everywhere else: Copy/Cut/Paste plus
   // Copy Image (on by default) and Save Image As. Mirrors packages/desktop.
   contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
@@ -173,6 +188,18 @@ app.whenReady().then(async () => {
   })
 })
 
+// Launching the app again brings this copy forward: its last window, or a new one where none is open.
+app.on("second-instance", () => {
+  if (!app.isReady()) return
+  const window = BrowserWindow.getAllWindows()[0]
+  if (!window) return createWindow()
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  // macOS does not hand focus to an app that is not active; launching it again is asking for it.
+  app.focus({ steal: true })
+})
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()
 })
@@ -194,10 +221,10 @@ ipcMain.handle("flupcode:choose-folder", async () => {
 })
 
 /**
- * Open a local file: in the system's default app, or in a named one (H-14).
+ * Open a local file: in the system's default app, or in a named editor (H-14).
  *
- * macOS has `open -a <app>`, Windows resolves `code` through the `cmd` shell, and Linux runs the
- * command directly. A failure is reported back to the renderer, not thrown into a void.
+ * The editor has to be one main knows (`editorCommand`): the page names it, but never the program
+ * that runs (TI-17). A refusal or a failure is reported back to the renderer, not thrown into a void.
  */
 ipcMain.handle("flupcode:open-path", async (_event, path: unknown, app?: unknown) => {
   if (typeof path !== "string" || !path) return false
@@ -205,15 +232,9 @@ ipcMain.handle("flupcode:open-path", async (_event, path: unknown, app?: unknown
     const problem = await shell.openPath(path)
     return problem === ""
   }
-  return await new Promise<boolean>((resolve) => {
-    const [command, args] =
-      process.platform === "darwin"
-        ? (["open", ["-a", app, path]] as const)
-        : process.platform === "win32"
-          ? (["cmd", ["/c", app, path]] as const)
-          : ([app, [path]] as const)
-    execFile(command, args, (error) => resolve(!error))
-  })
+  const editor = editorCommand(process.platform, app, path)
+  if (!editor) return false
+  return await new Promise<boolean>((resolve) => execFile(editor.command, editor.args, (error) => resolve(!error)))
 })
 
 /**

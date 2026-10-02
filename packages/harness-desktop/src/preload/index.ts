@@ -48,8 +48,8 @@ contextBridge.exposeInMainWorld("flupcode", {
   ownsTitleBar: process.platform === "darwin" || process.platform === "win32",
   setTitleBar: (overlay: { color: string; symbolColor: string }) =>
     ipcRenderer.invoke("flupcode:title-bar", overlay) as Promise<void>,
-  // Open a local file in the system's app, or in a named one (VS Code): a generated document is most
-  // useful in the editor it was written for (H-14).
+  // Open a local file in the system's app, or in a named editor (VS Code): a generated document is
+  // most useful in the editor it was written for (H-14). Main only runs editors it knows (TI-17).
   openPath: (path: string, app?: string) =>
     ipcRenderer.invoke("flupcode:open-path", path, app) as Promise<boolean>,
   // A link in the transcript opens the reader's real browser, never the sandboxed renderer.
