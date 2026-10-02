@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test"
-import { applyMention, commandBadge, filterCommands, mentionItems, mentionToken, refsIn, slashQuery } from "./composer-menus"
+import {
+  applyMention,
+  commandBadge,
+  filterCommands,
+  mentionItems,
+  mentionToken,
+  refsIn,
+  slashQuery,
+} from "./composer-menus"
 
 describe("the slash menu", () => {
   test("opens only on a command being typed, and not in a plain chat", () => {
@@ -10,12 +18,30 @@ describe("the slash menu", () => {
     expect(slashQuery("/rev", true)).toBeUndefined()
   })
 
-  test("filters by name and caps the list", () => {
-    const commands = Array.from({ length: 20 }, (_, index) => ({ name: `cmd${index}` }))
+  test("filters by name and caps the project's own commands", () => {
+    const commands: Array<{ name: string; source?: "builtin" | "command" | "skill" }> = Array.from(
+      { length: 20 },
+      (_, index) => ({ name: `cmd${index}` }),
+    )
     commands.push({ name: "review" })
     expect(filterCommands(commands, "review").map((command) => command.name)).toEqual(["review"])
     expect(filterCommands(commands, "cmd")).toHaveLength(8)
     expect(filterCommands(commands, undefined)).toEqual([])
+  })
+
+  test("TI-13: lists every built-in first, then up to eight of each other source", () => {
+    const commands = [
+      ...Array.from({ length: 12 }, (_, index) => ({ name: `skill${index}`, source: "skill" as const })),
+      ...Array.from({ length: 30 }, (_, index) => ({ name: `built${index}`, source: "builtin" as const })),
+      ...Array.from({ length: 12 }, (_, index) => ({ name: `cmd${index}`, source: "command" as const })),
+    ]
+    const listed = filterCommands(commands, "")
+    expect(listed.filter((command) => command.source === "builtin")).toHaveLength(30)
+    expect(listed.map((command) => command.source)).toEqual([
+      ...Array(30).fill("builtin"),
+      ...Array(8).fill("command"),
+      ...Array(8).fill("skill"),
+    ])
   })
 
   test("SK-2: only non-builtin sources get a badge", () => {
@@ -80,7 +106,12 @@ describe("the @ menu", () => {
       artifacts: [],
       packs: [{ name: "review", refs: ["@src/a.ts", "@artifact:report"] }],
     })
-    expect(pack).toMatchObject({ kind: "pack", value: "review", label: "@review", insert: "@src/a.ts @artifact:report" })
+    expect(pack).toMatchObject({
+      kind: "pack",
+      value: "review",
+      label: "@review",
+      insert: "@src/a.ts @artifact:report",
+    })
   })
 })
 

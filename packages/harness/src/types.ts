@@ -10,6 +10,8 @@ export type CommandOption = {
   disabled?: boolean
   /** Where it comes from, painted as a badge in the `/` menu (SK-2). */
   source?: "builtin" | "command" | "skill" | "workflow"
+  /** The heading it is listed under in the `/` menu. */
+  group?: string
 }
 
 /** What a run left behind, as the app reads it. Mirrors `harness-server`'s own type (H-14). */

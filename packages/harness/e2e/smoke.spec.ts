@@ -457,11 +457,12 @@ test("the slash menu walks with the arrow keys and Enter runs the chosen command
   await input.fill("/s")
   await expect(menu).toBeVisible()
   // The first match starts highlighted; the arrows move it around the list.
-  await expect(activeName).toHaveText("/steps")
-  await input.press("ArrowDown")
+  // With no session open, `/resume` and `/skillify` are shown but skipped, and the walk starts on `/stash`.
   await expect(activeName).toHaveText("/stash")
+  await input.press("ArrowDown")
+  await expect(activeName).toHaveText("/stashes")
   await input.press("ArrowUp")
-  await expect(activeName).toHaveText("/steps")
+  await expect(activeName).toHaveText("/stash")
 
   // Enter runs the highlighted command instead of sending the half-typed text.
   await input.fill("/sett")

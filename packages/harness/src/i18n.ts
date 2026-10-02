@@ -1159,6 +1159,9 @@ const ES: Record<string, string> = {
   "Change type": "Cambiar tipo",
   Select: "Seleccionar",
   Commands: "Comandos",
+  // The headings of the `/` menu (TI-13).
+  "Go to": "Ir a",
+  App: "App",
 
   // Pull requests (H-20)
   "Create PR": "Crear PR",

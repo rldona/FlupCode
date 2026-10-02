@@ -1743,6 +1743,20 @@ button.fc-status {
   padding: 4px;
 }
 
+/* The headings of the `/` menu (TI-13): Session, Go to, App, then each source of the project's own. */
+.fc-command-group {
+  padding: 6px 8px 2px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fc-command-group:not(:first-child) {
+  margin-top: 4px;
+}
+
 .fc-command-item {
   display: flex;
   align-items: baseline;
