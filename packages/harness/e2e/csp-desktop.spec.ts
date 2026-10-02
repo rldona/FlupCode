@@ -88,6 +88,12 @@ async function openDesktopApp(page: Page) {
 const violations = (page: Page) =>
   page.evaluate(() => (window as unknown as { cspViolations: { blocked: string; directive: string }[] }).cspViolations)
 
+// The page's routes still answer the markdown worker while the page closes; drop them so a late
+// fetch can't fail a test that already passed.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" })
+})
+
 test("the app, its markdown worker and a remote image all load under the desktop policy", async ({ page }) => {
   await openDesktopApp(page)
 
