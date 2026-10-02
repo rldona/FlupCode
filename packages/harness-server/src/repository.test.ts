@@ -313,6 +313,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 9, name: "task-verdict", backup: join(dirname(path), backup!) },
       { version: 10, name: "browser-policy", backup: join(dirname(path), backup!) },
       { version: 11, name: "artifact-versions", backup: join(dirname(path), backup!) },
+      { version: 12, name: "project-settings", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -327,7 +328,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -347,6 +348,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 9, backup: null },
       { version: 10, backup: null },
       { version: 11, backup: null },
+      { version: 12, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -354,7 +356,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }])
     repository.close()
   })
 
@@ -1761,6 +1763,34 @@ describe("the artifact-versions migration (RP-03)", () => {
       logicalID: copies[0],
       version: 5,
     })
+    repository.close()
+  })
+})
+
+describe("the project-settings migration (RP-05)", () => {
+  test("a populated database at version 11 is backed up, keeps its runs, and no project gets a default", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo", { policy: { budget: { cost: 2 } } })
+    before.addTasks(run.id, [{ name: "work", prompt: "Do it" }])
+    before.db.exec("DELETE FROM schema_version WHERE version >= 12; DROP TABLE project_settings;")
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v11-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 12").all()).toEqual([
+      { version: 12, name: "project-settings" },
+    ])
+    expect(repository.getRun(run.id)).toMatchObject({ id: run.id, policy: { budget: { cost: 2 } } })
+    expect(repository.listTasks(run.id)).toHaveLength(1)
+    // Nobody picked a default before this existed, so every project still runs as `gate`.
+    expect(repository.projectUnattended("/work/demo")).toBeUndefined()
+    repository.setProjectUnattended("/work/demo", "deny")
+    expect(repository.projectUnattended("/work/demo")).toBe("deny")
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM runs").get() as { count: number }).count).toBe(1)
+    copy.close()
     repository.close()
   })
 })

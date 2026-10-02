@@ -1,6 +1,6 @@
-import { sessionPermission, type Engine } from "./engine"
+import { NeedsPerson, sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
-import type { Run, Task, TaskStatus, TaskVerdict, Artifact } from "./types"
+import type { Run, Task, TaskStatus, TaskVerdict, Artifact, Unattended } from "./types"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { externalCommand, fillCommand, runExternal } from "./external"
@@ -247,6 +247,8 @@ type RunContext = {
   halted?: boolean
   /** Why the run stopped taking new work: a gate, or a budget. */
   pause?: "gate" | "budget"
+  /** The tasks whose session waits on a person right now (RP-05); the run is held while any does. */
+  waiting: Set<string>
 }
 
 /**
@@ -473,6 +475,25 @@ export class TaskRunner {
     }
   }
 
+  /**
+   * What a wait on a person does in this run (RP-05): what the run declares, else its project's
+   * default, else `gate`, which is the closest to what an unattended task did before it existed — wait
+   * for somebody — but visible on the run and without the thirty-minute cap.
+   */
+  private unattended(run: Run, context: RunContext): Unattended {
+    const project = context.options.directory ?? run.directory
+    return run.policy?.unattended ?? (project ? this.repository.projectUnattended(project) : undefined) ?? "gate"
+  }
+
+  /** Holds the run while any of its tasks waits on a person, and lets it go when none does (RP-05). */
+  private waitingOnPerson(context: RunContext, task: Task, waiting: boolean) {
+    const before = context.waiting.size
+    if (waiting) context.waiting.add(task.id)
+    if (!waiting) context.waiting.delete(task.id)
+    if (before === 0 && context.waiting.size > 0) this.repository.holdForRequest(context.run.id)
+    if (before > 0 && context.waiting.size === 0) this.repository.releaseRequest(context.run.id)
+  }
+
   /** Whether every instance of a name has settled, and whether any of them succeeded. */
   private settled(name: string, tasks: Task[]): "ok" | "failed" | "pending" {
     const instances = tasks.filter((task) => task.name === name)
@@ -637,6 +658,7 @@ export class TaskRunner {
         : undefined,
       handoffs: new Map(),
       directories: new Map(),
+      waiting: new Set(),
     }
     this.rehydrate(run, all, context)
     const running = new Set<Promise<void>>()
@@ -830,10 +852,19 @@ export class TaskRunner {
         model: modelForTask(task, run.policy),
         ...(files.length > 0 ? { files } : {}),
       })
-      await this.engine.waitForIdle(session.id, {
-        stopped,
-        ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
-      })
+      // Nobody is in this session to answer a permission or a question (RP-05): the run says what a
+      // wait on a person does — fail the task with it, or hold the run until it is answered.
+      try {
+        await this.engine.waitForIdle(session.id, {
+          stopped,
+          ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
+          unattended: this.unattended(run, context),
+          ...(directory ? { directory } : {}),
+          onWaiting: (request) => this.waitingOnPerson(context, task, !!request),
+        })
+      } finally {
+        this.waitingOnPerson(context, task, false)
+      }
       // The session went quiet: that is the boundary FH-002 captures. It carries the run's id, so a
       // task's session never becomes an episode of its own.
       this.episodes?.captureSession({ sessionID: session.id, runID: run.id, directory })
@@ -894,8 +925,14 @@ export class TaskRunner {
       })
       if (stopped()) return
       // A task that failed is judged as failed (RP-06), so the run's verdict is never better than it.
+      // One failed for needing a person nobody was there to be (RP-05) needs the user: what it asked
+      // is the reason, and only somebody can answer it, here or by letting the project wait for them.
       if (task.kind === "agent" || task.kind === "verify")
-        this.repository.setTaskVerdict(task.id, { value: "failed", reason: message(cause), source: "rule" })
+        this.repository.setTaskVerdict(task.id, {
+          value: cause instanceof NeedsPerson ? "needs-user" : "failed",
+          reason: message(cause),
+          source: "rule",
+        })
       context.failure = message(cause)
     }
   }

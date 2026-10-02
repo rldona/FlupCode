@@ -89,7 +89,20 @@ export type RunPolicy = {
   fallback?: string
   /** Stop and ask before spending past these. */
   budget?: { tokens?: number; cost?: number }
+  /**
+   * What a task does when its session waits on a person mid-turn (RP-05): a permission, a question or
+   * the plan's hand-off. `deny` fails the task at once with the request as its reason; `gate` holds the
+   * run as `awaiting` until somebody answers. Absent, the project's default decides, and `gate` when
+   * the project has none.
+   */
+  unattended?: Unattended
 }
+
+/**
+ * What a task does when its session waits on a person (RP-05): `deny` fails the task at once with the
+ * request as its reason, `gate` holds the run until somebody answers.
+ */
+export type Unattended = "deny" | "gate"
 
 /**
  * `awaiting` is a run that stopped on purpose at a human gate (H-21) and is waiting to be let
@@ -150,8 +163,12 @@ export type Run = {
   worktrees?: boolean
   /** How this run spends (H-30): a model per role, a fallback, and a budget. */
   policy?: RunPolicy
-  /** Why it is waiting: a person at a gate, or a budget that was reached. */
-  paused?: "gate" | "budget"
+  /**
+   * Why it is waiting: a person at a gate, a budget that was reached, or a task's session asking a
+   * person something mid-turn (RP-05). Only the last is still being driven: answering the request in
+   * the engine is what lets it go on.
+   */
+  paused?: "gate" | "budget" | "request"
   /** Somebody said to carry on past the budget, so it is not checked again. */
   budgetApproved?: boolean
   /**
@@ -645,6 +662,10 @@ export type RunRepository = {
   resumeRun(runID: string): boolean
   /** Why a run is waiting (H-30). */
   setPaused(runID: string, paused: "gate" | "budget"): void
+  /** A task's session waits on a person mid-turn (RP-05): the run is `awaiting` while it does. */
+  holdForRequest(runID: string): void
+  /** Nothing waits any more: back to running, still driven by the same runner (RP-05). */
+  releaseRequest(runID: string): void
   /** A person let it past the budget (H-30). */
   approveBudget(runID: string): void
   /** Put a finished run back to running so a manual retry can add a task to it (H-12). */

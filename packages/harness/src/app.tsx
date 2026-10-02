@@ -16,7 +16,7 @@ import { ExportDialog } from "./components/ExportDialog"
 import { downloadFile, sessionJson, sessionMarkdown, type ExportMessage, type ExportOptions } from "./export"
 import { addSource, removeSource, normalizeSources, EMPTY_SOURCES, type SkillSourceKind, type SkillSources } from "./skill-sources"
 import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
-import type { TaskActivity, TaskTools, TouchedFiles } from "./types"
+import type { TaskActivity, TaskTools, TouchedFiles, Unattended } from "./types"
 import type {
   PermissionV2Request,
   QuestionV2Request,
@@ -130,7 +130,7 @@ import { McpAuthNotice } from "./components/McpAuthNotice"
 import { needsOAuth } from "./components/McpManager"
 import { RoutinesPanel } from "./components/RoutinesPanel"
 import { ActionsPanel } from "./components/ActionsPanel"
-import { RunsPanel } from "./components/RunsPanel"
+import { RunsPanel, metPerson, type RunRequests } from "./components/RunsPanel"
 import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
@@ -1505,6 +1505,80 @@ export const App: Component = () => {
     const timer = setTimeout(() => setDoingTick((tick) => tick + 1), 3000)
     onCleanup(() => clearTimeout(timer))
   })
+
+  // What a run held for a request is waiting on (RP-05): its running tasks' pending permissions and
+  // forms, asked of the engine per task session, with the transcript the permission dock previews
+  // from. Polled while the Runs screen shows a held run: a second request in the same turn does not
+  // change the run, so nothing else would say it arrived.
+  const [requestTick, setRequestTick] = createSignal(0)
+  const heldRuns = () => runs().filter((run) => run.status === "awaiting" && run.paused === "request")
+  const runRequestsKey = () => {
+    if (!runsOpen() || !ready() || heldRuns().length === 0) return undefined
+    const sessions = heldRuns().flatMap((run) =>
+      (run.tasks ?? []).flatMap((task) => (task.status === "running" && task.sessionID ? [`${run.id}:${task.sessionID}`] : [])),
+    )
+    return sessions.length > 0 ? `${serverUrl()}\n${sessions.join(",")}\n${requestTick()}` : undefined
+  }
+  const [runRequests, { refetch: refetchRunRequests }] = createResource(runRequestsKey, async (key) => {
+    const [url = "", list = ""] = key.split("\n")
+    const engine = createClient(url)
+    const entries = await Promise.all(
+      list.split(",").map(async (entry) => {
+        const [runID = "", sessionID = ""] = entry.split(":")
+        const [permissions, questions] = await Promise.all([
+          engine.session.permission.list({ sessionID }).then((result) => result.data ?? [], () => []),
+          engine.session.question.list({ sessionID }).then((result) => result.data ?? [], () => []),
+        ])
+        // Only a permission previews from the transcript; a form carries its own question.
+        const messages =
+          permissions.length > 0
+            ? await engine.message.list({ sessionID }).then((result) => result.data ?? [], () => [])
+            : []
+        return { runID, permissions, questions, messages }
+      }),
+    )
+    return entries.reduce<Record<string, RunRequests>>((byRun, entry) => {
+      const held = byRun[entry.runID] ?? { permissions: [], questions: [], messages: [] }
+      byRun[entry.runID] = {
+        permissions: [...held.permissions, ...entry.permissions],
+        questions: [...held.questions, ...entry.questions],
+        messages: [...held.messages, ...entry.messages],
+      }
+      return byRun
+    }, {})
+  })
+  createEffect(() => {
+    if (!runRequestsKey()) return
+    runRequests()
+    const timer = setTimeout(() => setRequestTick((tick) => tick + 1), 3000)
+    onCleanup(() => clearTimeout(timer))
+  })
+  // The project default of each run that met a task needing a person, so its card can say what the
+  // next one does and change it.
+  const [projectUnattended, { mutate: setProjectUnattendedCache }] = createResource(
+    () => {
+      if (!supports("unattended")) return undefined
+      const directories = [
+        ...new Set(runs().flatMap((run) => (run.directory && metPerson(run) ? [run.directory] : []))),
+      ]
+      return directories.length > 0 ? `${harnessServerUrl()}\n${directories.join("\n")}` : undefined
+    },
+    async (key) => {
+      const [url = "", ...directories] = key.split("\n")
+      const client = createHarnessClient(url)
+      const modes = await Promise.all(
+        directories.map((directory) =>
+          client.runs.unattended(directory).then((answer) => [directory, answer.unattended] as const, () => undefined),
+        ),
+      )
+      return Object.fromEntries(modes.flatMap((entry) => (entry ? [entry] : [])))
+    },
+  )
+  const changeProjectUnattended = (directory: string, unattended: Unattended) =>
+    void createHarnessClient(harnessServerUrl())
+      .runs.setUnattended(directory, unattended)
+      .then(() => setProjectUnattendedCache((current) => ({ ...current, [directory]: unattended })))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
 
   // The runs on screen, as a key that changes only when one of them changes shape or status. Shared
   // by the three per-run reads below, so they refetch together and only when there is a reason to.
@@ -5239,6 +5313,14 @@ export const App: Component = () => {
             onResume={resumeRun}
             onResumePlan={resumePlan}
             onBestOfN={() => setBestOfNOpen(true)}
+            requests={runRequests() ?? {}}
+            unattended={projectUnattended() ?? {}}
+            onReplyPermission={(request, reply, message) =>
+              void replyPermission(request, reply, message).then(() => refetchRunRequests())
+            }
+            onReplyQuestion={(request, answers) => void replyQuestion(request, answers).then(() => refetchRunRequests())}
+            onRejectQuestion={(request) => void rejectQuestion(request).then(() => refetchRunRequests())}
+            onUnattended={changeProjectUnattended}
             onOpenSession={(id) => {
               leaveScreen()
               selectSession(id)

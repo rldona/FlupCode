@@ -9182,6 +9182,42 @@ button.fc-status {
   overflow-wrap: anywhere;
 }
 
+/* A run held for a task's request (RP-05): the session's own dock, inside the card. */
+.fc-run-request {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--fc-space-2);
+  min-width: 0;
+}
+
+.fc-run-request .fc-dock {
+  margin: 0;
+  min-width: 0;
+}
+
+/* A card is narrower than the session's column: a long path wraps instead of widening the dock. */
+.fc-run-request .fc-permission-path {
+  overflow-wrap: anywhere;
+}
+
+.fc-run-request pre {
+  overflow-x: auto;
+}
+
+.fc-run-unattended {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fc-space-2);
+  color: var(--fc-text-muted);
+  font-size: 13px;
+}
+
+.fc-run-unattended select {
+  width: auto;
+  max-width: 100%;
+}
+
 .fc-workflow-runs {
   display: grid;
   gap: var(--fc-space-1);

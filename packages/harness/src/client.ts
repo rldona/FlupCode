@@ -34,6 +34,7 @@ import type {
   RoutineInput,
   RoutineRun,
   Run,
+  Unattended,
   RunPolicy,
   SelectorCapture,
   SessionPrefs,
@@ -458,6 +459,17 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       stop: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
       /** Let a run through the gate it stopped at. Refusing it is stopping it. */
       approve: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+      /** What a project's runs do when a task needs a person mid-turn, unless the run says (RP-05). */
+      unattended: (directory: string) =>
+        harnessAuthorizedJson<{ unattended: Unattended }>(
+          baseUrl,
+          `/harness/projects/unattended?directory=${encodeURIComponent(directory)}`,
+        ),
+      setUnattended: (directory: string, unattended: Unattended) =>
+        harnessAuthorizedJson<{ unattended: Unattended }>(baseUrl, "/harness/projects/unattended", {
+          method: "PUT",
+          body: JSON.stringify({ directory, unattended }),
+        }),
       /** Interrupt every run still going. */
       stopAll: () => harnessAuthorizedJson<{ stopped: number }>(baseUrl, "/harness/runs/stop", { method: "POST" }),
       /** Forget every run that has finished. Running ones stay. */

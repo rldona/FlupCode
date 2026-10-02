@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import type { TaskCondition, TaskInput } from "./types"
+import type { TaskCondition, TaskInput, Unattended } from "./types"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { PLAN_INSTRUCTION } from "./plan"
 import { fillCommand } from "./external"
@@ -73,6 +73,11 @@ export type Workflow = {
   worktrees?: boolean
   /** `shell: false` — refuse the shell for this workflow's tasks (H-47). Stated, never default. */
   shell?: boolean
+  /**
+   * `unattended: deny | gate` — what a task does when it needs a person mid-turn (RP-05). Absent, the
+   * caller's policy or the project's default decides.
+   */
+  unattended?: Unattended
 }
 
 /**
@@ -141,6 +146,7 @@ export function explainWorkflow(
       ...(value.outside === true ? { outside: true as const } : {}),
       ...(value.worktrees === true ? { worktrees: true as const } : {}),
       ...(value.shell === false ? { shell: false as const } : {}),
+      ...(value.unattended === "deny" || value.unattended === "gate" ? { unattended: value.unattended } : {}),
       name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : fallbackName,
       description: typeof value.description === "string" ? value.description.trim() : "",
       inputs,

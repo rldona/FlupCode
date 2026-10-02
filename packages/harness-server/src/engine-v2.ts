@@ -1,7 +1,7 @@
 import { OpenCode, type SessionInfo, type SessionMessageInfo } from "@opencode/client"
 import { basename } from "node:path"
 import { pathToFileURL } from "node:url"
-import { detailOf, type Activity, type PermissionRule, type TranscriptMessage } from "./engine"
+import { detailOf, type Activity, type PendingRequest, type PermissionRule, type TranscriptMessage } from "./engine"
 import type { ToolEvent, UsageEvent } from "./usage-ledger"
 
 /**
@@ -184,6 +184,65 @@ export class V2Engine {
     // Unanswered: the form goes, so a late answer cannot act for a caller that already gave up.
     await this.client.session.form.cancel({ sessionID: input.sessionID, formID: form.id }).catch(() => undefined)
     return undefined
+  }
+
+  /**
+   * What a session, or a subagent's session under it, is waiting on a person for (RP-05): a
+   * permission the engine asked or a form (the `question` tool, the plan's hand-off, a browser
+   * approval). Listed for the session's folder, where a subagent asks too, and kept to this session's
+   * chain; `undefined` when nothing waits.
+   */
+  async pendingRequest(sessionID: string, directory?: string): Promise<PendingRequest | undefined> {
+    const location = directory ? { location: { directory } } : undefined
+    const [permissions, forms] = await Promise.all([
+      call(this.client.permission.request.list(location)),
+      call(this.client.form.list(location)),
+    ])
+    const requests = [
+      ...permissions.data.map(
+        (request): PendingRequest => ({
+          kind: "permission",
+          id: request.id,
+          sessionID: request.sessionID,
+          action: request.action === "shell" ? "bash" : request.action,
+          resources: request.resources,
+        }),
+      ),
+      ...forms.data.map(
+        (form): PendingRequest => ({
+          kind: "form",
+          id: form.id,
+          sessionID: form.sessionID,
+          title: form.fields.find((field) => field.type !== "external")?.description ?? form.title ?? "",
+        }),
+      ),
+    ]
+    for (const request of requests)
+      if (request.sessionID === sessionID || (await this.descends(request.sessionID, sessionID))) return request
+    return undefined
+  }
+
+  /** Answers a request no person will: a permission is rejected with why, a form is withdrawn. */
+  async refuseRequest(request: PendingRequest, message: string) {
+    if (request.kind === "permission")
+      return call(
+        this.client.permission.reply({ sessionID: request.sessionID, requestID: request.id, decision: "reject", message }),
+      )
+    await call(this.client.session.form.cancel({ sessionID: request.sessionID, formID: request.id }))
+  }
+
+  /** Whether `sessionID` is a subagent's session somewhere under `ancestor`. */
+  private async descends(sessionID: string, ancestor: string) {
+    let current = sessionID
+    // Bounded like `rootOf`: a chain longer than any real nesting is not followed.
+    for (let depth = 0; depth < 32; depth++) {
+      const session = await this.client.session.get({ sessionID: current }).catch(() => undefined)
+      const parentID = session?.parentID
+      if (!parentID) return false
+      if (parentID === ancestor) return true
+      current = parentID
+    }
+    return false
   }
 
   async switchAgent(sessionID: string, agent: string) {

@@ -63,7 +63,12 @@ export type RunPolicy = {
   models?: Record<string, string>
   fallback?: string
   budget?: { tokens?: number; cost?: number }
+  /** What a task does when it needs a person mid-turn (RP-05); absent, the project's default. */
+  unattended?: Unattended
 }
+
+/** A task that needs a person mid-turn fails (`deny`) or holds its run until answered (`gate`) (RP-05). */
+export type Unattended = "deny" | "gate"
 
 export type Workflow = {
   name: string
@@ -228,8 +233,11 @@ export type Run = {
   worktrees?: boolean
   /** How this run spends (H-30): a model per role, a fallback, and a budget. */
   policy?: RunPolicy
-  /** Why it is waiting: a person at a gate, or a budget it reached. */
-  paused?: "gate" | "budget"
+  /**
+   * Why it is waiting: a person at a gate, a budget it reached, or a task's session asking a person
+   * mid-turn (RP-05), answered in the engine rather than approved.
+   */
+  paused?: "gate" | "budget" | "request"
   /** Somebody let it past the budget. */
   budgetApproved?: boolean
   /** The approval a scheduled web action ran under (WA-7). */

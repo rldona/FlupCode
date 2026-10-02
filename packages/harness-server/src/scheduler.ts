@@ -231,6 +231,7 @@ export class RoutineScheduler {
     const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
     if (missing.length > 0) throw new MissingInputsError(missing)
     const until = input.until?.trim() ? input.until.trim() : undefined
+    const policy = withUnattended(input.policy, workflow)
     return this.runTasks({
       tasks: tasksFor(workflow, input.inputs ?? {}, until),
       directory: input.directory,
@@ -241,7 +242,7 @@ export class RoutineScheduler {
       ...(workflow.shell === false ? { shell: false } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
       ...(input.worktrees || workflow.worktrees ? { worktrees: true } : {}),
-      ...(input.policy ? { policy: input.policy } : {}),
+      ...(policy ? { policy } : {}),
       workflow: this.identify(file, filled),
     })
   }
@@ -287,7 +288,8 @@ export class RoutineScheduler {
    */
   approve(runID: string) {
     const run = this.repository.getRun(runID)
-    if (!run || run.status !== "awaiting") return undefined
+    // A run held for a request mid-turn (RP-05) is still driven: what lets it go is the answer.
+    if (!run || run.status !== "awaiting" || run.paused === "request") return undefined
     // A budget pause is not a gate: letting it through means the budget stops being checked (H-30),
     // or the very next check would pause it again on the same totals.
     if (run.paused === "budget") this.repository.approveBudget(runID)
@@ -482,7 +484,7 @@ export class RoutineScheduler {
     this.stopping.add(runID)
     // A run held at a gate has nobody driving it, so nothing would ever read the flag and finish it.
     // Stopping is also how a gate is refused: the answer to "let this through?" can be no.
-    if (run.status === "awaiting") {
+    if (run.status === "awaiting" && run.paused !== "request") {
       this.finishRun(runID, "stopped", "Stopped at the gate")
       return this.repository.getRun(runID)
     }
@@ -570,8 +572,9 @@ export class RoutineScheduler {
     // gone still gets a failed run below, saying so.
     const file = await readWorkflow(routine.workflow.name, routine.projectDirectory)
     const filled = { ...(file?.workflow.inputDefaults ?? {}), ...(routine.workflow.inputs ?? {}), ...(overrides ?? {}) }
+    const policy = withUnattended(routine.policy, file?.workflow)
     const run = this.repository.startRun(source, now, routine.projectDirectory, {
-      ...(routine.policy ? { policy: routine.policy } : {}),
+      ...(policy ? { policy } : {}),
       ...(file ? { workflow: this.identify(file, filled) } : {}),
     })
     try {
@@ -651,6 +654,15 @@ export class RoutineScheduler {
     if (run.source.type === "routine") this.repository.release(routineLockKey(run.source.routineID), this.owner)
     this.stopping.delete(run.id)
   }
+}
+
+/**
+ * A run's policy with the workflow file's `unattended` (RP-05) when the caller did not say: the routine
+ * or the launcher speaks for this run, the file for every run of it.
+ */
+function withUnattended(policy: RunPolicy | undefined, workflow: { unattended?: RunPolicy["unattended"] } | undefined) {
+  if (policy?.unattended || !workflow?.unattended) return policy
+  return { ...policy, unattended: workflow.unattended }
 }
 
 /**

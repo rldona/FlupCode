@@ -1,7 +1,7 @@
-import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
+import { For, Index, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import type { ModelInfo } from "../engine-types"
-import type { Artifact, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageRunReport } from "../types"
+import type { ModelInfo, PermissionV2Request, QuestionV2Request, SessionMessageInfo } from "../engine-types"
+import type { Artifact, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, Unattended, UsageRunReport } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
 import { RunGraph, elapsed } from "./RunGraph"
 import { StateBadge } from "./StateBadge"
@@ -12,6 +12,15 @@ import type { Attention } from "../attention"
 import { runInputs, runTitle } from "../run-title"
 import { runReason, runState } from "../run-state"
 import { ResumeConfirm } from "./ResumeConfirm"
+import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./PermissionDock"
+import { QuestionDock } from "./QuestionDock"
+
+/** What a run held for a request waits on (RP-05): its tasks' engine requests, and what they preview from. */
+export type RunRequests = {
+  permissions: PermissionV2Request[]
+  questions: QuestionV2Request[]
+  messages: SessionMessageInfo[]
+}
 
 type RunsPanelProps = {
   open: boolean
@@ -67,7 +76,27 @@ type RunsPanelProps = {
    */
   focus?: { runID: string; taskID?: string }
   onFocused?: () => void
+  /** What each run held for a request waits on (RP-05), by run id, asked of the engine. */
+  requests?: Record<string, RunRequests>
+  /** Each held run's project default for a task that needs a person (RP-05), by directory. */
+  unattended?: Record<string, Unattended>
+  /** Answers go to the engine's own request, as in the session: that is what lets the run go on. */
+  onReplyPermission: (request: PermissionV2Request, reply: PermissionReply, message?: string) => void
+  onReplyQuestion: (request: QuestionV2Request, answers: string[][]) => void
+  onRejectQuestion: (request: QuestionV2Request) => void
+  onUnattended?: (directory: string, unattended: Unattended) => void
 }
+
+/** Held mid-turn for a person (RP-05): answered in the engine, never approved like a gate. */
+const heldForRequest = (run: Run) => run.status === "awaiting" && run.paused === "request"
+
+/**
+ * Where a run met a task that needs a person (RP-05): held for it, or failed for it — a failed task
+ * judged as needing the user is the one way a run's task fails for that.
+ */
+export const metPerson = (run: Run) =>
+  heldForRequest(run) ||
+  (run.tasks ?? []).some((task) => task.status === "failed" && task.verdict?.value === "needs-user")
 
 /** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */
 const going = (run: Run) => run.status === "running" || run.status === "awaiting"
@@ -264,7 +293,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       )}
                     </Show>
                     {/* A gate is a question: let it through, or stop it. There is no third answer. */}
-                    <Show when={run.status === "awaiting"}>
+                    <Show when={run.status === "awaiting" && !heldForRequest(run)}>
                       <button
                         class="fc-run-open"
                         type="button"
@@ -364,6 +393,54 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       }}
                     />
                   </Show>
+                  {/*
+                    A task asks a person mid-turn (RP-05): the request itself, in the same dock the
+                    session shows, answered in the engine.
+                  */}
+                  <Show when={heldForRequest(run)}>
+                    {/* By request id, not by object: the requests are read again every few seconds, and
+                        a dock remade on each read would drop a reason the reader is typing. */}
+                    <div class="fc-run-request">
+                      <Index each={props.requests?.[run.id]?.permissions ?? []}>
+                        {(request) => (
+                          <Show when={request().id} keyed>
+                            <PermissionDock
+                              request={request()}
+                              messages={props.requests?.[run.id]?.messages}
+                              busy={!props.serverAvailable}
+                              onReply={(reply, message) => props.onReplyPermission(request(), reply, message)}
+                            />
+                          </Show>
+                        )}
+                      </Index>
+                      <Index each={props.requests?.[run.id]?.questions ?? []}>
+                        {(request) => (
+                          <Show when={request().id} keyed>
+                            <Show
+                              when={request().browser}
+                              fallback={
+                                <QuestionDock
+                                  request={request()}
+                                  busy={!props.serverAvailable}
+                                  onReply={(answers) => props.onReplyQuestion(request(), answers)}
+                                  onReject={() => props.onRejectQuestion(request())}
+                                />
+                              }
+                            >
+                              {(approval) => (
+                                <BrowserApprovalDock
+                                  request={request()}
+                                  approval={approval()}
+                                  busy={!props.serverAvailable}
+                                  onAnswer={(label) => props.onReplyQuestion(request(), [[label]])}
+                                />
+                              )}
+                            </Show>
+                          </Show>
+                        )}
+                      </Index>
+                    </div>
+                  </Show>
                   <Show when={run.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
                   {/*
                     Why its work was not done (RP-06), in the words of the task that decided it — whose
@@ -383,6 +460,28 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       why here, when the run itself has not said it yet. */}
                   <Show when={!run.error && !run.verdict ? (run.tasks ?? []).find((task) => task.status === "failed")?.error : undefined}>
                     {(error) => <p class="fc-run-error">{error()}</p>}
+                  </Show>
+                  {/* What this project's runs do the next time a task needs a person (RP-05), on a run
+                      that met one, unless the run declares it. */}
+                  <Show
+                    when={metPerson(run) && !run.policy?.unattended && run.directory && props.unattended?.[run.directory]}
+                  >
+                    {(mode) => (
+                      <label class="fc-run-unattended">
+                        <span>{t("When a task in this project needs you")}</span>
+                        <select
+                          class="fc-question-custom"
+                          value={mode()}
+                          disabled={!props.serverAvailable}
+                          onChange={(event) =>
+                            props.onUnattended?.(run.directory!, event.currentTarget.value === "deny" ? "deny" : "gate")
+                          }
+                        >
+                          <option value="gate">{t("Wait here for an answer")}</option>
+                          <option value="deny">{t("Fail the task")}</option>
+                        </select>
+                      </label>
+                    )}
                   </Show>
                   {/*
                     What this run was allowed to do (H-47). Confinement is the default and says

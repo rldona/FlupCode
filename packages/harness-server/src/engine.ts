@@ -1,5 +1,5 @@
 import type { V2Engine } from "./engine-v2"
-import type { BrowserAllowRule } from "./types"
+import type { BrowserAllowRule, Unattended } from "./types"
 
 /**
  * The `authorization` header the engine requires, when it was started password-protected.
@@ -43,6 +43,16 @@ export type TranscriptMessage = {
 }
 
 export type Activity = { tool: string; detail?: string; since?: number }
+
+/**
+ * What a session waits on a person for (RP-05): a permission the engine asked before a tool runs, or
+ * a form (the `question` tool, the plan's hand-off, a browser approval). `sessionID` is the session
+ * that asked, which is a subagent's when one asked under the task.
+ */
+export type PendingRequest =
+  | { kind: "permission"; id: string; sessionID: string; action: string; resources: string[] }
+  | { kind: "form"; id: string; sessionID: string; title: string }
+
 
 /** A session-level permission rule, in the shape the legacy runtime reads them. */
 export type PermissionRule = { permission: string; pattern: string; action: "allow" | "ask" | "deny" }
@@ -118,6 +128,23 @@ export class ToolLimitReached extends Error {
       )} for a single tool call`,
     )
     this.name = "ToolLimitReached"
+  }
+}
+
+/**
+ * What a task was failed for in `deny` mode (RP-05): it needed a person and nobody is there. The
+ * message names the tool and what it asked about, because it is the task's error and its verdict.
+ */
+export class NeedsPerson extends Error {
+  constructor(readonly request: PendingRequest) {
+    super(
+      request.kind === "permission"
+        ? `Needed approval to use \`${request.action}\`${
+            request.resources.length > 0 ? ` on ${request.resources.slice(0, 3).join(", ")}` : ""
+          }, and this run fails a task that needs a person`
+        : `Asked "${request.title.slice(0, 160)}", and this run fails a task that needs a person`,
+    )
+    this.name = "NeedsPerson"
   }
 }
 
@@ -311,6 +338,17 @@ export class Engine {
       stopped?: () => boolean
       timeoutMs?: number
       toolLimitMs?: number
+      /**
+       * What a wait on a person does (RP-05). Absent, the session waits as an attended one does. With
+       * `deny` the request is refused, the turn interrupted and `NeedsPerson` thrown; with `gate` the
+       * wait is reported through `onWaiting` and does not count against `timeoutMs`, because the time
+       * is the person's, not the work's.
+       */
+      unattended?: Unattended
+      /** The session's folder, where a subagent under it asks too. */
+      directory?: string
+      /** A request the session started waiting on, or `undefined` once nothing waits any more. */
+      onWaiting?: (request: PendingRequest | undefined) => void
       /** Only tests set these; production uses the constants above. */
       pollMs?: number
       checkEveryMs?: number
@@ -319,7 +357,7 @@ export class Engine {
   ) {
     const stopped = options.stopped ?? (() => false)
     const timeoutMs = options.timeoutMs ?? 30 * 60_000
-    const deadline = Date.now() + timeoutMs
+    let deadline = Date.now() + timeoutMs
     const pollMs = options.pollMs ?? 1000
     const checkEveryMs = options.checkEveryMs ?? CHECK_EVERY_MS
     const settleUntil = Date.now() + (options.settleMs ?? 3000)
@@ -334,9 +372,35 @@ export class Engine {
     // Only when a limit was declared: asking for the transcript every few seconds costs a request
     // per poll, and a run with no ceiling has nothing to check it against.
     let nextCheck = options.toolLimitMs ? Date.now() + checkEveryMs : Infinity
-    while (Date.now() < deadline) {
+    let waiting: { request: PendingRequest; since: number } | undefined
+    while (waiting || Date.now() < deadline) {
       if (stopped()) return halt()
       if (!(await this.isBusy(sessionID))) return
+      if (options.unattended) {
+        const request = await this.pendingRequest(sessionID, options.directory).catch(() => undefined)
+        if (request && options.unattended === "deny") {
+          // Refused before the turn is stopped, so the engine does not keep a question nobody answers.
+          await this.refuseRequest(request, "Nobody is attending this task, so it cannot be approved").catch(
+            () => undefined,
+          )
+          await this.interrupt(sessionID).catch(() => undefined)
+          throw new NeedsPerson(request)
+        }
+        if (request?.id !== waiting?.request.id) {
+          // The time somebody took to answer is given back to the turn, and a call held at a
+          // permission is not running past the tool ceiling: it has not run yet.
+          if (waiting) {
+            deadline += Date.now() - waiting.since
+            nextCheck = options.toolLimitMs ? Date.now() + checkEveryMs : Infinity
+          }
+          waiting = request ? { request, since: Date.now() } : undefined
+          options.onWaiting?.(request)
+        }
+        if (waiting) {
+          await new Promise((resolve) => setTimeout(resolve, pollMs))
+          continue
+        }
+      }
       if (Date.now() >= nextCheck) {
         nextCheck = Date.now() + checkEveryMs
         const overrun = await this.overrunning(sessionID, options.toolLimitMs!)
@@ -364,6 +428,16 @@ export class Engine {
     if (!doing?.since) return undefined
     const waited = Date.now() - doing.since
     return waited > limitMs ? new ToolLimitReached(doing.tool, waited, limitMs) : undefined
+  }
+
+  /** What the session, or a subagent under it, waits on a person for (RP-05). */
+  async pendingRequest(sessionID: string, directory?: string) {
+    return (await this.v2()).pendingRequest(sessionID, directory)
+  }
+
+  /** Answers a request nobody will: a permission rejected with why, a form withdrawn (RP-05). */
+  async refuseRequest(request: PendingRequest, message: string) {
+    return (await this.v2()).refuseRequest(request, message)
   }
 
   /** One question asked in the session (a web action's approval, V2-31; the plan's hand-off, V2-33). */
