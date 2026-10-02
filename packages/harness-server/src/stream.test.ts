@@ -188,3 +188,50 @@ describe("the server's event stream", () => {
     expect(JSON.parse(received[0]!.data!).run.source).toEqual({ type: "manual" })
   })
 })
+
+// RP-02: the log is bounded, keeps no artifact bytes, and a reader it cannot fully catch up is told.
+describe("the event log's bounds (RP-02)", () => {
+  test("an artifact's content is not copied into the log", () => {
+    const app = start()
+    app.repository.addArtifact({ kind: "log", title: "Noisy", producer: "harness", content: "x".repeat(10_000) })
+    const stored = app.repository.db.query("SELECT payload_json FROM events").all() as Array<{ payload_json: string }>
+    expect(stored.every((row) => !row.payload_json.includes("xxxx"))).toBe(true)
+  })
+
+  test("pruning keeps the newest events and drops the old ones", () => {
+    const app = start()
+    const routine = app.repository.create(input)
+    for (let index = 0; index < 30; index++) app.repository.setEnabled(routine.id, index % 2 === 0)
+    const last = app.repository.lastSeq()
+    expect(app.repository.pruneEvents({ keep: 10, maxAgeMs: 7 * 24 * 60 * 60 * 1000 })).toBe(last - 10)
+    expect(app.repository.listEvents(0, 100).map((entry) => entry.seq)).toEqual(
+      Array.from({ length: 10 }, (_, index) => last - 9 + index),
+    )
+    // Old ones go too, whatever the count.
+    expect(app.repository.pruneEvents({ keep: 100, maxAgeMs: -1 })).toBe(10)
+  })
+
+  test("a client whose missed events were pruned is told it has a gap, then follows along", async () => {
+    const app = start()
+    const routine = app.repository.create(input) // seq 1
+    for (let index = 0; index < 5; index++) app.repository.setEnabled(routine.id, index % 2 === 0) // seq 2-6
+    app.repository.pruneEvents({ keep: 2, maxAgeMs: 7 * 24 * 60 * 60 * 1000 })
+
+    const response = await events(app, "harness/events?after=1")
+    const frames = read(response, 2)
+    await Bun.sleep(50)
+    app.repository.setEnabled(routine.id, true) // seq 7
+    const received = await frames
+    expect(JSON.parse(received[0]!.data!)).toEqual({ type: "stream.gap", after: 1, resumeAt: 6 })
+    expect(received.map((frame) => frame.id)).toEqual(["6", "7"])
+  })
+
+  test("a client further behind than one catch-up is told it has a gap, not silently cut short", async () => {
+    const app = start()
+    const routine = app.repository.create(input) // seq 1
+    for (let index = 0; index < 600; index++) app.repository.setEnabled(routine.id, index % 2 === 0)
+    const response = await events(app, "harness/events?after=1")
+    const received = await read(response, 1)
+    expect(JSON.parse(received[0]!.data!)).toMatchObject({ type: "stream.gap", after: 1, resumeAt: app.repository.lastSeq() })
+  })
+})

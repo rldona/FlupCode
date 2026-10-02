@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "../../repository"
@@ -86,9 +86,13 @@ test("select samples eligible episodes deterministically, writes the sheet and l
   expect(first.code).toBe(0)
   const second = run(["select", "--db", database, "--out", join(root, "run-b")])
   expect(second.code).toBe(0)
-  // Read-only: the database file is byte-identical and no journal was left behind.
+  // Read-only: the database file is byte-identical and nothing was written to its log. The store
+  // runs in WAL mode (RP-02), where a reader keeps the shared-memory index beside the file; an
+  // empty write-ahead log is what says nothing was written.
   expect(readFileSync(database).equals(before)).toBe(true)
-  expect(readdirSync(root).filter((name) => name.startsWith("harness.sqlite-"))).toEqual([])
+  expect(readdirSync(root).filter((name) => name === "harness.sqlite-journal")).toEqual([])
+  const wal = join(root, "harness.sqlite-wal")
+  expect(existsSync(wal) ? statSync(wal).size : 0).toBe(0)
 
   const a = JSON.parse(readFileSync(join(root, "run-a", "run.json"), "utf8")) as EvalRun
   const b = JSON.parse(readFileSync(join(root, "run-b", "run.json"), "utf8")) as EvalRun

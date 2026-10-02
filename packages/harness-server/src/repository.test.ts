@@ -305,6 +305,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
     expect(repository.db.query("SELECT version, name, backup FROM schema_version").all()).toEqual([
       { version: 2, name: "decision-audit-v2", backup: join(dirname(path), backup!) },
       { version: 3, name: "workflow-identity", backup: join(dirname(path), backup!) },
+      { version: 4, name: "referential-integrity", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -319,7 +320,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -331,6 +332,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
     expect(repository.db.query("SELECT version, backup FROM schema_version").all()).toEqual([
       { version: 2, backup: null },
       { version: 3, backup: null },
+      { version: 4, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -338,7 +340,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }])
     repository.close()
   })
 
@@ -1265,7 +1267,7 @@ const v2Fixture = (path: string) => {
   repository.addTasks(run.id, [{ name: "plan", prompt: "Plan it" }])
   repository.finishRun(run.id, "success", undefined, 2_000)
   repository.db.exec(`
-    DELETE FROM schema_version WHERE version = 3;
+    DELETE FROM schema_version WHERE version >= 3;
     DROP TABLE workflow_versions;
     ALTER TABLE runs DROP COLUMN workflow_json;
   `)
@@ -1298,6 +1300,151 @@ describe("the workflow identity migration (RP-01)", () => {
     expect(repository.getRun(next.id)?.workflow).toEqual(workflow)
     expect(repository.listWorkflowRuns("feature", "/work/demo").map((run) => run.id)).toEqual([next.id])
     expect(repository.getWorkflowVersion("abc")).toMatchObject({ name: "feature", source: "name: feature\n" })
+    repository.close()
+  })
+})
+
+// ---- RP-02: what deleting a run takes with it, and the migration that enforces it -----------------
+
+/** A run with one of everything that hangs off it. */
+const populatedRun = (repository: SqliteRoutineRepository, now = 1_000) => {
+  const run = repository.startRun({ type: "manual" }, now, "/work/demo")
+  const [task] = repository.addTasks(run.id, [{ name: "plan", prompt: "Plan it" }])
+  repository.finishRun(run.id, "success", undefined, now + 1)
+  const [finding] = repository.addFindings([
+    { directory: "/work/demo", runID: run.id, taskID: task!.id, file: "a.ts", line: 1, severity: "high", title: "Broken" },
+  ])
+  const artifact = (producer: "harness" | "agent" | "user", pinned = false) =>
+    repository.addArtifact({ kind: "report", title: `${producer}${pinned ? " pinned" : ""}`, producer, content: "x", runID: run.id, taskID: task!.id, pinned })
+  return {
+    run,
+    task: task!,
+    finding: finding!,
+    harness: artifact("harness"),
+    pinned: artifact("harness", true),
+    agent: artifact("agent"),
+    user: artifact("user"),
+  }
+}
+
+describe("deleting a run (RP-02)", () => {
+  test("takes its tasks, findings and unpinned harness artifacts, and keeps what a person kept", () => {
+    const repository = open()
+    const made = populatedRun(repository)
+    const other = populatedRun(repository, 5_000)
+    expect(repository.removeRun(made.run.id)).toBe(true)
+
+    expect(repository.getTask(made.task.id)).toBeUndefined()
+    expect(repository.listFindings({ runID: made.run.id })).toEqual([])
+    expect(repository.getArtifact(made.harness.id)).toBeUndefined()
+    // Pinned, or not the harness's own: kept, no longer pointing at a run that is gone.
+    for (const kept of [made.pinned, made.agent, made.user]) {
+      expect(repository.getArtifact(kept.id)).toMatchObject({ id: kept.id })
+      expect(repository.getArtifact(kept.id)?.runID).toBeUndefined()
+      expect(repository.getArtifact(kept.id)?.taskID).toBeUndefined()
+    }
+    // Another run is untouched.
+    expect(repository.getTask(other.task.id)).toBeDefined()
+    expect(repository.listFindings({ runID: other.run.id })).toHaveLength(1)
+    expect(repository.getArtifact(other.harness.id)).toBeDefined()
+    repository.close()
+  })
+
+  test("clearing finished runs and deleting a routine take the same with them", () => {
+    const repository = open()
+    const cleared = populatedRun(repository)
+    repository.removeFinishedRuns()
+    expect(repository.getTask(cleared.task.id)).toBeUndefined()
+    expect(repository.listFindings({ runID: cleared.run.id })).toEqual([])
+    expect(repository.getArtifact(cleared.harness.id)).toBeUndefined()
+    expect(repository.getArtifact(cleared.pinned.id)).toBeDefined()
+
+    const routine = repository.create({ name: "Nightly", description: "", prompt: "Go", schedule: { type: "manual" } })
+    const run = repository.startRun({ type: "routine", routineID: routine.id }, 9_000)
+    const [task] = repository.addTasks(run.id, [{ name: "go", prompt: "Go" }])
+    const evidence = repository.addArtifact({ kind: "log", title: "log", producer: "harness", content: "x", runID: run.id })
+    repository.remove(routine.id)
+    expect(repository.getTask(task!.id)).toBeUndefined()
+    expect(repository.getArtifact(evidence.id)).toBeUndefined()
+    repository.close()
+  })
+
+  test("a row that names a run which does not exist is refused", () => {
+    const repository = open()
+    expect(() => repository.addTasks("no-such-run", [{ name: "x", prompt: "x" }])).toThrow()
+    repository.close()
+  })
+})
+
+/**
+ * A database as a build at schema version 3 left it: no foreign keys, and rows of runs that were
+ * deleted back when only their tasks went with them — some tasks too, from older builds.
+ */
+const v3Fixture = (path: string) => {
+  const repository = open(path)
+  const kept = populatedRun(repository)
+  const gone = populatedRun(repository, 3_000)
+  const checkpoint = { id: "cp_gone", directory: "/work/demo", sha: "abc", title: "Before", runID: gone.run.id, createdAt: 3_500 }
+  repository.addCheckpoint(checkpoint)
+  repository.db.exec(`
+    DELETE FROM schema_version WHERE version = 4;
+    DROP TRIGGER IF EXISTS runs_take_harness_artifacts;
+    PRAGMA foreign_keys = OFF;
+  `)
+  // Back to the version 3 tables, without their foreign keys.
+  for (const table of ["tasks", "findings", "artifacts"]) {
+    const sql = (repository.db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1").get(table) as { sql: string }).sql
+    const plain = sql.replace(/\s+REFERENCES\s+\w+\s*\(\s*id\s*\)(\s+ON DELETE (CASCADE|SET NULL))?/gi, "")
+    repository.db.exec(`ALTER TABLE ${table} RENAME TO ${table}_fk; ${plain.replace(`CREATE TABLE "${table}"`, `CREATE TABLE ${table}`).replace(`CREATE TABLE ${table}_new`, `CREATE TABLE ${table}`)}; INSERT INTO ${table} SELECT * FROM ${table}_fk; DROP TABLE ${table}_fk;`)
+  }
+  // What an old build left behind: the run row went, what hung off it stayed.
+  repository.db.exec(`DELETE FROM runs WHERE id = '${gone.run.id}'`)
+  repository.close()
+  return { kept, gone }
+}
+
+describe("the referential integrity migration (RP-02)", () => {
+  test("backs the file up, drops the invisible orphans, keeps what the app shows, and enforces the keys", () => {
+    const path = scratch()
+    const { kept, gone } = v3Fixture(path)
+    const raw = new Database(path)
+    expect((raw.query("SELECT COUNT(*) AS count FROM tasks WHERE run_id = ?1").get(gone.run.id) as { count: number }).count).toBe(1)
+    raw.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v3-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 4").all()).toEqual([
+      { version: 4, name: "referential-integrity" },
+    ])
+    // The orphan task is gone: nothing could show it. The orphan finding and artifacts are kept,
+    // detached from the run that no longer exists.
+    expect(repository.getTask(gone.task.id)).toBeUndefined()
+    expect(repository.listFindings({ directory: "/work/demo" }).map((finding) => [finding.id, finding.runID])).toContainEqual([
+      gone.finding.id,
+      undefined,
+    ])
+    for (const artifact of [gone.harness, gone.pinned, gone.agent, gone.user])
+      expect(repository.getArtifact(artifact.id)?.runID).toBeUndefined()
+    // The checkpoint of the gone run is left to the sweep, which also removes its git ref (TI-15).
+    expect(repository.removeStaleCheckpoints().map((checkpoint) => checkpoint.id)).toEqual(["cp_gone"])
+    // The live run lost nothing.
+    expect(repository.getTask(kept.task.id)).toBeDefined()
+    expect(repository.listFindings({ runID: kept.run.id })).toHaveLength(1)
+    expect(repository.getArtifact(kept.harness.id)?.runID).toBe(kept.run.id)
+    // The keys are there, and hold.
+    expect(repository.db.query("PRAGMA foreign_key_check").all()).toEqual([])
+    const keys = (table: string) =>
+      (repository.db.query(`PRAGMA foreign_key_list(${table})`).all() as Array<{ table: string; from: string; on_delete: string }>)
+        .map((key) => `${key.from}->${key.table}:${key.on_delete}`)
+        .sort()
+    expect(keys("tasks")).toEqual(["run_id->runs:CASCADE"])
+    expect(keys("findings")).toEqual(["run_id->runs:CASCADE", "task_id->tasks:SET NULL"])
+    expect(keys("artifacts")).toEqual(["run_id->runs:SET NULL", "task_id->tasks:SET NULL"])
+    // The backup still holds what the migration dropped.
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM tasks WHERE id = ?1").get(gone.task.id) as { count: number }).count).toBe(1)
+    copy.close()
     repository.close()
   })
 })
