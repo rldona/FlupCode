@@ -13,6 +13,7 @@ import { ActionRunError } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
 import { BrowserError } from "./browser"
 import { actionInputProblem, missingAllowRules } from "./action-allow"
+import { profileTier } from "./browser-policy"
 import type { ContextManager } from "./adaptive/context-manager"
 import type { ContextPart } from "./adaptive/context"
 import { answerVerdict, auditedVerdict, type Auditor } from "./verdict"
@@ -991,13 +992,25 @@ export class TaskRunner {
     const profile = actions.list({ directory: tree }).profiles.find((entry) => entry.id === spec.id)
     if (!profile) return this.failAction(task, context, `No action called "${spec.id}"`, directory)
     // Fail closed before the browser opens: an unattended run cannot answer the approval the
-    // interactive path asks, so the consent has to already be on the run (WA-7).
-    const missing = missingAllowRules(context.run.allow ?? [], profile)
-    if (missing.length > 0)
+    // interactive path asks, so the browser policy has to allow it as it stands, which for a routine
+    // means the consent written on the run (WA-7, BU-01).
+    const question = {
+      origin: profile.origin,
+      tier: profileTier(profile),
+      runId: context.run.id,
+      taskId: task.id,
+      action: profile.id,
+      rules: context.run.allow ?? [],
+    }
+    const verdict = actions.policy.decide(question)
+    if (verdict.decision === "deny") return this.failAction(task, context, verdict.reason, directory)
+    if (!verdict.permit)
       return this.failAction(
         task,
         context,
-        `This action runs unattended and needs an allow rule for ${missing.map((rule) => rule.pattern).join(", ")}`,
+        `This action runs unattended and needs an allow rule for ${missingAllowRules(context.run.allow ?? [], profile)
+          .map((rule) => rule.pattern)
+          .join(", ")}`,
         directory,
       )
     const problem = actionInputProblem(profile, spec.inputs)
@@ -1006,6 +1019,8 @@ export class TaskRunner {
     try {
       // Two action runs of the same project collide on its one browser, so give the other run time
       // to finish before the recipe starts rather than failing a task nobody can retry by hand.
+      // A permit is spent by the attempt that presents it, so a retry after a busy browser asks again.
+      const permits = [verdict.permit]
       const result = await withBrowserStartRetry(() =>
         actions.run({
           action: profile.id,
@@ -1018,6 +1033,7 @@ export class TaskRunner {
           taskID: task.id,
           stopped: context.stopped,
           closeOnFinish: true,
+          permit: permits.pop() ?? actions.policy.decide(question).permit,
         }),
       )
       const output = JSON.stringify(result)

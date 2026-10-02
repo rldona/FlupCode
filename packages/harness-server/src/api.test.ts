@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { UNTRUSTED_NOTICE, createBrowserPolicy } from "./browser-policy"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
 import { allowedHarnessHost, allowedHarnessOrigin } from "./cors"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
@@ -2218,6 +2219,7 @@ describe("scheduling a web action (WA-7)", () => {
     finishedAt: 1,
     steps: [],
     evidence: [],
+    notice: UNTRUSTED_NOTICE,
   }
 
   const openActions = (run?: (request: ActionRunRequest) => Promise<ActionRunResult>) => {
@@ -2229,6 +2231,7 @@ describe("scheduling a web action (WA-7)", () => {
         lists.push(input)
         return { profiles: [profile()], rejected: [] }
       },
+      policy: createBrowserPolicy(repository),
       run: async (request) => {
         calls.push(request)
         return run ? run(request) : successResult
@@ -2362,6 +2365,7 @@ describe("the plugin token's scope (TI-10)", () => {
           runs.push(request)
           return { status: "dry-run" } as never
         },
+        policy: createBrowserPolicy(repository),
       },
       planExit: async () => ({ approved: false }),
     })

@@ -1,13 +1,16 @@
 import { afterAll, describe, expect, test } from "bun:test"
+import { UNTRUSTED_NOTICE, createBrowserPolicy } from "./browser-policy"
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { TaskRunner } from "./runner"
 import { RoutineScheduler } from "./scheduler"
-import { ActionRunError } from "./action-runner"
+import { ActionRunError, createActionRunner } from "./action-runner"
+import { unavailableActionCredentialResolver } from "./action-credentials"
 import type { ActionCatalogProfile, ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
 import { BrowserError } from "./browser"
+import type { BrowserRuntime } from "./browser"
 import type { BrowserAllowRule, RunSource, RunStatus } from "./types"
 
 /** Waits for a run the scheduler is driving to reach a state, rather than guessing at a delay. */
@@ -1266,6 +1269,7 @@ describe("a web action task (WA-7)", () => {
     const calls: ActionRunRequest[] = []
     const runner: ActionRunner = {
       list: () => ({ profiles: [publishProfile()], rejected: [] }),
+      policy: createBrowserPolicy(new SqliteRoutineRepository(":memory:")),
       run: async (request) => {
         calls.push(request)
         if (run) return run(request)
@@ -1280,6 +1284,7 @@ describe("a web action task (WA-7)", () => {
           finishedAt: 1,
           steps: [],
           evidence: [],
+          notice: UNTRUSTED_NOTICE,
         }
       },
     }
@@ -1290,6 +1295,71 @@ describe("a web action task (WA-7)", () => {
     repository.addTasks(runID, [
       { name: "publish", prompt: "", kind: "action", action: { id: "publish", inputs: { text: "hola" } } },
     ])
+
+  // The real runner over a stand-in browser that does what it is told, so the policy and the audit
+  // run as in production (BU-01).
+  const policedRunner = (repository: SqliteRoutineRepository, origin = "https://example.com") => {
+    const browser = new Proxy({} as BrowserRuntime, {
+      get: (_target, name) => async () => {
+        if (name === "screenshot") return { artifactId: "art_shot" }
+        if (name === "navigate") return { url: `${origin}/`, title: "Home" }
+        return undefined
+      },
+    })
+    return createActionRunner({
+      browser,
+      policy: createBrowserPolicy(repository),
+      repository,
+      credentials: unavailableActionCredentialResolver,
+      loadProfiles: () => ({
+        configDir: "/nonexistent",
+        profiles: { publish: { tool: "do_publish", kind: "browser", origin, inputs: { text: "string" }, steps: [{ goto: "{{origin}}/" }], sensitive: true } },
+        scopes: {},
+        guardDirs: {},
+      }),
+    })
+  }
+
+  test("a scheduled action is decided by the policy, and what it did is in its run's log (BU-01)", async () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000, undefined, { allow: allowed })
+    addPublish(repository, run.id)
+
+    await new TaskRunner(repository, engine, policedRunner(repository)).execute(run)
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "success" })
+    expect(
+      repository
+        .listBrowserAudit({ runID: run.id })
+        .reverse()
+        .map((entry) => [entry.kind, entry.decision ?? entry.outcome, entry.tier, entry.taskID, entry.artifactID, entry.reason]),
+    ).toEqual([
+      ["decision", "allow", "sensitive", task!.id, undefined, "The routine's allow rule covers it"],
+      ["action", "success", "sensitive", task!.id, "art_shot", undefined],
+    ])
+    expect(
+      repository.listEvents(0, 500).filter((stored) => stored.event.type === "browser.audit" && stored.event.entry.runID === run.id),
+    ).toHaveLength(2)
+    repository.close()
+  })
+
+  test("a scheduled action on a payment or sign-in site fails before the browser opens, whatever it allows (BU-01)", async () => {
+    const repository = open()
+    const origin = "https://www.paypal.com"
+    const run = repository.startRun(manual, 1000, undefined, {
+      allow: [{ permission: "browser_sensitive", pattern: `${origin}:publish`, action: "allow" }],
+    })
+    addPublish(repository, run.id)
+
+    await expect(new TaskRunner(repository, engine, policedRunner(repository, origin)).execute(run)).rejects.toThrow(
+      /payment or banking site/,
+    )
+    expect(repository.listBrowserAudit({ runID: run.id }).map((entry) => [entry.kind, entry.decision])).toEqual([
+      ["decision", "deny"],
+    ])
+    repository.close()
+  })
 
   test("without an allow rule it fails closed and never calls the action runner", async () => {
     const repository = open()
@@ -1329,6 +1399,7 @@ describe("a web action task (WA-7)", () => {
         finishedAt: 1,
         steps: [],
         evidence: [],
+        notice: UNTRUSTED_NOTICE,
       }
     })
     const run = repository.startRun(manual, 1000, undefined, { allow: allowed })
@@ -1425,6 +1496,7 @@ describe("a web action task (WA-7)", () => {
         finishedAt: 1,
         steps: [],
         evidence: [],
+        notice: UNTRUSTED_NOTICE,
       }
     })
     const run = repository.startRun(manual, 1000, undefined, { allow: allowed })

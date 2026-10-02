@@ -24,6 +24,7 @@ import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
 import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
 import type { ActionApprover } from "./action-approval"
+import type { BrowserPolicy } from "./browser-policy"
 import { handleActionRequest } from "./action-routes"
 import type { ActionRunner } from "./action-runner"
 import { handleActionProfileRequest } from "./action-profile-routes"
@@ -448,6 +449,8 @@ export type HarnessHandlerOptions = {
   actions?: ActionRunner
   /** A web action's approval asked in the session, for the OpenCode 2 actions plugin (V2-31). */
   actionApprover?: ActionApprover
+  /** The browser policy (BU-01): its standing grants, revoked from the settings, and its audit. */
+  browserPolicy?: BrowserPolicy
   /** The plan's hand-off to build asked in the session, for the OpenCode 2 `plan_exit` tool (V2-33). */
   planExit?: (sessionID: string) => Promise<{ approved: boolean }>
   credentials?: CredentialVault
@@ -534,6 +537,26 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       const caller = tokenMatches(options.token ?? "", bearerFrom(request)) ? "ui" : "plugin"
       return handleActionRequest(request, path.slice(2), options.actions, options.actionApprover, caller)
+    }
+    // The browser policy's grants and audit (BU-01). Revoking is the reader's, and so is reading what
+    // the agent did: the app's bearer only, never the plugins'.
+    if (path[1] === "browser-policy" && options.browserPolicy && options.token) {
+      if (!tokenMatches(options.token, bearerFrom(request))) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      if (path[2] === "grants" && path.length === 3 && request.method === "GET")
+        return json({ data: options.browserPolicy.grants() })
+      if (path[2] === "grants" && path[3] && path.length === 4 && request.method === "DELETE")
+        return options.browserPolicy.revoke(path[3]) ? json({ data: { revoked: true } }) : error("No such grant", 404)
+      if (path[2] === "audit" && path.length === 3 && request.method === "GET") {
+        const params = new URL(request.url).searchParams
+        return json({
+          data: repository.listBrowserAudit({
+            ...(params.get("runID") ? { runID: params.get("runID")! } : {}),
+            ...(params.get("sessionID") ? { sessionID: params.get("sessionID")! } : {}),
+            limit: Math.min(Number(params.get("limit")) || 100, 500),
+          }),
+        })
+      }
+      return error("Not found", 404)
     }
     // What a web action signs in with (WA-5). Stored secrets are the most sensitive thing here, so
     // the vault is behind the same bearer rather than the loopback address alone, and it is only a
@@ -871,6 +894,8 @@ export const createHarnessHandler = (
           ...CAPABILITIES,
           ...(options.browser ? (["browser"] as const) : []),
           ...(options.actions ? (["web-actions"] as const) : []),
+          // Its grants are revoked with the browser's bearer, so it is announced only when that exists.
+          ...(options.browserPolicy && options.token ? (["browser-policy"] as const) : []),
           ...(options.credentials ? (["credentials"] as const) : []),
           // The writer shares the browser's bearer, so it is only announced when that secret exists.
           ...(options.token ? (["action-profiles"] as const) : []),

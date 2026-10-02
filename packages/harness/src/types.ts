@@ -269,6 +269,28 @@ export type BrowserAllowRule = {
   action: "allow"
 }
 
+/** What a browser action does, from least to most (BU-01): its approval and grants are per tier. */
+export type BrowserTier = "read" | "navigate" | "interact" | "sensitive"
+
+/** A standing browser grant the server keeps (BU-01): a tier on a site, for one session or always. */
+export type BrowserGrant = {
+  id: string
+  origin: string
+  tier: BrowserTier
+  scope: "session" | "always"
+  sessionID?: string
+  createdAt: number
+}
+
+/** A browser approval asked in the session (BU-01): the site, the tier and the answers on offer. */
+export type BrowserApproval = {
+  origin: string
+  site: string
+  tier: BrowserTier
+  action: string
+  options: Array<{ value: string; label: string }>
+}
+
 /** A web action a routine or task runs (WA-7): a profile id and the values it was given. */
 export type ActionTaskInput = {
   id: string

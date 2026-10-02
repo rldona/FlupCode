@@ -207,6 +207,44 @@ test("the dock's answers go back typed by field, a picked option as its value", 
   expect(toFormAnswer(form, [[], ["3"]])).toEqual({ count: 3 })
 })
 
+test("a browser approval the harness asked carries its site, tier and answers to the dock (BU-01)", () => {
+  const approval = {
+    id: "frm_2",
+    sessionID: "ses_1",
+    title: "Allow the agent to click and type on example.com?",
+    metadata: { flupcode: "browser-approval", origin: "https://example.com", site: "example.com", tier: "interact", action: "post" },
+    fields: [
+      {
+        key: "choice",
+        type: "string",
+        title: "Allow the agent to click and type on example.com?",
+        description: 'Web action "post": Post a message',
+        options: [
+          { value: "once", label: "Allow once" },
+          { value: "always", label: "Always allow to click and type on example.com" },
+          { value: "deny", label: "Deny" },
+        ],
+      },
+    ],
+  } as unknown as V2Form
+  expect(toQuestion(approval).browser).toEqual({
+    origin: "https://example.com",
+    site: "example.com",
+    tier: "interact",
+    action: "post",
+    options: [
+      { value: "once", label: "Allow once" },
+      { value: "always", label: "Always allow to click and type on example.com" },
+      { value: "deny", label: "Deny" },
+    ],
+  })
+  // The dock answers with a label; the form gets the value it stands for.
+  expect(toFormAnswer(approval, [["Always allow to click and type on example.com"]])).toEqual({ choice: "always" })
+  // Any other form, or one whose tier is not one of the four, stays a plain question.
+  expect(toQuestion(form).browser).toBeUndefined()
+  expect(toQuestion({ ...approval, metadata: { flupcode: "browser-approval", tier: "everything" } } as unknown as V2Form).browser).toBeUndefined()
+})
+
 const model = {
   id: "gpt",
   modelID: "gpt",

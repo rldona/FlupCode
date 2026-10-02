@@ -4,7 +4,9 @@
  * Internal routes, not model tools: `api.ts` guards them with the loopback bearer token before they
  * are reached, and here they are only the shape of the request and the shape of the answer. A page
  * is driven only by an approved action: there is no route to navigate, click, type, submit or read
- * one directly (TI-09).
+ * one directly (TI-09), nor to wait on or capture one outside an action, so every action on a page
+ * is a `BrowserPolicy` decision (BU-01). What is left is the person's own control of a browser an
+ * action opened: its live frame, picking an element for the editor, pausing, taking over, stopping.
  */
 
 import { BrowserError, parseViewport, readSessionID } from "./browser"
@@ -23,9 +25,6 @@ const bodyFrom = async (request: Request): Promise<Record<string, unknown>> => {
   const value = await request.json().catch(() => undefined)
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
-
-const timeoutFrom = (value: unknown) =>
-  typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined
 
 export async function handleBrowserRequest(
   request: Request,
@@ -94,20 +93,6 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
     const body = await bodyFrom(request)
     const viewport = parseViewport(body.width, body.height)
     return json({ data: await browser.setViewport(id, viewport) })
-  }
-
-  if (route === "waitFor" && method === "POST") {
-    const body = await bodyFrom(request)
-    const selector = typeof body.selector === "string" ? body.selector : ""
-    if (!selector) return error("A selector is required", "selector_required", 400)
-    const state = body.state === "attached" || body.state === "visible" ? body.state : undefined
-    return json({ data: await browser.waitFor(id, selector, timeoutFrom(body.timeoutMs), state) })
-  }
-
-  if (route === "screenshot" && method === "POST") {
-    const body = await bodyFrom(request)
-    const label = typeof body.label === "string" ? body.label : undefined
-    return json({ data: await browser.screenshot(id, label) })
   }
 
   if (route === "capture" && method === "POST") {

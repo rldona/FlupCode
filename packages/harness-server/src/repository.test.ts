@@ -311,6 +311,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 7, name: "usage-attribution", backup: join(dirname(path), backup!) },
       { version: 8, name: "usage-summary", backup: join(dirname(path), backup!) },
       { version: 9, name: "task-verdict", backup: join(dirname(path), backup!) },
+      { version: 10, name: "browser-policy", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -325,7 +326,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -343,6 +344,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 7, backup: null },
       { version: 8, backup: null },
       { version: 9, backup: null },
+      { version: 10, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -350,7 +352,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }])
     repository.close()
   })
 
@@ -1567,6 +1569,30 @@ describe("the task-verdict migration (RP-06)", () => {
     expect(repository.getRun(run.id)?.verdict).toEqual({ value: "failed", reason: "I give up.", source: "rule", taskID: task!.id })
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(1)
+describe("the browser-policy migration (BU-01)", () => {
+  test("a populated database at version 8 is backed up, and the approver's always answers become grants", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
+    before.db.exec("DELETE FROM schema_version WHERE version >= 10; DROP TABLE browser_grants; DROP TABLE browser_audit;")
+    before.close()
+    writeFileSync(
+      join(dirname(path), "action-approvals.json"),
+      JSON.stringify({ always: ["https://example.com", "https://example.com:publish", "not a url", 7] }),
+    )
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v8-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 10").all()).toEqual([
+      { version: 10, name: "browser-policy" },
+    ])
+    expect(repository.getRun(run.id)?.id).toBe(run.id)
+    // A bare origin was a read-only action's consent; a sensitive action's is not carried over.
+    expect(repository.listBrowserGrants()).toMatchObject([{ origin: "https://example.com", tier: "navigate", scope: "always" }])
+    expect(repository.listBrowserAudit()).toEqual([])
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM runs").get() as { count: number }).count).toBe(1)
     copy.close()
     repository.close()
   })

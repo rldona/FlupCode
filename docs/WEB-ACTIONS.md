@@ -109,26 +109,47 @@ the profile runs unconditionally.
 
 ## Approval
 
-Side-effecting actions are governed by two permissions:
+Every web action is a decision of the harness server's browser policy (`browser-policy.ts`), made
+from the profile the server loaded, never from the plugin's request. The policy looks at two
+things: the profile's **origin** and the **tier** of what its steps do.
 
-- **`browser`** — navigate and read. Resource: `origin`.
-- **`browser_sensitive`** — side effects: click, type, upload, submit, credential. Resource:
-  `origin:action`.
+| Tier        | What it covers                                                                  |
+| ----------- | ------------------------------------------------------------------------------- |
+| `read`      | `waitFor`, `assert`, `screenshot`, `extract`: looking at the page               |
+| `navigate`  | `goto`: opening an address on the site, and reading it                          |
+| `interact`  | `fill`, `click`: changing the page                                              |
+| `sensitive` | `submit`, `upload`, a saved credential, a step marked `sensitive`, or a profile marked `sensitive` that does not otherwise change the page |
 
-Approval is **one request per action, before it runs**. On OpenCode 2 a plugin's tool cannot ask, so
-the harness server asks in the session itself, as a form with three answers (once, always, deny); it
-shows the origin, the action and the steps that have effects. Once you approve, the runner executes
-the whole recipe in that one request. There is no approval between steps. A step marked `sensitive` is what makes the
-action count as sensitive, so a pure `extract` action runs under `browser` alone. "Allow always"
-remembers at most `origin` or `origin:action`, never everything. Modes that grant broad access
-(including bypass) are documented as including the browser; a whole-engine kill switch disables every
-browser tool regardless of mode.
+An action's tier is its highest step. The policy answers **allow**, **ask** or **deny**:
+
+- **Deny** on a small, fixed list of payment, banking and sign-in sites (`BLOCKED_SITES`: identity
+  providers, password vaults, payment and exchange sites, and the `.bank` domain, with their
+  subdomains). Nothing, not even a routine's rule, lets an action run there.
+- **Allow** when a standing grant for that origin covers the tier, or a routine's rule covers the
+  action (see below).
+- **Ask** otherwise. On OpenCode 2 a plugin's tool cannot ask, so the harness server asks in the
+  session itself, as a form the app shows as a browser approval: the site, what the agent would do
+  in plain words, and the answers on offer.
+
+The answers are **Allow once**, **Allow for this session**, **Always allow on the site** (at the tier
+asked for, which covers the tiers below it) and **Deny**. For a page the agent only opens and reads,
+"always" is the first button, so trusting a site for reading is one click. A `sensitive` action is
+offered only once or deny, and asks every time. Session and always grants are kept in
+`harness.sqlite` and listed under Settings → Permissions → Browser access, where each can be
+revoked.
 
 The harness server owns that decision. A yes is a single-use approval id, bound to the action, the
 session, the project and the inputs it was asked for, and the run route refuses a run without one
-(`403 approval_required`): a used, unknown or mismatched id runs nothing. The editor's dry run plans
-without a browser and its preview stops before the first step with an effect, so neither asks. There
-is no route to navigate, click, type, submit or read a page outside an action.
+(`403 approval_required`): a used, unknown or mismatched id runs nothing. The id carries the policy's
+permit, which the runner spends before the browser opens. The editor's dry run plans without a
+browser; its preview is the person's own request from the editor, so the policy is asked and a
+blocked site refuses it, but it does not ask again. There is no route to navigate, click, type,
+submit, wait on or capture a page outside an action.
+
+Every decision, every answer and every action is written to the browser audit (`browser_audit`) and
+appended to the event log as `browser.audit`, with its session, run and task, and the evidence
+artifact the action left. What the page said — its title, URL, extracts, text and screenshots — is
+returned to the agent labelled as untrusted page data, not instructions.
 
 A **scheduled** action is never asked: there is nobody to answer it. Its approval is written
 down on the routine as an `allow` list and checked when the routine is saved and again before the
@@ -142,8 +163,9 @@ consent it needs. Each execution is a normal **Run** with one deterministic task
 and the harness server drives the action runner in process: no model turn, no engine session, and no
 question. Because an unattended run cannot answer an approval, a browser routine without an `allow`
 rule covering the profile — `origin` for `browser`, `origin:action` for `browser_sensitive` — is
-refused at creation with an actionable warning, and the task re-checks the same rule before the
-browser opens. Scheduled runs are headless; the window is only shown when a person starts the action
+refused at creation with an actionable warning, and the task asks the browser policy before the
+browser opens: `browser` on an origin covers opening and reading it, `browser_sensitive` on
+`origin:action` covers that one action. A blocked site fails the task whatever the rule says. Scheduled runs are headless; the window is only shown when a person starts the action
 from the app. The screenshots and text log the run produces are filed under its run and task, so the
 evidence travels with the run.
 

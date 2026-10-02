@@ -213,7 +213,9 @@ export function toPermission(request: V2Permission): PermissionV2Request {
  */
 export function toQuestion(form: V2Form): QuestionV2Request {
   const tool = (form.metadata as { tool?: { messageID?: string; id?: string } } | undefined)?.tool
+  const browser = browserApproval(form)
   return {
+    ...(browser ? { browser } : {}),
     id: form.id,
     sessionID: form.sessionID,
     questions: form.fields.flatMap((field) => {
@@ -240,6 +242,27 @@ export function toQuestion(form: V2Form): QuestionV2Request {
       ]
     }),
     ...(tool?.messageID && tool.id ? { tool: { messageID: tool.messageID, callID: tool.id } } : {}),
+  }
+}
+
+/**
+ * A browser approval the harness asked (BU-01): its form says so in its metadata, with the site and
+ * the tier, and its one field carries the answers with their values.
+ */
+function browserApproval(form: V2Form): QuestionV2Request["browser"] {
+  const metadata = (form.metadata ?? {}) as Record<string, unknown>
+  if (metadata.flupcode !== "browser-approval") return undefined
+  const tier = metadata.tier
+  if (tier !== "read" && tier !== "navigate" && tier !== "interact" && tier !== "sensitive") return undefined
+  if (typeof metadata.origin !== "string" || typeof metadata.site !== "string") return undefined
+  const field = form.fields.find((entry) => "options" in entry && entry.options)
+  const options = field && "options" in field && field.options ? field.options : []
+  return {
+    origin: metadata.origin,
+    site: metadata.site,
+    tier,
+    action: typeof metadata.action === "string" ? metadata.action : "",
+    options: options.map((option) => ({ value: String(option.value), label: option.label })),
   }
 }
 

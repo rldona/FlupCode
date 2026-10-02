@@ -44,7 +44,8 @@ import { createRetryingModel } from "./adaptive/providers/retry"
 import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/providers/jev"
 import { createModelKey } from "./adaptive/model-key"
 import { createSmallLlmModel } from "./adaptive/providers/small-llm"
-import { APPROVAL_OPTIONS, createActionApprover } from "./action-approval"
+import { createActionApprover } from "./action-approval"
+import { createBrowserPolicy } from "./browser-policy"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
 import { parseModelKey } from "./policy"
@@ -117,9 +118,12 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const credentials = vault ?? options.actionCredentials ?? unavailableActionCredentialResolver
   // The runner needs a browser to drive, so it exists only when the runtime does. Without it
   // `/harness/actions/*` is an ordinary 404, and credentials fail closed (WA-2).
+  // One decision point for every browser action, whichever driver acts (BU-01).
+  const browserPolicy = createBrowserPolicy(repository)
   const actions: ActionRunner | undefined = browser
     ? createActionRunner({
         browser,
+        policy: browserPolicy,
         repository,
         credentials,
         loadProfiles: loadActionProfiles,
@@ -416,9 +420,10 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         ? {
             actionApprover: createActionApprover({
               actions,
-              ask: (request) => new Engine(engineURL).askChoice({ ...request, options: APPROVAL_OPTIONS }),
-              file: join(databasePath === ":memory:" ? tmpdir() : dirname(databasePath), "action-approvals.json"),
+              policy: browserPolicy,
+              ask: (request) => new Engine(engineURL).askChoice(request),
             }),
+            browserPolicy,
           }
         : {}),
       ...(vault ? { credentials: vault } : {}),

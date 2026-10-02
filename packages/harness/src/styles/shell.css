@@ -8682,6 +8682,16 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+.fc-button-primary .fc-permission-scope {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.fc-browser-approval-ask {
+  margin: 0;
+  font-weight: 600;
+}
+
 .fc-permission-browser {
   display: flex;
   flex-direction: column;
