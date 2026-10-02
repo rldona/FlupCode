@@ -314,6 +314,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 10, name: "browser-policy", backup: join(dirname(path), backup!) },
       { version: 11, name: "artifact-versions", backup: join(dirname(path), backup!) },
       { version: 12, name: "project-settings", backup: join(dirname(path), backup!) },
+      { version: 13, name: "routine-reliability", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -328,7 +329,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -349,6 +350,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 10, backup: null },
       { version: 11, backup: null },
       { version: 12, backup: null },
+      { version: 13, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -356,7 +358,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }])
     repository.close()
   })
 
@@ -477,10 +479,17 @@ describe("SqliteRoutineRepository", () => {
     repository.finishRun(run.id, "success", undefined, 2000)
 
     const all = repository.listEvents(0)
-    expect(all.map((entry) => entry.event.type)).toEqual(["routine.changed", "run.started", "run.changed"])
-    expect(all.map((entry) => entry.seq)).toEqual([1, 2, 3])
+    // A routine's run also says when the routine fires next and how it has been failing (RP-07).
+    expect(all.map((entry) => entry.event.type)).toEqual([
+      "routine.changed",
+      "run.started",
+      "routine.status",
+      "run.changed",
+      "routine.status",
+    ])
+    expect(all.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 5])
     // Catching up from the middle returns only what came after it.
-    expect(repository.listEvents(2).map((entry) => entry.event.type)).toEqual(["run.changed"])
+    expect(repository.listEvents(3).map((entry) => entry.event.type)).toEqual(["run.changed", "routine.status"])
     repository.close()
   })
 
@@ -1790,6 +1799,48 @@ describe("the project-settings migration (RP-05)", () => {
     expect(repository.projectUnattended("/work/demo")).toBe("deny")
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM runs").get() as { count: number }).count).toBe(1)
+    copy.close()
+    repository.close()
+  })
+})
+
+describe("the routine-reliability migration (RP-07)", () => {
+  test("a populated database is backed up and its routines keep catching up and waiting after a failure", () => {
+    const path = scratch()
+    const before = open(path)
+    const routine = before.create({
+      name: "nightly",
+      description: "",
+      prompt: "Check it",
+      schedule: { type: "daily", time: "08:15", timezone: "Europe/Madrid" },
+    })
+    const run = before.startRun({ type: "routine", routineID: routine.id }, 1_000, "/work/demo")
+    before.finishRun(run.id, "failed", "provider down", 2_000)
+    before.db.exec(`
+      DELETE FROM schema_version WHERE version >= 13;
+      ALTER TABLE routines DROP COLUMN missed;
+      ALTER TABLE routines DROP COLUMN retry_json;
+    `)
+    const latest = (before.db.query("SELECT MAX(version) AS version FROM schema_version").get() as { version: number }).version
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(new RegExp(`^harness\\.sqlite\\.bak-v${latest}-`))
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 13").all()).toEqual([
+      { version: 13, name: "routine-reliability" },
+    ])
+    const migrated = repository.get(routine.id)!
+    expect(migrated).toMatchObject({ name: "nightly", schedule: { type: "daily", time: "08:15", timezone: "Europe/Madrid" } })
+    expect(migrated.missed).toBeUndefined()
+    expect(migrated.retry).toBeUndefined()
+    expect(migrated.runs.map((entry) => entry.status)).toEqual(["failed"])
+    expect(migrated.failedInARow).toBe(1)
+    // The new settings are kept from now on.
+    repository.update(routine.id, { ...migrated, missed: "skip", retry: { count: 2, backoffMinutes: 10 } })
+    expect(repository.get(routine.id)).toMatchObject({ missed: "skip", retry: { count: 2, backoffMinutes: 10 } })
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM routines").get() as { count: number }).count).toBe(1)
     copy.close()
     repository.close()
   })

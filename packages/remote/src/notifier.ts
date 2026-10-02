@@ -19,7 +19,7 @@ async function streamEvents(input: {
   headers: Record<string, string>
   fetch: typeof globalThis.fetch
   signal: AbortSignal
-  onEvent: (event: { type?: unknown; data?: unknown; run?: unknown }) => void
+  onEvent: (event: Record<string, unknown>) => void
 }) {
   for (let attempt = 0; !input.signal.aborted; attempt++) {
     const response = await input.fetch(input.url, { headers: input.headers, signal: input.signal }).catch(() => undefined)
@@ -41,7 +41,7 @@ async function streamEvents(input: {
           .join("\n")
         if (!data) return
         try {
-          input.onEvent(JSON.parse(data) as { type?: unknown; data?: unknown; run?: unknown })
+          input.onEvent(JSON.parse(data) as Record<string, unknown>)
         } catch {
           return
         }
@@ -188,24 +188,36 @@ export function watchHarnessEvents(input: {
   const controller = new AbortController()
   // Notified runs, so one that changes twice at the end is not pushed twice.
   const notified = new Set<string>()
-  const names = new Map<string, string>()
+  // The lookup itself is kept, not just its answer, so what one routine says arrives in the order
+  // it happened: its failed run first, then the notice that run raised.
+  const names = new Map<string, Promise<string>>()
 
-  const routineName = async (routineID: string) => {
+  const routineName = (routineID: string) => {
     const cached = names.get(routineID)
     if (cached) return cached
-    const response = await doFetch(new URL(`/harness/routines/${encodeURIComponent(routineID)}`, input.harness), {
+    const name = doFetch(new URL(`/harness/routines/${encodeURIComponent(routineID)}`, input.harness), {
       headers: authorization,
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]),
-    }).catch(() => undefined)
-    const body = response?.ok
-      ? ((await response.json().catch(() => undefined)) as { data?: { name?: unknown } })
-      : undefined
-    const name = typeof body?.data?.name === "string" && body.data.name.trim() ? body.data.name.trim() : "Routine"
+    })
+      .then((response) => (response.ok ? (response.json() as Promise<{ data?: { name?: unknown } }>) : undefined))
+      .catch(() => undefined)
+      .then((body) => (typeof body?.data?.name === "string" && body.data.name.trim() ? body.data.name.trim() : "Routine"))
     names.set(routineID, name)
     return name
   }
 
-  const handle = (event: { type?: unknown; run?: unknown }) => {
+  const handle = (event: Record<string, unknown>) => {
+    // A routine failing run after run (RP-07), raised once per streak by the harness.
+    if (event.type === "routine.failing") {
+      if (typeof event.routineID !== "string" || typeof event.sessionID !== "string") return
+      const sessionID = event.sessionID
+      const detail = `failed ${typeof event.failedInARow === "number" ? event.failedInARow : "several"} times in a row`
+      void routineName(event.routineID).then((session) => {
+        if (controller.signal.aborted) return
+        input.onNotification({ kind: "failed", sessionID, session, detail })
+      })
+      return
+    }
     if (event.type !== "run.changed") return
     const run = event.run as
       | { id?: unknown; status?: unknown; sessionID?: unknown; source?: { type?: unknown; routineID?: unknown } }

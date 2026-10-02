@@ -1,10 +1,11 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
-import { routineNextRunAt } from "../routine-schedule"
 import type { Attention } from "../attention"
+import { runState } from "../run-state"
 import { AttentionMark } from "./AttentionMark"
+import { StateBadge } from "./StateBadge"
 import type {
   ActionProfileSummary,
   Artifact,
@@ -13,6 +14,7 @@ import type {
   RoutineInput,
   RoutineRun,
   RoutineSchedule,
+  Workflow,
 } from "../types"
 
 type RoutinesPanelProps = {
@@ -32,6 +34,8 @@ type RoutinesPanelProps = {
   actions: ActionProfileSummary[]
   /** Kept artifacts, so an image input can be pointed at one (WA-7). */
   artifacts: Artifact[]
+  /** The workflows a routine in this folder can run, with the inputs each declares (RP-07). */
+  loadWorkflows: (directory?: string) => Promise<Workflow[]>
   onAdd: (input: RoutineInput) => void
   onUpdate: (id: string, input: RoutineInput) => void
   onToggle: (id: string) => void
@@ -56,7 +60,16 @@ const days = [
 ] as const
 
 const scheduleLabel = (schedule: RoutineSchedule) => {
+  const label = scheduleWords(schedule)
+  // A wall-clock schedule is read in its zone, so the zone is part of what it says (RP-07).
+  return schedule.timezone && schedule.type !== "manual" && schedule.type !== "hourly" && schedule.type !== "interval"
+    ? `${label} (${schedule.timezone})`
+    : label
+}
+
+const scheduleWords = (schedule: RoutineSchedule) => {
   if (schedule.type === "manual") return t("Manual")
+  if (schedule.type === "cron") return t("Cron {expression}", { expression: schedule.expression })
   if (schedule.type === "hourly") return t("Every hour")
   if (schedule.type === "interval") return t("every {minutes} min", { minutes: schedule.intervalMinutes })
   if (schedule.type === "weekdays") return t("Weekdays at {time}", { time: schedule.time })
@@ -67,12 +80,23 @@ const scheduleLabel = (schedule: RoutineSchedule) => {
   return t("Daily at {time}", { time: schedule.time })
 }
 
+/** When it runs next, as the server reckons it (RP-07), read in the routine's own zone. */
 const nextRunLabel = (routine: Routine) => {
-  const next = routineNextRunAt(routine)
+  const next = routine.nextRunAt
   if (!next) return t("Not scheduled")
   if (next <= Date.now()) return t("Due now")
-  return t("Next {time}", { time: formatDateTime(next) })
+  return t("Next {time}", { time: formatDateTime(next, routine.schedule.timezone) })
 }
+
+/** The newest run that ended, whose verdict the row shows (RP-06). */
+const lastSettled = (routine: Routine) =>
+  routine.runs.find((run) => run.status !== "running" && run.status !== "awaiting")
+
+/** The zones the browser knows, for the time zone field. */
+const ZONES = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : []
+
+/** A wall-clock schedule, the kind a time zone applies to. */
+const wallClock = (type: RoutineSchedule["type"]) => ["daily", "weekdays", "weekly", "cron"].includes(type)
 
 const runLabel = (run: RoutineRun) => {
   if (run.status === "running") return t("Running")
@@ -113,6 +137,13 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   const [search, setSearch] = createSignal("")
   const [form, setForm] = createSignal<RoutineInput>(emptyInput())
   const [deleteID, setDeleteID] = createSignal<string>()
+  // The workflows of the folder the routine runs in, read while the form is open (RP-07). Keyed by a
+  // string, so typing in another field does not read them again.
+  const [workflows] = createResource(
+    () => (editing() ? `folder:${form().projectDirectory ?? ""}` : undefined),
+    (key) => props.loadWorkflows(key.slice("folder:".length) || undefined).catch(() => []),
+  )
+  const chosenWorkflow = createMemo(() => (workflows() ?? []).find((workflow) => workflow.name === form().workflow?.name))
 
   createEffect(() => {
     if (!props.open) return
@@ -159,6 +190,8 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
       policy: routine.policy,
       action: routine.action,
       allow: routine.allow,
+      missed: routine.missed,
+      retry: routine.retry,
     })
     setEditing(true)
   }
@@ -170,20 +203,31 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
 
   const updateForm = (patch: Partial<RoutineInput>) => setForm((current) => ({ ...current, ...patch }))
 
-  const updateSchedule = (patch: Partial<RoutineSchedule> & { type?: RoutineSchedule["type"] }) => {
+  const updateSchedule = (type: RoutineSchedule["type"]) => {
     const current = form().schedule
-    const type = patch.type ?? current.type
+    if (type === current.type) return
+    // The zone outlives a change of kind; a new wall-clock schedule starts in the reader's own.
+    const timezone = current.timezone ?? (wallClock(type) ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined)
+    const zone = timezone && wallClock(type) ? { timezone } : {}
     if (type === "manual") updateForm({ schedule: { type: "manual" } })
     if (type === "hourly") updateForm({ schedule: { type: "hourly" } })
-    if (type === "daily") updateForm({ schedule: { type: "daily", time: "09:00" } })
-    if (type === "weekdays") updateForm({ schedule: { type: "weekdays", time: "09:00" } })
-    if (type === "weekly") updateForm({ schedule: { type: "weekly", day: 1, time: "09:00" } })
+    if (type === "daily") updateForm({ schedule: { type: "daily", time: "09:00", ...zone } })
+    if (type === "weekdays") updateForm({ schedule: { type: "weekdays", time: "09:00", ...zone } })
+    if (type === "weekly") updateForm({ schedule: { type: "weekly", day: 1, time: "09:00", ...zone } })
     if (type === "interval") updateForm({ schedule: { type: "interval", intervalMinutes: 60 } })
-    if (type === current.type) updateForm({ schedule: { ...current, ...patch } as RoutineSchedule })
+    if (type === "cron") updateForm({ schedule: { type: "cron", expression: "0 9 * * 1-5", ...zone } })
   }
 
-  const updateScheduleFields = (patch: { time?: string; day?: number; intervalMinutes?: number }) => {
+  const updateScheduleFields = (patch: { time?: string; day?: number; intervalMinutes?: number; expression?: string; timezone?: string }) => {
     const current = form().schedule
+    if (patch.timezone !== undefined) {
+      updateForm({ schedule: { ...current, timezone: patch.timezone.trim() || undefined } })
+      return
+    }
+    if (current.type === "cron") {
+      updateForm({ schedule: { ...current, expression: patch.expression ?? current.expression } })
+      return
+    }
     if (current.type === "daily" || current.type === "weekdays") {
       updateForm({ schedule: { ...current, time: patch.time ?? current.time } })
       return
@@ -226,6 +270,11 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   const formDayValue = () => {
     const schedule = form().schedule
     return "day" in schedule ? schedule.day : 1
+  }
+
+  const formExpressionValue = () => {
+    const schedule = form().schedule
+    return schedule.type === "cron" ? schedule.expression : ""
   }
 
   const formIntervalValue = () => {
@@ -279,6 +328,21 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
     return ""
   }
 
+  // What the chosen workflow declares and somebody filled; an empty field takes the file's default.
+  const workflowInputs = (value: RoutineInput) => {
+    const declared = chosenWorkflow()?.inputs
+    const entries = Object.entries(value.workflow?.inputs ?? {}).filter(
+      ([name, entry]) => entry.trim() && (!declared || declared.includes(name)),
+    )
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined
+  }
+
+  const updateWorkflowInput = (name: string, value: string) => {
+    const workflow = form().workflow
+    if (!workflow) return
+    updateForm({ workflow: { ...workflow, inputs: { ...workflow.inputs, [name]: value } } })
+  }
+
   const submit = () => {
     const value = form()
     if (!value.name.trim()) return
@@ -293,6 +357,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
             ...(budget && (budget.tokens || budget.cost) ? { budget } : {}),
           }
         : undefined
+    const inputs = workflowInputs(value)
     const input: RoutineInput = {
       ...value,
       name: value.name.trim(),
@@ -302,9 +367,11 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
       allow: value.action ? value.allow : undefined,
       workflow:
         !value.action && workflowName
-          ? { name: workflowName, ...(value.workflow?.inputs ? { inputs: value.workflow.inputs } : {}) }
+          ? { name: workflowName, ...(inputs ? { inputs } : {}) }
           : undefined,
       policy,
+      missed: value.missed === "skip" ? "skip" : undefined,
+      retry: value.retry && value.retry.count > 0 ? value.retry : undefined,
     }
     const id = selectedID()
     if (id) props.onUpdate(id, input)
@@ -332,13 +399,12 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
         </div>
 
         <div class="fc-routines-toolbar">
-          <div class="fc-routines-tabs"><button class="fc-routines-tab fc-routines-tab-active" type="button">{t("Yours")}</button><button class="fc-routines-tab" type="button" disabled title={t("Coming soon")}>{t("Templates")}<span class="fc-nav-soon">{t("Soon")}</span></button></div>
           <input class="fc-question-custom fc-routines-search" value={search()} placeholder={t("Search routines")} aria-label={t("Search routines")} onInput={(event) => setSearch(event.currentTarget.value)} />
         </div>
 
         <Show when={visible().length > 0} fallback={<div class="fc-routines-empty"><div class="fc-routines-empty-icon">◷</div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
             <div class="fc-routines-layout">
-              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small></span><Show when={props.routineAttention[routine.id]}>{(level) => <AttentionMark level={level()} />}</Show><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
+              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small><Show when={lastSettled(routine)}>{(run) => <span class="fc-routine-card-last"><StateBadge state={runState(run())} reason={run().verdict?.reason ?? run().error} /><Show when={routine.failedInARow > 0}><small>{t("{count} failed in a row", { count: routine.failedInARow })}</small></Show></span>}</Show></span><Show when={props.routineAttention[routine.id]}>{(level) => <AttentionMark level={level()} />}</Show><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
             </div>
             <Show when={selected()}>
               {(routine) => (
@@ -357,7 +423,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                     <div class="fc-modal-body">
                       <div class="fc-routines-kicker">{t("Routine")}</div>
                       <p>{routine().description || t("No description")}</p>
-                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show></dl>
+                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show><Show when={routine().retry}>{(retry) => <div><dt>{t("Retries")}</dt><dd>{t("{count} after {minutes} min", { count: retry().count, minutes: retry().backoffMinutes })}</dd></div>}</Show><Show when={routine().schedule.type !== "manual"}><div><dt>{t("Missed runs")}</dt><dd>{routine().missed === "skip" ? t("Skip them") : t("Run once when back")}</dd></div></Show></dl>
                       <section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section>
                       <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><Show when={props.runAttention(run)} fallback={<span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-stopped": run.status === "stopped" }} />}>{(level) => <AttentionMark level={level()} />}</Show><span><strong>{runLabel(run)}</strong><small>{formatDateTime(run.startedAt)}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
                     </div>
@@ -422,15 +488,27 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                 </Show>
                 <Show when={selectedProfile()}>{(profile) => <p class="fc-modal-note">{profile().sensitive ? t("This action has effects; the routine carries the strong approval.") : t("This action only reads; the routine carries the read approval.")}</p>}</Show>
               </Show>
-              <label>{t("Workflow (optional)")}<input class="fc-question-custom" value={form().workflow?.name ?? ""} placeholder={t("feature")} disabled={isAction()} onInput={(event) => updateForm({ workflow: event.currentTarget.value.trim() ? { name: event.currentTarget.value } : undefined })} /></label>
+              <label>{t("Workflow (optional)")}<select class="fc-question-custom" value={form().workflow?.name ?? ""} disabled={isAction()} onChange={(event) => updateForm({ workflow: event.currentTarget.value ? { name: event.currentTarget.value } : undefined })}><option value="">{t("No workflow")}</option><For each={workflows() ?? []}>{(workflow) => <option value={workflow.name}>{workflow.name}</option>}</For><Show when={form().workflow && !chosenWorkflow()}><option value={form().workflow!.name}>{form().workflow!.name}</option></Show></select></label>
+              <Show when={!isAction() && chosenWorkflow()}>
+                {(workflow) => (
+                  <For each={workflow().inputs}>{(name) => <label>{name}<input class="fc-question-custom" value={form().workflow?.inputs?.[name] ?? ""} placeholder={workflow().inputDefaults?.[name] ?? ""} title={workflow().inputHelp?.[name]} onInput={(event) => updateWorkflowInput(name, event.currentTarget.value)} /></label>}</For>
+                )}
+              </Show>
               <label>{t("Fallback model")}<input class="fc-question-custom" value={form().policy?.fallback ?? ""} placeholder="provider/model" onInput={(event) => updateForm({ policy: { ...form().policy, fallback: event.currentTarget.value } })} /></label>
               <label>{t("Project")}<select class="fc-question-custom" value={form().projectDirectory ?? ""} onChange={(event) => updateForm({ projectDirectory: event.currentTarget.value || undefined })}><option value="">{t("No folder")}</option><For each={props.projects}>{(project) => <option value={project.directory}>{project.name}</option>}</For></select></label>
               <label>{t("Agent")}<select class="fc-question-custom" value={form().agent ?? ""} onChange={(event) => updateForm({ agent: event.currentTarget.value || undefined })}><option value="">{t("Default")}</option><For each={props.agents.filter((agent) => !agent.hidden && agent.mode !== "subagent")}>{(agent) => <option value={agent.id}>{agent.id}</option>}</For></select></label>
               <label>{t("Model")}<select class="fc-question-custom" value={formModelValue()} onChange={(event) => { const [providerID, ...id] = event.currentTarget.value.split("/"); updateForm({ model: providerID && id.length > 0 ? { providerID, id: id.join("/") } : undefined }) }}><option value="">{t("Default model")}</option><For each={modelGroups()}>{(group) => <optgroup label={group.providerID}><For each={group.items}>{(model) => <option value={`${group.providerID}/${model.id}`}>{model.name}</option>}</For></optgroup>}</For></select></label>
-              <label>{t("Schedule")}<select class="fc-question-custom" value={form().schedule.type} onChange={(event) => updateSchedule({ type: event.currentTarget.value as RoutineSchedule["type"] })}><option value="manual">{t("Manual")}</option><option value="hourly">{t("Every hour")}</option><option value="daily">{t("Daily")}</option><option value="weekdays">{t("Weekdays")}</option><option value="weekly">{t("Weekly")}</option><option value="interval">{t("Interval")}</option></select></label>
+              <label>{t("Schedule")}<select class="fc-question-custom" value={form().schedule.type} onChange={(event) => updateSchedule(event.currentTarget.value as RoutineSchedule["type"])}><option value="manual">{t("Manual")}</option><option value="hourly">{t("Every hour")}</option><option value="daily">{t("Daily")}</option><option value="weekdays">{t("Weekdays")}</option><option value="weekly">{t("Weekly")}</option><option value="interval">{t("Interval")}</option><option value="cron">{t("Cron expression")}</option></select></label>
               <Show when={["daily", "weekdays", "weekly"].includes(form().schedule.type)}><label>{t("Time")}<input class="fc-question-custom" type="time" value={formTimeValue()} onInput={(event) => updateScheduleFields({ time: event.currentTarget.value })} /></label></Show>
               <Show when={form().schedule.type === "weekly"}><label>{t("Day")}<select class="fc-question-custom" value={formDayValue()} onChange={(event) => updateScheduleFields({ day: Number(event.currentTarget.value) })}><For each={days}>{(day) => <option value={day[0]}>{t(day[1])}</option>}</For></select></label></Show>
               <Show when={form().schedule.type === "interval"}><label>{t("Minutes")}<input class="fc-question-custom" type="number" min="1" value={formIntervalValue()} onInput={(event) => updateScheduleFields({ intervalMinutes: Number(event.currentTarget.value) })} /></label></Show>
+              <Show when={form().schedule.type === "cron"}><label>{t("Cron expression")}<input class="fc-question-custom" value={formExpressionValue()} placeholder="15 8 * * 1-5" spellcheck={false} onInput={(event) => updateScheduleFields({ expression: event.currentTarget.value })} /></label></Show>
+              <Show when={wallClock(form().schedule.type)}><label>{t("Time zone")}<input class="fc-question-custom" list="fc-routine-zones" value={form().schedule.timezone ?? ""} placeholder={Intl.DateTimeFormat().resolvedOptions().timeZone} spellcheck={false} onChange={(event) => updateScheduleFields({ timezone: event.currentTarget.value })} /><datalist id="fc-routine-zones"><For each={ZONES}>{(zone) => <option value={zone} />}</For></datalist></label></Show>
+              <Show when={form().schedule.type !== "manual"}>
+                <label>{t("Missed runs")}<select class="fc-question-custom" value={form().missed ?? "catch-up"} onChange={(event) => updateForm({ missed: event.currentTarget.value === "skip" ? "skip" : undefined })}><option value="catch-up">{t("Run once when back")}</option><option value="skip">{t("Skip them")}</option></select></label>
+                <label>{t("Retries")}<input class="fc-question-custom" type="number" min="0" max="5" value={form().retry?.count ?? 0} onInput={(event) => updateForm({ retry: { count: Math.max(0, Math.min(5, Math.round(Number(event.currentTarget.value) || 0))), backoffMinutes: form().retry?.backoffMinutes ?? 5 } })} /></label>
+                <Show when={(form().retry?.count ?? 0) > 0}><label>{t("Minutes before the first retry")}<input class="fc-question-custom" type="number" min="0" value={form().retry?.backoffMinutes ?? 5} onInput={(event) => updateForm({ retry: { count: form().retry?.count ?? 1, backoffMinutes: Math.max(0, Math.round(Number(event.currentTarget.value) || 0)) } })} /></label></Show>
+              </Show>
               </div>
               </div>
               <div class="fc-dialog-actions">

@@ -40,7 +40,7 @@ export function taskState(task: Task): RunState {
 }
 
 /** How a run stands, said once on its card: the gate or the budget it waits at, or how it ended. */
-export function runState(run: Run): RunState {
+export function runState(run: Pick<Run, "status" | "paused" | "verdict">): RunState {
   if (run.status === "awaiting") return run.paused === "budget" ? "budget" : "approval"
   if (run.status !== "success") return run.status
   return run.verdict?.value ?? "succeeded"

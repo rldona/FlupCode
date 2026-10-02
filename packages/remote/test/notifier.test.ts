@@ -103,6 +103,28 @@ describe("watchHarnessEvents", () => {
 
     expect(seen[0]?.kind).toBe("failed")
   })
+
+  // RP-07: a routine failing again and again is said once, after the run that reached the notice.
+  test("a routine that keeps failing is reported once, after its failed run, with how many in a row", async () => {
+    const seen: Seen[] = []
+    const watcher = watchHarnessEvents({
+      harness: "http://h",
+      fetch: harness([
+        routineRun({ id: "run_3", status: "failed" }),
+        { type: "routine.failing", routineID: "rt_1", name: "Nightly audit", failedInARow: 3, sessionID: "ses_root" },
+        // A run that failed to start has no session to open, so there is nothing to push.
+        { type: "routine.failing", routineID: "rt_1", name: "Nightly audit", failedInARow: 3 },
+      ]),
+      onNotification: (notification) => seen.push(notification),
+    })
+    await Bun.sleep(30)
+    watcher.stop()
+
+    expect(seen).toEqual([
+      { kind: "failed", sessionID: "ses_root", session: "Nightly audit", detail: "failed" },
+      { kind: "failed", sessionID: "ses_root", session: "Nightly audit", detail: "failed 3 times in a row" },
+    ])
+  })
 })
 
 /** A fake engine: one session to name, and one event stream that ends as soon as it is read. */

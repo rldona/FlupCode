@@ -4060,6 +4060,14 @@ button.fc-status {
   white-space: nowrap;
 }
 
+/* How its last run ended and how many failed in a row (RP-07). */
+.fc-routine-card-last {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .fc-routine-status {
   padding: 3px 7px;
   border-radius: var(--fc-radius-pill);
@@ -4272,6 +4280,8 @@ button.fc-status {
   .fc-routine-editor-wide { grid-column: auto; }
   .fc-routine-facts { grid-template-columns: 1fr; }
   .fc-routine-card { padding: 12px; }
+  /* The schedule and the next run wrap rather than lose the next run to an ellipsis (RP-07). */
+  .fc-routines-screen .fc-routine-card-content small { white-space: normal; }
 }
 
 .fc-onboarding {

@@ -58,7 +58,15 @@ const engine = (page: import("@playwright/test").Page) =>
     return route.fulfill({ status: 404, json: {} })
   })
 
-const boot = async (page: import("@playwright/test").Page, deleted: string[], path = "/") => {
+type Route = import("@playwright/test").Route
+
+const boot = async (
+  page: import("@playwright/test").Page,
+  deleted: string[],
+  path = "/",
+  /** Answers a harness request before the defaults do, or leaves it to them by returning nothing. */
+  harness?: (route: Route, url: URL) => Promise<void> | undefined,
+) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -68,6 +76,8 @@ const boot = async (page: import("@playwright/test").Page, deleted: string[], pa
   await engine(page)
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const url = new URL(route.request().url())
+    const answered = harness?.(route, url)
+    if (answered) return answered
     if (url.pathname === "/harness/routines" && route.request().method() === "GET")
       return route.fulfill({ json: { data: deleted.length > 0 ? [] : [routine] } })
     if (/^\/harness\/routines\/[^/]+$/.test(url.pathname) && route.request().method() === "DELETE") {
@@ -149,12 +159,87 @@ test("Escape closes the topmost dialog without leaving the screen", async ({ pag
   await expect(screen).toBeVisible()
 })
 
-// The Templates tab has nothing behind it and is not a defect: it says so, the way the sidebar does.
-test("the Templates tab says it is not here yet", async ({ page }) => {
+// RP-07: a tab with nothing behind it is gone until there is something to put there.
+test("there is no Templates tab", async ({ page }) => {
   const screen = await boot(page, [])
-  const tab = screen.getByRole("button", { name: /Templates|Plantillas/ })
-  await expect(tab).toBeDisabled()
-  await expect(tab.locator(".fc-nav-soon")).toHaveText(/Soon|Pronto/)
+  await expect(screen.getByRole("button", { name: "Nightly audit" })).toBeVisible()
+  await expect(screen.getByRole("button", { name: /Templates|Plantillas/ })).toHaveCount(0)
+})
+
+// RP-07: the row says how the routine is doing — when it runs next in its own zone, how its last run
+// ended and how many failed in a row — from what the server says, with no schedule logic of its own.
+test("a routine's row shows its next run in its zone, its last verdict and its failures in a row", async ({ page }) => {
+  const failing = {
+    ...routine,
+    schedule: { type: "daily", time: "08:15", timezone: "Asia/Tokyo" },
+    // 08:15 in Tokyo is 23:15 UTC the day before.
+    nextRunAt: Date.UTC(2030, 0, 6, 23, 15),
+    failedInARow: 3,
+    failing: true,
+    runs: [
+      {
+        id: "run_3",
+        status: "success",
+        startedAt: now - 1000,
+        finishedAt: now,
+        verdict: { value: "failed", reason: "I stop here", source: "rule", taskID: "t" },
+      },
+    ],
+  }
+  const screen = await boot(page, [], "/", (route, url) =>
+    url.pathname === "/harness/routines" && route.request().method() === "GET"
+      ? route.fulfill({ json: { data: [failing] } })
+      : undefined,
+  )
+  const row = screen.getByRole("button", { name: /Nightly audit/ })
+  await expect(row).toContainText(/Asia\/Tokyo/)
+  await expect(row).toContainText(/08:15/)
+  await expect(row.locator(".fc-verdict")).toHaveAttribute("data-verdict", "failed")
+  await expect(row).toContainText(/3 failed in a row|3 fallidas seguidas/)
+  await expect(row.locator(".fc-attention")).toHaveAttribute("data-attention", "failed")
+})
+
+// RP-07: the inputs a workflow declares are fields of the form, and what is typed there is what the
+// server is asked to keep — with the zone, the missed-run policy and the retries.
+test("the form fills a workflow's inputs and the schedule's zone, missed runs and retries", async ({ page }) => {
+  const posted: unknown[] = []
+  const workflows = [
+    { name: "triage", description: "", inputs: ["label", "limit"], inputDefaults: { limit: "10" }, tasks: [] },
+  ]
+  const screen = await boot(page, [], "/", (route, url) => {
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: workflows } })
+    if (url.pathname === "/harness/routines" && route.request().method() === "POST") {
+      posted.push(route.request().postDataJSON())
+      return route.fulfill({ status: 201, json: { data: { ...routine, id: "r2", name: "Triage" } } })
+    }
+    return undefined
+  })
+  await screen.getByRole("button", { name: /New routine|Nueva rutina/ }).click()
+  const form = screen.locator('div[role="dialog"].fc-form-modal')
+  await form.getByLabel(/^(Name|Nombre)/).fill("Triage")
+  await form.getByLabel(/^(Instructions|Instrucciones)/).fill("Triage the issues")
+  await form.getByLabel(/^(Workflow|Flujo de trabajo)/).selectOption("triage")
+  await form.getByLabel(/^label/).fill("bug")
+  await expect(form.getByLabel(/^limit/)).toHaveAttribute("placeholder", "10")
+  await form.getByLabel(/^(Schedule|Programación)/).selectOption("daily")
+  await form.getByLabel(/^(Time|Hora)$/).fill("08:15")
+  await form.getByLabel(/^(Time zone|Zona horaria)/).fill("Europe/Madrid")
+  await form.getByLabel(/^(Time zone|Zona horaria)/).blur()
+  await form.getByLabel(/^(Missed runs|Ejecuciones perdidas)/).selectOption("skip")
+  await form.getByLabel(/^(Retries|Reintentos)/).fill("2")
+  await form.getByLabel(/^(Minutes before the first retry|Minutos antes del primer reintento)/).fill("10")
+  await form.getByRole("button", { name: /^(Save|Guardar)$/ }).click()
+
+  await expect.poll(() => posted.length).toBe(1)
+  expect(posted[0]).toMatchObject({
+    name: "Triage",
+    workflow: { name: "triage", inputs: { label: "bug" } },
+    schedule: { type: "daily", time: "08:15", timezone: "Europe/Madrid" },
+    missed: "skip",
+    retry: { count: 2, backoffMinutes: 10 },
+  })
+  // An empty field takes the file's default, so nothing is sent for it.
+  expect((posted[0] as { workflow: { inputs: Record<string, string> } }).workflow.inputs).not.toHaveProperty("limit")
 })
 
 // A screen you can reload is a screen you can link to and come back to. It is a path, which means

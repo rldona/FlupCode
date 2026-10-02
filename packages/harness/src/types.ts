@@ -192,6 +192,11 @@ export type RoutineSchedule =
   | { type: "weekdays"; time: string; timezone?: string }
   | { type: "weekly"; day: number; time: string; timezone?: string }
   | { type: "interval"; intervalMinutes: number; timezone?: string }
+  /** A five-field cron pattern, read in `timezone` like the other wall-clock schedules (RP-07). */
+  | { type: "cron"; expression: string; timezone?: string }
+
+/** A failed run tried again `count` times, the first after `backoffMinutes`, doubling each time (RP-07). */
+export type RoutineRetry = { count: number; backoffMinutes: number }
 
 /** What asked for a run: a routine on its schedule, or a person pressing the button. */
 export type RunSource = { type: "routine"; routineID: string } | { type: "manual" }
@@ -370,6 +375,8 @@ export type RoutineRun = {
   error?: string
   /** The server sends a routine's runs as runs, verdict included (RP-06). */
   verdict?: RunVerdict
+  /** Which try of its beat this run is, from 1 (RP-07). */
+  attempt?: number
 }
 
 export type RoutineInput = {
@@ -388,6 +395,10 @@ export type RoutineInput = {
   action?: ActionTaskInput
   /** The allow rules the action needs to run unattended (WA-7). */
   allow?: BrowserAllowRule[]
+  /** Beats the server was not running for: run once for all of them, or wait for the next (RP-07). */
+  missed?: "catch-up" | "skip"
+  /** Try a failed run again (RP-07). */
+  retry?: RoutineRetry
 }
 
 export type Routine = {
@@ -403,10 +414,18 @@ export type Routine = {
   policy?: RunPolicy
   action?: ActionTaskInput
   allow?: BrowserAllowRule[]
+  missed?: "catch-up" | "skip"
+  retry?: RoutineRetry
   enabled: boolean
   createdAt: number
   lastRunAt?: number
   runs: RoutineRun[]
+  /** When it fires next, as the server reckons it (RP-07): the app keeps no schedule logic of its own. */
+  nextRunAt?: number
+  /** How many of its newest runs failed one after the other (RP-07). */
+  failedInARow: number
+  /** It failed often enough in a row to raise its notice (RP-07). */
+  failing: boolean
 }
 
 /** Where a web action is declared: the global config, or a project's own `.opencode` (WA-8). */
