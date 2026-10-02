@@ -621,7 +621,8 @@ describe("OpenCode 2 web actions and delivery", () => {
   async function actions(approved: boolean) {
     const calls = await harness({
       "/harness/actions": { profiles: [profile] },
-      "/harness/actions/approve": () => (approved ? { approved: true } : { approved: false, reason: "denied" }),
+      "/harness/actions/approve": () =>
+        approved ? { approved: true, approval: "apr_1" } : { approved: false, reason: "denied" },
       "/harness/actions/run": {
         action: "post",
         origin: "https://example.com",
@@ -662,10 +663,12 @@ describe("OpenCode 2 web actions and delivery", () => {
       content: string
     }
     expect(result.content).toContain('Acción "post" completada.')
+    // The approval is asked for these inputs, and the run presents the id it returned (TI-09).
     expect(calls.on("/harness/actions/approve")[0]!.body).toEqual({
       action: "post",
       sessionID: "ses_1",
       project: "/work/demo",
+      inputs: { title: "Hello", image: { dataUrl: composed } },
     })
     expect(calls.on("/harness/actions/approve")[0]!.authorization).toBe("Bearer browser-token")
     expect(calls.on("/harness/actions/run")[0]!.body).toEqual({
@@ -673,6 +676,7 @@ describe("OpenCode 2 web actions and delivery", () => {
       sessionID: "ses_1",
       project: "/work/demo",
       inputs: { title: "Hello", image: { dataUrl: composed } },
+      approval: "apr_1",
     })
   })
 
@@ -1709,7 +1713,7 @@ describe("OpenCode 2 web actions", () => {
           if (options.catalogStatus !== undefined) return new Response("nope", { status: options.catalogStatus })
           return Response.json({ data: { profiles, rejected: [{ id: "broken", code: "unsupported_kind" }] } })
         }
-        if (route === "/harness/actions/approve") return Response.json({ data: { approved: true } })
+        if (route === "/harness/actions/approve") return Response.json({ data: { approved: true, approval: "apr_1" } })
         if (route === "/harness/actions/run")
           return options.run ? options.run(body) : Response.json({ data: successResult(body) })
         if (route.startsWith("/harness/artifacts/") && route.endsWith("/raw")) {
@@ -1901,7 +1905,7 @@ describe("OpenCode 2 web actions", () => {
     const { tools: added } = await open()
     const answer = await run(added.read_demo!, {})
     expect(calls.on("/harness/actions/approve").map((call) => call.body)).toEqual([
-      { action: "read_demo", sessionID: "ses_abc", project: "/tmp/project" },
+      { action: "read_demo", sessionID: "ses_abc", project: "/tmp/project", inputs: {} },
     ])
     expect(calls.on("/harness/actions/run").map((call) => call.body.inputs)).toEqual([{}])
     expect(textOf(answer)).toContain("read_demo")

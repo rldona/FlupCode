@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import type { ActionListInput, ActionRunner } from "./action-runner"
@@ -13,6 +14,9 @@ import type { ActionProfile } from "./actions"
  * server loaded, never from the plugin's request: an action that types, clicks, uploads, submits or
  * signs in is sensitive and is approved per action; any other only per origin, as on 1.x. "Always"
  * answers are kept in a file beside the database, so they outlive a restart.
+ *
+ * The run route trusts only this decision (TI-09): a yes is a single-use approval id, bound to the
+ * action, the session, the project and the inputs it was asked for, that the run must present.
  */
 export function createActionApprover(input: {
   actions: Pick<ActionRunner, "list">
@@ -26,8 +30,22 @@ export function createActionApprover(input: {
   file: string
   timeoutMs?: number
 }) {
+  const grants = new Map<string, { key: string; expires: number }>()
+  const grant = (request: ApprovalScope) => {
+    const now = Date.now()
+    for (const [id, entry] of grants) if (entry.expires <= now) grants.delete(id)
+    const id = randomUUID()
+    grants.set(id, { key: scopeKey(request), expires: now + GRANT_TTL_MS })
+    return id
+  }
   return {
-    async approve(request: { action: string; sessionID: string } & ActionListInput) {
+    /** Spends an approval id: true once, for the run it was granted for, and never again. */
+    consume(id: string, request: ApprovalScope) {
+      const entry = grants.get(id)
+      grants.delete(id)
+      return !!entry && entry.expires > Date.now() && entry.key === scopeKey(request)
+    },
+    async approve(request: ApprovalScope) {
       const profile = input.actions
         .list({
           ...(request.directory ? { directory: request.directory } : {}),
@@ -37,7 +55,8 @@ export function createActionApprover(input: {
       if (!profile) return { approved: false as const, reason: "unknown_action" as const }
       const sensitive = isSensitive(profile)
       const resource = sensitive ? `${profile.origin}:${profile.id}` : profile.origin
-      if (readAlways(input.file).includes(resource)) return { approved: true as const, remembered: true }
+      if (readAlways(input.file).includes(resource))
+        return { approved: true as const, remembered: true, approval: grant(request) }
       const decision = await input.ask({
         sessionID: request.sessionID,
         title: sensitive
@@ -47,10 +66,38 @@ export function createActionApprover(input: {
         timeoutMs: input.timeoutMs ?? 10 * 60 * 1000,
       })
       if (decision === "always") writeAlways(input.file, [...readAlways(input.file), resource])
-      if (decision === "once" || decision === "always") return { approved: true as const, remembered: false }
+      if (decision === "once" || decision === "always")
+        return { approved: true as const, remembered: false, approval: grant(request) }
       return { approved: false as const, reason: decision === "deny" ? ("denied" as const) : ("unanswered" as const) }
     },
   }
+}
+
+/** What an approval is for: the run that presents its id must match it exactly. */
+type ApprovalScope = { action: string; sessionID: string; inputs?: Record<string, unknown> } & ActionListInput
+
+/** Long enough for the plugin to start the run it asked for, short enough not to linger. */
+const GRANT_TTL_MS = 5 * 60 * 1000
+
+const scopeKey = (request: ApprovalScope) =>
+  JSON.stringify([
+    request.action,
+    request.sessionID,
+    request.project ?? "",
+    request.directory ?? "",
+    createHash("sha256")
+      .update(canonical(request.inputs ?? {}))
+      .digest("hex"),
+  ])
+
+/** JSON with sorted keys, so the same inputs hash the same however they were written. */
+const canonical = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null"
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`
 }
 
 /** The step kinds that change a page or sign in, as the 1.x plugin counts them. */

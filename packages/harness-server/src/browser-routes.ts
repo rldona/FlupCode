@@ -2,14 +2,14 @@
  * The HTTP contract of the browser runtime (WA-1).
  *
  * Internal routes, not model tools: `api.ts` guards them with the loopback bearer token before they
- * are reached, and here they are only the shape of the request and the shape of the answer.
+ * are reached, and here they are only the shape of the request and the shape of the answer. A page
+ * is driven only by an approved action: there is no route to navigate, click, type, submit or read
+ * one directly (TI-09).
  */
 
 import { BrowserError, parseViewport, readSessionID } from "./browser"
-import type { BrowserRuntime, WaitUntil } from "./browser"
+import type { BrowserRuntime } from "./browser"
 import { NavigationBlockedError } from "./browser-egress"
-
-const WAIT_UNTIL: WaitUntil[] = ["load", "domcontentloaded", "networkidle", "commit"]
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -26,8 +26,6 @@ const bodyFrom = async (request: Request): Promise<Record<string, unknown>> => {
 
 const timeoutFrom = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined
-
-const waitUntilFrom = (value: unknown) => WAIT_UNTIL.find((entry) => entry === value)
 
 export async function handleBrowserRequest(
   request: Request,
@@ -98,62 +96,12 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
     return json({ data: await browser.setViewport(id, viewport) })
   }
 
-  if (route === "navigate" && method === "POST") {
-    const body = await bodyFrom(request)
-    const url = typeof body.url === "string" ? body.url.trim() : ""
-    if (!url) return error("A url is required", "url_required", 400)
-    return json({ data: await browser.navigate(id, url, waitUntilFrom(body.waitUntil)) })
-  }
-
-  if (route === "snapshot" && method === "GET") {
-    const html = new URL(request.url).searchParams.get("html") === "1"
-    return json({ data: await browser.snapshot(id, html ? { html: true } : undefined) })
-  }
-
-  if (route === "click" && method === "POST") {
-    const body = await bodyFrom(request)
-    const selector = typeof body.selector === "string" ? body.selector : ""
-    if (!selector) return error("A selector is required", "selector_required", 400)
-    return json({ data: await browser.click(id, selector, timeoutFrom(body.timeoutMs)) })
-  }
-
-  if (route === "type" && method === "POST") {
-    const body = await bodyFrom(request)
-    const selector = typeof body.selector === "string" ? body.selector : ""
-    if (!selector) return error("A selector is required", "selector_required", 400)
-    if (typeof body.text !== "string") return error("Text is required", "text_required", 400)
-    return json({ data: await browser.type(id, selector, body.text, timeoutFrom(body.timeoutMs)) })
-  }
-
-  if (route === "submit" && method === "POST") {
-    const body = await bodyFrom(request)
-    const selector = typeof body.selector === "string" ? body.selector : ""
-    if (!selector) return error("A selector is required", "selector_required", 400)
-    return json({ data: await browser.submit(id, selector, timeoutFrom(body.timeoutMs)) })
-  }
-
   if (route === "waitFor" && method === "POST") {
     const body = await bodyFrom(request)
     const selector = typeof body.selector === "string" ? body.selector : ""
     if (!selector) return error("A selector is required", "selector_required", 400)
     const state = body.state === "attached" || body.state === "visible" ? body.state : undefined
     return json({ data: await browser.waitFor(id, selector, timeoutFrom(body.timeoutMs), state) })
-  }
-
-  if (route === "text" && method === "POST") {
-    const body = await bodyFrom(request)
-    const selector = typeof body.selector === "string" ? body.selector : ""
-    if (!selector) return error("A selector is required", "selector_required", 400)
-    const as = body.as === "text" || body.as === "html" || body.as === "attribute" ? body.as : undefined
-    const attribute = typeof body.attribute === "string" ? body.attribute : undefined
-    const timeoutMs = timeoutFrom(body.timeoutMs)
-    return json({
-      data: await browser.text(id, selector, {
-        ...(as !== undefined ? { as } : {}),
-        ...(attribute !== undefined ? { attribute } : {}),
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      }),
-    })
   }
 
   if (route === "screenshot" && method === "POST") {

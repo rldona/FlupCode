@@ -49,12 +49,14 @@ test("a read-only action is approved per origin, and an always answer is not ask
   expect(await subject.approver.approve({ action: "search", sessionID: "ses_1" })).toEqual({
     approved: true,
     remembered: false,
+    approval: expect.any(String),
   })
   expect(subject.asked[0]!.title).toBe("Allow web actions on https://example.com?")
   expect(JSON.parse(readFileSync(subject.file, "utf8"))).toEqual({ always: ["https://example.com"] })
   expect(await subject.approver.approve({ action: "search", sessionID: "ses_2" })).toEqual({
     approved: true,
     remembered: true,
+    approval: expect.any(String),
   })
   expect(subject.asked).toHaveLength(1)
 })

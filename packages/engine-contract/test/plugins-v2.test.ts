@@ -189,10 +189,17 @@ const evidence: Record<string, () => Promise<void> | void> = {
       .filter((hit) => hit.route.startsWith("POST /harness/actions/"))
       .map((hit) => hit.route)
     expect(routes).toEqual(["POST /harness/actions/approve", "POST /harness/actions/run"])
+    expect(JSON.parse(harness.hits("POST /harness/actions/approve")[0]!.body)).toMatchObject({
+      action: "demo",
+      sessionID,
+      inputs: { query: "shoes" },
+    })
+    // The run presents the single-use id the approval returned (TI-09).
     expect(JSON.parse(harness.hits("POST /harness/actions/run")[0]!.body)).toMatchObject({
       action: "demo",
       sessionID,
       inputs: { query: "shoes" },
+      approval: "apr_1",
     })
     expect(harness.hits("GET /harness/actions").every((hit) => hit.authorization === "Bearer browser-token")).toBe(true)
   },
@@ -305,7 +312,7 @@ function startHarness() {
             ],
           },
         })
-      if (route === "POST /harness/actions/approve") return Response.json({ data: { approved: true } })
+      if (route === "POST /harness/actions/approve") return Response.json({ data: { approved: true, approval: "apr_1" } })
       return Response.json({ data: {} })
     },
   })

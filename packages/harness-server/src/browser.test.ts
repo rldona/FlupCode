@@ -283,6 +283,25 @@ describe("the browser boundary", () => {
     expect((await missing.json()).code).toBe("no_session")
   })
 
+  test("the agent-style driving routes are not served: a page is driven only through an action (TI-09)", async () => {
+    const { handler } = open()
+    for (const [path, method] of [
+      ["navigate", "POST"],
+      ["click", "POST"],
+      ["type", "POST"],
+      ["submit", "POST"],
+      ["text", "POST"],
+      ["snapshot", "GET"],
+    ] as const) {
+      const response = await browserRequest(handler, path, "s1", {
+        method,
+        ...(method === "POST" ? { body: { url: "https://example.com", selector: "#x", text: "x" } } : {}),
+      })
+      expect([path, response.status]).toEqual([path, 404])
+      expect((await response.json()).code).toBe("not_found")
+    }
+  })
+
   test("clear forgets a stored profile and requires a project", async () => {
     const { directory, handler } = open()
     const profile = join(directory, "profiles", createHash("sha256").update("proj").digest("hex").slice(0, 16))
@@ -379,7 +398,7 @@ describe("driving a real browser", () => {
     "navigates, reads, clicks and keeps a screenshot artifact",
     async () => {
       const server = fixture()
-      const { handler } = open(server)
+      const { handler, runtime } = open(server)
       const base = `http://127.0.0.1:${server.port}/`
 
       const started = await handler(
@@ -392,29 +411,10 @@ describe("driving a real browser", () => {
       expect(started.status).toBe(201)
       expect((await started.json()).data.id).toBe("s1")
 
-      const navigated = await handler(
-        new Request("http://x/harness/browser/navigate", {
-          method: "POST",
-          headers: headers("s1"),
-          body: JSON.stringify({ url: base }),
-        }),
-      )
-      expect(navigated.status).toBe(200)
-
-      const before = await handler(new Request("http://x/harness/browser/snapshot", { headers: headers("s1") }))
-      expect((await before.json()).data.text).toContain("hello")
-
-      const clicked = await handler(
-        new Request("http://x/harness/browser/click", {
-          method: "POST",
-          headers: headers("s1"),
-          body: JSON.stringify({ selector: "#go" }),
-        }),
-      )
-      expect(clicked.status).toBe(200)
-
-      const after = await handler(new Request("http://x/harness/browser/snapshot", { headers: headers("s1") }))
-      expect((await after.json()).data.text).toContain("clicked")
+      await runtime.navigate("s1", base)
+      expect((await runtime.snapshot("s1")).text).toContain("hello")
+      await runtime.click("s1", "#go")
+      expect((await runtime.snapshot("s1")).text).toContain("clicked")
 
       const framed = await handler(new Request("http://x/harness/browser/frame", { headers: headers("s1") }))
       expect(framed.headers.get("content-type")).toBe("image/png")
@@ -436,9 +436,9 @@ describe("driving a real browser", () => {
     "pick reads the element under a point and ranks selectors",
     async () => {
       const server = fixture()
-      const { handler } = open(server)
+      const { handler, runtime } = open(server)
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
-      await browserRequest(handler, "navigate", "s1", { body: { url: `http://127.0.0.1:${server.port}/pick` } })
+      await runtime.navigate("s1", `http://127.0.0.1:${server.port}/pick`)
 
       const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
       const viewport = session.viewport as { width: number; height: number }
@@ -473,7 +473,7 @@ describe("driving a real browser", () => {
     "refuses a blocked navigation and a second browser for one project",
     async () => {
       const server = fixture()
-      const { handler } = open(server)
+      const { handler, runtime } = open(server)
       await handler(
         new Request("http://x/harness/browser/start", {
           method: "POST",
@@ -482,17 +482,12 @@ describe("driving a real browser", () => {
         }),
       )
 
-      const blocked = await handler(
-        new Request("http://x/harness/browser/navigate", {
-          method: "POST",
-          headers: headers("s1"),
-          body: JSON.stringify({ url: "http://169.254.169.254/latest/meta-data/" }),
-        }),
+      const blocked = await runtime.navigate("s1", "http://169.254.169.254/latest/meta-data/").then(
+        () => undefined,
+        (cause: unknown) => cause,
       )
-      expect(blocked.status).toBe(403)
-      const blockedBody = await blocked.json()
-      expect(blockedBody.code).toBe("navigation_blocked")
-      expect(blockedBody.reason).toBeTruthy()
+      expect(blocked).toBeInstanceOf(NavigationBlockedError)
+      expect((blocked as NavigationBlockedError).reason).toBeTruthy()
 
       const busy = await handler(
         new Request("http://x/harness/browser/start", {
@@ -577,11 +572,11 @@ describe("driving a real browser", () => {
       /** Types two different-length values into a full-viewport field and returns both captures. */
       const pair = async (id: string, project: string, field: string, protectSelector?: string) => {
         await browserRequest(handler, "start", id, { body: { project } })
-        await browserRequest(handler, "navigate", id, { body: { url: maskURL(field) } })
+        await runtime.navigate(id, maskURL(field))
         if (protectSelector) runtime.protect(id, { selector: protectSelector, value: "site-password" })
-        await browserRequest(handler, "type", id, { body: { selector: `#${field}`, text: "ab" } })
+        await runtime.type(id, `#${field}`, "ab")
         const short = await screenshotBytes(handler, id, "short")
-        await browserRequest(handler, "type", id, { body: { selector: `#${field}`, text: "abcdefghijklmnop" } })
+        await runtime.type(id, `#${field}`, "abcdefghijklmnop")
         const long = await screenshotBytes(handler, id, "long")
         return { short, long }
       }
@@ -608,19 +603,18 @@ describe("driving a real browser", () => {
       const { handler, runtime } = open(server)
       const base = `http://127.0.0.1:${server.port}/`
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
-      await browserRequest(handler, "navigate", "s1", { body: { url: base } })
+      await runtime.navigate("s1", base)
       runtime.protect("s1", { value: "S3CRET" })
-      await browserRequest(handler, "type", "s1", { body: { selector: "#user", text: "S3CRET" } })
+      await runtime.type("s1", "#user", "S3CRET")
 
-      const text = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      const text = await runtime.snapshot("s1")
       expect(text.text).not.toContain("S3CRET")
       expect(text.text).toContain("[redacted]")
 
-      const html = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET", query: "?html=1" })).json())
-        .data
+      const html = (await runtime.snapshot("s1", { html: true }))
       expect(html.html).not.toContain("S3CRET")
 
-      const read = (await (await browserRequest(handler, "text", "s1", { body: { selector: "#mirror" } })).json()).data
+      const read = await runtime.text("s1", "#mirror")
       expect(read.value).not.toContain("S3CRET")
       expect(read.value).toBe("[redacted]")
     },
@@ -639,26 +633,20 @@ describe("driving a real browser", () => {
       runtime.protect("s1", { value: secret })
 
       // The mirror renders what is typed as text, so the page carries the HTML-escaped shape.
-      await browserRequest(handler, "navigate", "s1", { body: { url: base } })
-      await browserRequest(handler, "type", "s1", { body: { selector: "#user", text: secret } })
+      await runtime.navigate("s1", base)
+      await runtime.type("s1", "#user", secret)
 
-      const snapshot = (
-        await (await browserRequest(handler, "snapshot", "s1", { method: "GET", query: "?html=1" })).json()
-      ).data
+      const snapshot = await runtime.snapshot("s1", { html: true })
       expect(snapshot.text).not.toContain(secret)
       expect(snapshot.html).not.toContain(secret)
       expect(snapshot.html).not.toContain(escaped)
 
-      const read = (
-        await (await browserRequest(handler, "text", "s1", { body: { selector: "#mirror", as: "html" } })).json()
-      ).data
+      const read = await runtime.text("s1", "#mirror", { as: "html" })
       expect(read.value).not.toContain(secret)
       expect(read.value).not.toContain(escaped)
 
       // The page names the secret in its title and carries it percent-encoded in the URL.
-      await browserRequest(handler, "navigate", "s1", {
-        body: { url: `${base}reflect?value=${encodeURIComponent(secret)}` },
-      })
+      await runtime.navigate("s1", `${base}reflect?value=${encodeURIComponent(secret)}`)
       const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
       expect(session.title).toBe("[redacted]")
       expect(session.title).not.toContain(secret)
@@ -666,7 +654,7 @@ describe("driving a real browser", () => {
       expect(session.url).not.toContain(encodeURIComponent(secret))
       expect(session.url).toContain("[redacted]")
 
-      const reflected = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      const reflected = await runtime.snapshot("s1")
       expect(reflected.title).not.toContain(secret)
       expect(reflected.url).not.toContain(secret)
     },
@@ -684,14 +672,14 @@ describe("driving a real browser", () => {
       const base = `http://127.0.0.1:${server.port}/`
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
       runtime.protect("s1", { value: secret })
-      await browserRequest(handler, "navigate", "s1", { body: { url: `${base}reflect?value=${form}` } })
+      await runtime.navigate("s1", `${base}reflect?value=${form}`)
 
       const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
       expect(session.url).not.toContain(secret)
       expect(session.url).not.toContain(form)
       expect(session.url).toContain("[redacted]")
 
-      const snapshot = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      const snapshot = await runtime.snapshot("s1")
       expect(snapshot.url).not.toContain(secret)
       expect(snapshot.url).not.toContain(form)
     },
@@ -708,9 +696,7 @@ describe("driving a real browser", () => {
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
       runtime.protect("s1", { value: secret })
       // The fixture copies the query value into `document.title`.
-      await browserRequest(handler, "navigate", "s1", {
-        body: { url: `${base}reflect?value=${encodeURIComponent(secret)}` },
-      })
+      await runtime.navigate("s1", `${base}reflect?value=${encodeURIComponent(secret)}`)
 
       const shot = await browserRequest(handler, "screenshot", "s1", { body: {} })
       const artifactId = (await shot.json()).data.artifactId
@@ -725,19 +711,19 @@ describe("driving a real browser", () => {
     "a password a person types by hand is not read back through a snapshot",
     async () => {
       const server = fixture()
-      const { handler } = open(server)
+      const { handler, runtime } = open(server)
       const secret = "manual-pass-123"
       const base = `http://127.0.0.1:${server.port}/`
       // No `protect`: this is the login the runtime knows nothing about.
       await browserRequest(handler, "login", "s1", { body: { project: "proj", headed: false } })
-      await browserRequest(handler, "navigate", "s1", { body: { url: `${base}manual` } })
-      await browserRequest(handler, "type", "s1", { body: { selector: "#pw", text: secret } })
+      await runtime.navigate("s1", `${base}manual`)
+      await runtime.type("s1", "#pw", secret)
 
-      const snapshot = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      const snapshot = await runtime.snapshot("s1")
       expect(snapshot.text).not.toContain(secret)
       expect(snapshot.text).toContain("[redacted]")
 
-      const read = (await (await browserRequest(handler, "text", "s1", { body: { selector: "#out" } })).json()).data
+      const read = await runtime.text("s1", "#out")
       expect(read.value).not.toContain(secret)
       expect(read.value).toBe("[redacted]")
     },
@@ -748,18 +734,18 @@ describe("driving a real browser", () => {
     "a login profile keeps its cookie across sessions",
     async () => {
       const server = fixture()
-      const { handler } = open(server)
+      const { handler, runtime } = open(server)
       const base = `http://127.0.0.1:${server.port}/`
 
       const first = await browserRequest(handler, "login", "s1", { body: { project: "proj", headed: false } })
       expect(first.status).toBe(201)
-      await browserRequest(handler, "navigate", "s1", { body: { url: `${base}set` } })
+      await runtime.navigate("s1", `${base}set`)
       await browserRequest(handler, "close", "s1", { body: {} })
 
       const second = await browserRequest(handler, "login", "s2", { body: { project: "proj", headed: false } })
       expect(second.status).toBe(201)
-      await browserRequest(handler, "navigate", "s2", { body: { url: `${base}cookie` } })
-      const snapshot = (await (await browserRequest(handler, "snapshot", "s2", { method: "GET" })).json()).data
+      await runtime.navigate("s2", `${base}cookie`)
+      const snapshot = await runtime.snapshot("s2")
       expect(snapshot.text).toContain("flup=yes")
     },
     30_000,

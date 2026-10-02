@@ -1818,7 +1818,7 @@ function definition(profile, base, token, project) {
       const approval = await fetch(base + "/harness/actions/approve", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: "Bearer " + token },
-        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project }),
+        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project, inputs }),
         signal: AbortSignal.any([AbortSignal.timeout(APPROVAL_TIMEOUT_MS), context.signal]),
       })
         .then((response) => response.json())
@@ -1833,7 +1833,8 @@ function definition(profile, base, token, project) {
       const response = await fetch(base + "/harness/actions/run", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: "Bearer " + token },
-        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project, inputs }),
+        // The single-use id the approval returned: the server runs nothing without it (TI-09).
+        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project, inputs, approval: verdict.approval }),
         signal: AbortSignal.any([AbortSignal.timeout(RUN_TIMEOUT_MS), context.signal]),
       }).catch(() => undefined)
       if (!response) return answer("No se pudo contactar con el servidor del navegador. Comprueba que sigue en marcha.")

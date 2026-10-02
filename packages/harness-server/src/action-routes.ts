@@ -48,8 +48,8 @@ const dispatch = async (
   approver?: ActionApprover,
 ): Promise<Response> => {
   const route = segments[0]
-  // The OpenCode 2 plugin's approval, asked in the session before a run (V2-31). It answers whether
-  // the reader allowed it; the run itself is the route below, unchanged.
+  // The OpenCode 2 plugin's approval, asked in the session before a run (V2-31). A yes carries the
+  // single-use id the run below has to present (TI-09).
   if (route === "approve" && request.method === "POST" && approver) {
     const body = await bodyFrom(request)
     const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
@@ -59,6 +59,7 @@ const dispatch = async (
       data: await approver.approve({
         action,
         sessionID,
+        inputs: isPlainObject(body.inputs) ? body.inputs : {},
         ...(typeof body.project === "string" && body.project ? { project: body.project } : {}),
         ...(typeof body.directory === "string" && body.directory ? { directory: body.directory } : {}),
       }),
@@ -102,6 +103,11 @@ const dispatch = async (
     ...(body.dryRun === true ? { dryRun: true } : {}),
     ...(body.preview === true ? { preview: true } : {}),
   }
+  // A run that can change a page is the reader's decision, made in `approve` above and spent here.
+  // The editor's dry run plans without a browser and its preview stops before the first effect.
+  const approval = typeof body.approval === "string" ? body.approval : ""
+  if (!run.dryRun && !run.preview && !(approval && approver?.consume(approval, { ...run, action: run.action ?? "" })))
+    return error("This run was not approved. Ask for approval and run with the id it returns.", "approval_required", 403)
   return json({ data: await actions.run(run) })
 }
 
