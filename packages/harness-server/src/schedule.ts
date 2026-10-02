@@ -65,9 +65,6 @@ export function scheduleProblem(schedule: RoutineSchedule) {
   }
 }
 
-/** The zone a routine that names none is read in: the server's own, as before zones existed. */
-export const serverZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
-
 function nextBeat(routine: Routine, now: number) {
   const anchor = routine.lastRunAt ?? routine.createdAt
   // Catch-up fires once for every beat missed since the last run; skip only looks back as far as a
