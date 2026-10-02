@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { createActionApprover } from "./action-approval"
 import { createActionRunner } from "./action-runner"
 import { createHarnessHandler } from "./api"
-import { BrowserError } from "./browser"
-import type { BrowserRuntime } from "./browser"
+import type { RecipeDriver } from "./browser"
+import { BrowserError } from "./browser-driver"
 import { createBrowserPolicy } from "./browser-policy"
 import { unavailableActionCredentialResolver } from "./action-credentials"
 import { SqliteRoutineRepository } from "./repository"
@@ -25,7 +25,9 @@ const PLUGIN = "plugin-token"
  * person's own controls of a window an action opened (its frame, picking an element, pause, take
  * over, stop) are the app's, behind its token, and act on no page by themselves.
  */
-const ACTING = new Set(["navigate", "click", "type", "submit", "upload", "text", "snapshot", "waitFor", "screenshot"])
+// A driver acts on a page through `act` and reads one through `snapshot` (BU-03). `screenshot` is
+// also the live view's frame, the person's own, so it is counted apart below.
+const ACTING = new Set(["act", "snapshot"])
 
 const PROFILES = {
   post: {
@@ -51,13 +53,16 @@ function subject(answer: () => Promise<string | undefined> = async () => undefin
   const repository = new SqliteRoutineRepository(":memory:")
   repositories.push(repository)
   const calls: string[] = []
-  const browser = new Proxy({} as BrowserRuntime, {
-    get: (_target, name) => (...args: unknown[]) => {
-      calls.push(String(name))
-      if (name === "get") return undefined
-      if (name === "close" || name === "endRun" || name === "stop") return Promise.resolve(false)
-      if (name === "beginRun" || name === "protect") return undefined
-      throw new BrowserError("no_session", 404, `stand-in browser: ${String(name)}(${args.length})`)
+  const browser = new Proxy({} as RecipeDriver, {
+    get: (_target, name) => {
+      if (name === "capabilities") return { actions: { has: () => true } }
+      return (...args: unknown[]) => {
+        calls.push(String(name))
+        if (name === "get") return undefined
+        if (name === "close" || name === "endRun" || name === "stop") return Promise.resolve(false)
+        if (name === "beginRun" || name === "protect") return undefined
+        throw new BrowserError("no_session", 404, `stand-in browser: ${String(name)}(${args.length})`)
+      }
     },
   })
   const policy = createBrowserPolicy(repository)
@@ -93,7 +98,7 @@ function subject(answer: () => Promise<string | undefined> = async () => undefin
       }),
     )
   const acted = () => calls.filter((name) => ACTING.has(name))
-  const drives = () => calls.filter((name) => name === "start")
+  const drives = () => calls.filter((name) => name === "open")
   return { repository, policy, calls, acted, drives, asked, call }
 }
 
@@ -101,7 +106,7 @@ const run = { action: "post", sessionID: "ses_1", project: "/work/demo", inputs:
 
 describe("no route drives a page without the policy (BU-01)", () => {
   test("every browser and action route, with either token and any body, leaves the page alone", async () => {
-    const { call, acted } = subject()
+    const { call, acted, calls } = subject()
     const browserRoutes = [
       "start", "login", "clear", "session", "viewport", "waitFor", "screenshot", "capture", "frame", "close",
       "pause", "resume", "takeover", "stop", "navigate", "click", "type", "submit", "text", "snapshot", "upload",
@@ -136,6 +141,8 @@ describe("no route drives a page without the policy (BU-01)", () => {
       await call(token, "GET", "/harness/actions")
     }
     expect(acted()).toEqual([])
+    // The only captures are the live view's: one per GET of `frame` with the app's token.
+    expect(calls.filter((name) => name === "screenshot")).toHaveLength(2)
   })
 
   test("the plugins' token cannot read or revoke the grants, nor read the audit", async () => {
@@ -169,7 +176,7 @@ describe("the acceptance criteria (BU-01)", () => {
     expect([verdict.approved, typeof verdict.approval]).toEqual([true, "string"])
     await call(PLUGIN, "POST", "/harness/actions/run", { ...run, approval: verdict.approval })
     // The drive began only now, with the permit the answer gave; the stand-in browser then refused it.
-    expect(drives()).toEqual(["start"])
+    expect(drives()).toEqual(["open"])
     expect(
       repository
         .listBrowserAudit({ sessionID: "ses_1" })
@@ -189,7 +196,7 @@ describe("the acceptance criteria (BU-01)", () => {
     expect((await blocked.json()).code).toBe("blocked")
     expect(drives()).toEqual([])
     await call(UI, "POST", "/harness/actions/run", { ...run, preview: true })
-    expect(drives()).toEqual(["start"])
+    expect(drives()).toEqual(["open"])
     expect(
       repository
         .listBrowserAudit({ sessionID: "ses_1" })
@@ -199,7 +206,7 @@ describe("the acceptance criteria (BU-01)", () => {
       ["decision", "deny", "https://www.paypal.com", "www.paypal.com is a payment or banking site, which the agent never acts on"],
       ["decision", "ask", "https://example.com", "Nothing allows this on this site yet"],
       ["answer", "allow", "https://example.com", "asked for in the app"],
-      ["action", "failed", "https://example.com", "stand-in browser: start(1)"],
+      ["action", "failed", "https://example.com", "stand-in browser: open(1)"],
     ])
   })
 })

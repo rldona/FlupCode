@@ -1,5 +1,5 @@
 /**
- * The HTTP contract of the browser runtime (WA-1).
+ * The HTTP contract of the recipe runner's browser (WA-1).
  *
  * Internal routes, not model tools: `api.ts` guards them with the loopback bearer token before they
  * are reached, and here they are only the shape of the request and the shape of the answer. A page
@@ -9,8 +9,9 @@
  * action opened: its live frame, picking an element for the editor, pausing, taking over, stopping.
  */
 
-import { BrowserError, parseViewport, readSessionID } from "./browser"
-import type { BrowserRuntime } from "./browser"
+import { parseViewport, readSessionID } from "./browser"
+import type { RecipeDriver } from "./browser"
+import { BrowserError } from "./browser-driver"
 import { NavigationBlockedError } from "./browser-egress"
 
 const json = (value: unknown, status = 200) =>
@@ -29,7 +30,7 @@ const bodyFrom = async (request: Request): Promise<Record<string, unknown>> => {
 export async function handleBrowserRequest(
   request: Request,
   segments: string[],
-  browser: BrowserRuntime,
+  browser: RecipeDriver,
 ): Promise<Response> {
   try {
     return await dispatch(request, segments, browser)
@@ -38,7 +39,7 @@ export async function handleBrowserRequest(
   }
 }
 
-const dispatch = async (request: Request, segments: string[], browser: BrowserRuntime): Promise<Response> => {
+const dispatch = async (request: Request, segments: string[], browser: RecipeDriver): Promise<Response> => {
   const id = readSessionID(request.headers.get("x-flupcode-session") ?? undefined)
   const route = segments[0]
   const method = request.method
@@ -47,7 +48,7 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
     const body = await bodyFrom(request)
     return json(
       {
-        data: await browser.start({
+        data: await browser.open({
           id,
           project: typeof body.project === "string" ? body.project : "",
           ...(body.headed === true ? { headed: true } : {}),
@@ -105,7 +106,7 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
 
   if (route === "frame" && method === "GET") {
     const store = new URL(request.url).searchParams.get("store") !== "0"
-    const result = await browser.frame(id, store ? undefined : { store: false })
+    const result = await browser.screenshot(id, store ? undefined : { store: false })
     // A copy, so the bytes are backed by a plain `ArrayBuffer` a `Response` can take. The
     // artifact id is exposed so a polling viewer can tell a new frame from the one it paints.
     return new Response(new Uint8Array(result.bytes).buffer, {

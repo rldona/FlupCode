@@ -5,15 +5,15 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
 import {
-  BrowserError,
   MAX_VIEWPORT,
   MIN_VIEWPORT,
-  createBrowserRuntime,
+  createRecipeDriver,
   managedExecutableFromDir,
   parseViewport,
   resolveBrowserExecutable,
 } from "./browser"
-import type { BrowserRuntime } from "./browser"
+import type { RecipeDriver } from "./browser"
+import { BrowserError } from "./browser-driver"
 import { createEgressGuard, NavigationBlockedError } from "./browser-egress"
 import { redactSecrets } from "./redact"
 import { SqliteRoutineRepository } from "./repository"
@@ -33,7 +33,7 @@ if (process.env.FLUPCODE_REQUIRE_BROWSER === "1" && !existsSync(chromiumPath))
 const TOKEN = "test-token"
 const made: string[] = []
 const servers: Array<ReturnType<typeof Bun.serve>> = []
-const runtimes: BrowserRuntime[] = []
+const runtimes: RecipeDriver[] = []
 const repositories: SqliteRoutineRepository[] = []
 
 afterEach(async () => {
@@ -147,7 +147,7 @@ const open = (server?: ReturnType<typeof Bun.serve>) => {
   made.push(directory)
   const repository = new SqliteRoutineRepository(":memory:")
   repositories.push(repository)
-  const runtime = createBrowserRuntime({
+  const runtime = createRecipeDriver({
     repository,
     dataDir: directory,
     egress: createEgressGuard(server ? { allowLoopbackPorts: [server.port ?? 0] } : undefined),
@@ -181,8 +181,8 @@ const browserRequest = (
  * The bytes behind a screenshot artifact, read back through the route the UI would use. The capture
  * itself is the runtime's: only an approved action takes one (BU-01).
  */
-const screenshotBytes = async (handler: Handler, runtime: BrowserRuntime, id: string, label: string) => {
-  const artifactId = (await runtime.screenshot(id, label)).artifactId
+const screenshotBytes = async (handler: Handler, runtime: RecipeDriver, id: string, label: string) => {
+  const artifactId = (await runtime.screenshot(id, { label })).artifactId
   const raw = await handler(
     new Request(`http://x/harness/artifacts/${artifactId}/raw`, { headers: { authorization: `Bearer ${TOKEN}` } }),
   )
@@ -413,9 +413,9 @@ describe("driving a real browser", () => {
       expect(started.status).toBe(201)
       expect((await started.json()).data.id).toBe("s1")
 
-      await runtime.navigate("s1", base)
+      await runtime.act("s1", { kind: "navigate", url: base })
       expect((await runtime.snapshot("s1")).text).toContain("hello")
-      await runtime.click("s1", "#go")
+      await runtime.act("s1", { kind: "click", selector: "#go" })
       expect((await runtime.snapshot("s1")).text).toContain("clicked")
 
       const framed = await handler(new Request("http://x/harness/browser/frame", { headers: headers("s1") }))
@@ -440,7 +440,7 @@ describe("driving a real browser", () => {
       const server = fixture()
       const { handler, runtime } = open(server)
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
-      await runtime.navigate("s1", `http://127.0.0.1:${server.port}/pick`)
+      await runtime.act("s1", { kind: "navigate", url: `http://127.0.0.1:${server.port}/pick` })
 
       const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
       const viewport = session.viewport as { width: number; height: number }
@@ -484,10 +484,12 @@ describe("driving a real browser", () => {
         }),
       )
 
-      const blocked = await runtime.navigate("s1", "http://169.254.169.254/latest/meta-data/").then(
-        () => undefined,
-        (cause: unknown) => cause,
-      )
+      const blocked = await runtime
+        .act("s1", { kind: "navigate", url: "http://169.254.169.254/latest/meta-data/" })
+        .then(
+          () => undefined,
+          (cause: unknown) => cause,
+        )
       expect(blocked).toBeInstanceOf(NavigationBlockedError)
       expect((blocked as NavigationBlockedError).reason).toBeTruthy()
 
@@ -574,11 +576,11 @@ describe("driving a real browser", () => {
       /** Types two different-length values into a full-viewport field and returns both captures. */
       const pair = async (id: string, project: string, field: string, protectSelector?: string) => {
         await browserRequest(handler, "start", id, { body: { project } })
-        await runtime.navigate(id, maskURL(field))
+        await runtime.act(id, { kind: "navigate", url: maskURL(field) })
         if (protectSelector) runtime.protect(id, { selector: protectSelector, value: "site-password" })
-        await runtime.type(id, `#${field}`, "ab")
+        await runtime.act(id, { kind: "type", selector: `#${field}`, text: "ab" })
         const short = await screenshotBytes(handler, runtime, id, "short")
-        await runtime.type(id, `#${field}`, "abcdefghijklmnop")
+        await runtime.act(id, { kind: "type", selector: `#${field}`, text: "abcdefghijklmnop" })
         const long = await screenshotBytes(handler, runtime, id, "long")
         return { short, long }
       }
@@ -605,9 +607,9 @@ describe("driving a real browser", () => {
       const { handler, runtime } = open(server)
       const base = `http://127.0.0.1:${server.port}/`
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
-      await runtime.navigate("s1", base)
+      await runtime.act("s1", { kind: "navigate", url: base })
       runtime.protect("s1", { value: "S3CRET" })
-      await runtime.type("s1", "#user", "S3CRET")
+      await runtime.act("s1", { kind: "type", selector: "#user", text: "S3CRET" })
 
       const text = await runtime.snapshot("s1")
       expect(text.text).not.toContain("S3CRET")
@@ -616,7 +618,7 @@ describe("driving a real browser", () => {
       const html = (await runtime.snapshot("s1", { html: true }))
       expect(html.html).not.toContain("S3CRET")
 
-      const read = await runtime.text("s1", "#mirror")
+      const read = await runtime.act("s1", { kind: "read", selector: "#mirror" })
       expect(read.value).not.toContain("S3CRET")
       expect(read.value).toBe("[redacted]")
     },
@@ -635,20 +637,20 @@ describe("driving a real browser", () => {
       runtime.protect("s1", { value: secret })
 
       // The mirror renders what is typed as text, so the page carries the HTML-escaped shape.
-      await runtime.navigate("s1", base)
-      await runtime.type("s1", "#user", secret)
+      await runtime.act("s1", { kind: "navigate", url: base })
+      await runtime.act("s1", { kind: "type", selector: "#user", text: secret })
 
       const snapshot = await runtime.snapshot("s1", { html: true })
       expect(snapshot.text).not.toContain(secret)
       expect(snapshot.html).not.toContain(secret)
       expect(snapshot.html).not.toContain(escaped)
 
-      const read = await runtime.text("s1", "#mirror", { as: "html" })
+      const read = await runtime.act("s1", { kind: "read", selector: "#mirror", as: "html" })
       expect(read.value).not.toContain(secret)
       expect(read.value).not.toContain(escaped)
 
       // The page names the secret in its title and carries it percent-encoded in the URL.
-      await runtime.navigate("s1", `${base}reflect?value=${encodeURIComponent(secret)}`)
+      await runtime.act("s1", { kind: "navigate", url: `${base}reflect?value=${encodeURIComponent(secret)}` })
       const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
       expect(session.title).toBe("[redacted]")
       expect(session.title).not.toContain(secret)
@@ -674,7 +676,7 @@ describe("driving a real browser", () => {
       const base = `http://127.0.0.1:${server.port}/`
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
       runtime.protect("s1", { value: secret })
-      await runtime.navigate("s1", `${base}reflect?value=${form}`)
+      await runtime.act("s1", { kind: "navigate", url: `${base}reflect?value=${form}` })
 
       const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
       expect(session.url).not.toContain(secret)
@@ -698,10 +700,10 @@ describe("driving a real browser", () => {
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
       runtime.protect("s1", { value: secret })
       // The fixture copies the query value into `document.title`.
-      await runtime.navigate("s1", `${base}reflect?value=${encodeURIComponent(secret)}`)
+      await runtime.act("s1", { kind: "navigate", url: `${base}reflect?value=${encodeURIComponent(secret)}` })
 
       const artifactId = (await runtime.screenshot("s1")).artifactId
-      const artifact = repository.getArtifact(artifactId)
+      const artifact = repository.getArtifact(artifactId!)
       expect(artifact?.title).not.toContain(secret)
       expect(artifact?.title).toBe("[redacted]")
     },
@@ -717,14 +719,14 @@ describe("driving a real browser", () => {
       const base = `http://127.0.0.1:${server.port}/`
       // No `protect`: this is the login the runtime knows nothing about.
       await browserRequest(handler, "login", "s1", { body: { project: "proj", headed: false } })
-      await runtime.navigate("s1", `${base}manual`)
-      await runtime.type("s1", "#pw", secret)
+      await runtime.act("s1", { kind: "navigate", url: `${base}manual` })
+      await runtime.act("s1", { kind: "type", selector: "#pw", text: secret })
 
       const snapshot = await runtime.snapshot("s1")
       expect(snapshot.text).not.toContain(secret)
       expect(snapshot.text).toContain("[redacted]")
 
-      const read = await runtime.text("s1", "#out")
+      const read = await runtime.act("s1", { kind: "read", selector: "#out" })
       expect(read.value).not.toContain(secret)
       expect(read.value).toBe("[redacted]")
     },
@@ -740,12 +742,12 @@ describe("driving a real browser", () => {
 
       const first = await browserRequest(handler, "login", "s1", { body: { project: "proj", headed: false } })
       expect(first.status).toBe(201)
-      await runtime.navigate("s1", `${base}set`)
+      await runtime.act("s1", { kind: "navigate", url: `${base}set` })
       await browserRequest(handler, "close", "s1", { body: {} })
 
       const second = await browserRequest(handler, "login", "s2", { body: { project: "proj", headed: false } })
       expect(second.status).toBe(201)
-      await runtime.navigate("s2", `${base}cookie`)
+      await runtime.act("s2", { kind: "navigate", url: `${base}cookie` })
       const snapshot = await runtime.snapshot("s2")
       expect(snapshot.text).toContain("flup=yes")
     },
@@ -783,11 +785,11 @@ describe("driving a real browser", () => {
       // A real run and task: an artifact can only name ones that exist (RP-02).
       const run = repository.startRun({ type: "manual" }, Date.now())
       const [task] = repository.addTasks(run.id, [{ name: "look", prompt: "" }])
-      await runtime.start({ id: "s-scope", project: "proj", runID: run.id, taskID: task!.id })
-      await runtime.navigate("s-scope", `http://127.0.0.1:${server.port}/`)
-      const { artifactId } = await runtime.screenshot("s-scope", "scoped")
+      await runtime.open({ id: "s-scope", project: "proj", runID: run.id, taskID: task!.id })
+      await runtime.act("s-scope", { kind: "navigate", url: `http://127.0.0.1:${server.port}/` })
+      const { artifactId } = await runtime.screenshot("s-scope", { label: "scoped" })
 
-      expect(repository.getArtifact(artifactId)).toMatchObject({ runID: run.id, taskID: task!.id })
+      expect(repository.getArtifact(artifactId!)).toMatchObject({ runID: run.id, taskID: task!.id })
     },
     30_000,
   )
@@ -931,7 +933,7 @@ describe("the live view's control (WA-6)", () => {
 
       // A click that never finds its selector keeps a page call in flight for the duration of its
       // timeout; the takeover must defer until it drains.
-      const click = runtime.click("s1", "#missing", 600).catch(() => undefined)
+      const click = runtime.act("s1", { kind: "click", selector: "#missing", timeoutMs: 600 }).catch(() => undefined)
       await Bun.sleep(50)
       await runtime.takeOver("s1")
       expect(runtime.get("s1")?.headed).toBe(false)
@@ -969,7 +971,7 @@ describe("the live view's control (WA-6)", () => {
     async () => {
       const server = fixture()
       const { runtime } = open(server)
-      await runtime.start({ id: "s1", project: "proj" })
+      await runtime.open({ id: "s1", project: "proj" })
 
       // Start a reveal and abort while the headed launch is still yielding.
       const takeover = runtime.takeOver("s1").catch(() => undefined)
@@ -979,7 +981,7 @@ describe("the live view's control (WA-6)", () => {
 
       expect(runtime.get("s1")).toBeUndefined()
       // The profile is not locked by an orphan window: the same project can open a new browser.
-      await runtime.start({ id: "s2", project: "proj" })
+      await runtime.open({ id: "s2", project: "proj" })
       expect(runtime.get("s2")?.id).toBe("s2")
       await runtime.close("s2")
     },
@@ -998,10 +1000,12 @@ describe("the live view's control (WA-6)", () => {
       // The revealed page itself is allowed (the fixture's loopback port is open), so the only way
       // its subresource can be stopped is the route guard that `bindContext` bound on the new
       // context before publishing it.
-      await runtime.navigate("s1", `http://127.0.0.1:${server.port}/guarded`)
+      await runtime.act("s1", { kind: "navigate", url: `http://127.0.0.1:${server.port}/guarded` })
       let value = ""
       for (let i = 0; i < 100 && value !== "blocked"; i++) {
-        const read = await runtime.text("s1", "#out").catch(() => ({ value: "" as string | null }))
+        const read = await runtime
+          .act("s1", { kind: "read", selector: "#out" })
+          .catch(() => ({ value: "" as string | null }))
         value = read.value ?? ""
         if (value !== "blocked") await Bun.sleep(50)
       }
@@ -1021,7 +1025,7 @@ describe("the live view's control (WA-6)", () => {
       })
 
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
-      await runtime.screenshot("s1", "step")
+      await runtime.screenshot("s1", { label: "step" })
       const polled = await browserRequest(handler, "frame", "s1", { method: "GET", query: "?store=0" })
       expect(polled.headers.get("content-type")).toBe("image/png")
       unsubscribe()

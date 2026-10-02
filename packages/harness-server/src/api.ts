@@ -22,7 +22,7 @@ import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
-import type { BrowserRuntime } from "./browser"
+import type { RecipeDriver } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
 import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, hostedWebOrigin, preflightResponse } from "./cors"
 import { pairCookie, pairCookieFrom, type Pairing, type PairingGrant, type PairingRefusal } from "./pairing"
@@ -479,7 +479,7 @@ const openToAnyCaller = (request: Request, path: string[]) =>
   path[1] === "adaptive" || (request.method === "GET" && path[1] === "shares" && path.length === 3)
 
 export type HarnessHandlerOptions = {
-  browser?: BrowserRuntime
+  browser?: RecipeDriver
   /** The UI's bearer: every guarded route. */
   token?: string
   /**

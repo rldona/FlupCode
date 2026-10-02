@@ -6,8 +6,8 @@ import { runEngineDataCommand } from "./engine-data-command"
 import { EVENTS_KEPT, SqliteRoutineRepository, defaultDatabasePath } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 import { seedTemplates } from "./workflow"
-import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
-import type { BrowserRuntime } from "./browser"
+import { createRecipeDriver, resolveBrowserExecutable } from "./browser"
+import type { RecipeDriver } from "./browser"
 import {
   adaptiveTokenFile,
   pluginTokenFile,
@@ -541,7 +541,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
 const browserFrom = (
   options: HarnessServerOptions,
   repository: SqliteRoutineRepository,
-): BrowserRuntime | undefined => {
+): RecipeDriver | undefined => {
   if (process.env.FLUPCODE_BROWSER_DISABLED === "1") return undefined
   const token = options.browserToken ?? readBrowserToken(options.browserTokenFile ?? browserTokenFile())
   if (!token) return undefined
@@ -551,7 +551,7 @@ const browserFrom = (
     option: options.browserExecutablePath,
     env: process.env.FLUPCODE_BROWSER_EXECUTABLE_PATH,
   })
-  return createBrowserRuntime({
+  return createRecipeDriver({
     repository,
     ...(options.browserDataDir ? { dataDir: options.browserDataDir } : {}),
     ...(executablePath ? { executablePath } : {}),

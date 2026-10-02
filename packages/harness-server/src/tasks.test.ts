@@ -10,8 +10,8 @@ import { RoutineScheduler } from "./scheduler"
 import { ActionRunError, createActionRunner } from "./action-runner"
 import { unavailableActionCredentialResolver } from "./action-credentials"
 import type { ActionCatalogProfile, ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
-import { BrowserError } from "./browser"
-import type { BrowserRuntime } from "./browser"
+import { BrowserError } from "./browser-driver"
+import type { BrowserDriver } from "./browser-driver"
 import type { BrowserAllowRule, RunSource, RunStatus } from "./types"
 
 /** Waits for a run the scheduler is driving to reach a state, rather than guessing at a delay. */
@@ -1326,11 +1326,14 @@ describe("a web action task (WA-7)", () => {
   // The real runner over a stand-in browser that does what it is told, so the policy and the audit
   // run as in production (BU-01).
   const policedRunner = (repository: SqliteRoutineRepository, origin = "https://example.com") => {
-    const browser = new Proxy({} as BrowserRuntime, {
-      get: (_target, name) => async () => {
-        if (name === "screenshot") return { artifactId: "art_shot" }
-        if (name === "navigate") return { url: `${origin}/`, title: "Home" }
-        return undefined
+    const browser = new Proxy({} as BrowserDriver, {
+      get: (_target, name) => {
+        if (name === "capabilities") return { actions: { has: () => true } }
+        return async () => {
+          if (name === "screenshot") return { artifactId: "art_shot" }
+          if (name === "act") return { url: `${origin}/`, title: "Home" }
+          return undefined
+        }
       },
     })
     return createActionRunner({

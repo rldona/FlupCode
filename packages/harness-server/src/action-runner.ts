@@ -5,10 +5,13 @@
  * and only then does a browser start. The whole recipe runs in one call: there is no admission
  * between steps here, because approval happens once, before the request arrives (WA-3). A failure
  * keeps the evidence gathered up to and including the step that failed.
+ *
+ * The runner knows only the `BrowserDriver` interface (BU-03): it asks the browser policy before a
+ * driver acts and records what happened after, so whichever driver drives, it is under that policy.
  */
 
-import { BrowserError } from "./browser"
-import type { BrowserRuntime } from "./browser"
+import { BrowserError } from "./browser-driver"
+import type { BrowserActionKind, BrowserDriver } from "./browser-driver"
 import { NavigationBlockedError } from "./browser-egress"
 import { ActionInputError, resolveActionInputs } from "./action-inputs"
 import type { ResolvedActionInputs } from "./action-inputs"
@@ -158,7 +161,7 @@ export type ActionRunner = {
 }
 
 export type ActionRunnerOptions = {
-  browser: BrowserRuntime
+  browser: BrowserDriver
   /** Every drive is the policy's decision (BU-01): the runner spends its permit and logs what it did. */
   policy: Pick<BrowserPolicy, "decide" | "answer" | "spend" | "recordAction">
   repository: Pick<SqliteRoutineRepository, "addArtifact" | "getArtifact">
@@ -248,6 +251,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
   ): Promise<ActionRunResult | ActionDryRunResult | ActionPreviewResult> => {
     const source = loadProfiles({ directory: input.directory, project: input.project })
     const profile = resolveProfile(source, input)
+    requireActions(browser, profile)
     const provided = isPlainObject(input.inputs) ? input.inputs : {}
     // A preview is read before the form is filled, so only what it was given is materialized: a
     // missing input is left for the step that would use it, past the cut, rather than refused here.
@@ -365,7 +369,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       credentialValues[name] = value
     }
 
-    await browser.start({
+    await browser.open({
       id: sessionID,
       project: input.project,
       ...(input.headed === true ? { headed: true } : {}),
@@ -388,7 +392,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       }
       const capture = async (index: number, kind: ActionStepName): Promise<string | undefined> => {
         try {
-          const { artifactId } = await browser.screenshot(sessionID, `${profile.id}:${index}:${kind}`)
+          const { artifactId } = await browser.screenshot(sessionID, { label: `${profile.id}:${index}:${kind}` })
           return artifactId
         } catch {
           return undefined
@@ -467,7 +471,9 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
         extract = {}
         for (const [field, spec] of Object.entries(profile.extract)) {
           const found = await browser
-            .text(sessionID, spec.selector, {
+            .act(sessionID, {
+              kind: "read",
+              selector: spec.selector,
               ...(spec.as !== undefined ? { as: spec.as } : {}),
               ...(spec.attribute !== undefined ? { attribute: spec.attribute } : {}),
             })
@@ -537,7 +543,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
     input: ActionRunRequest,
   ): Promise<ActionPreviewResult> => {
     const sessionID = input.sessionID
-    await browser.start({
+    await browser.open({
       id: sessionID,
       project: input.project,
       ...(input.headed === true ? { headed: true } : {}),
@@ -566,7 +572,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
         }
         const stepStartedAt = Date.now()
         try {
-          if ("screenshot" in step) await browser.frame(sessionID, { store: false })
+          if ("screenshot" in step) await browser.screenshot(sessionID, { store: false })
           else await runStep(browser, profile, step, context)
           steps.push({ index, kind, status: "ok", attempts: 1, durationMs: Date.now() - stepStartedAt })
         } catch (cause) {
@@ -619,6 +625,42 @@ const previewTier = (profile: ActionProfile): BrowserTier => {
 const isEffectStep = (step: ActionStep): boolean =>
   "fill" in step || "click" in step || "upload" in step || "submit" in step
 
+/**
+ * Refuses a recipe its driver cannot drive, before anything opens (BU-03): a step it could not do
+ * would otherwise fail half way through, after the first ones already acted on the page.
+ */
+const requireActions = (browser: BrowserDriver, profile: ActionProfile): void => {
+  const missing = [
+    ...profile.steps.flatMap((step) => stepAction(step) ?? []),
+    ...(profile.extract === undefined ? [] : (["read"] as const)),
+  ].find((kind) => !browser.capabilities.actions.has(kind))
+  if (missing === undefined) return
+  throw new ActionRunError({
+    code: "unsupported_step",
+    status: 422,
+    message: `This browser cannot ${missing} a page`,
+    action: profile.id,
+  })
+}
+
+/** The driver action a step asks for; a `screenshot` is every driver's own. */
+const stepAction = (step: ActionStep): BrowserActionKind | undefined =>
+  "goto" in step
+    ? "navigate"
+    : "waitFor" in step
+      ? "waitFor"
+      : "fill" in step
+        ? "type"
+        : "click" in step
+          ? "click"
+          : "upload" in step
+            ? "upload"
+            : "submit" in step
+              ? "submit"
+              : "assert" in step
+                ? "read"
+                : undefined
+
 type StepContext = {
   sessionID: string
   values: Record<string, string>
@@ -663,7 +705,7 @@ const validatedProfile = (id: string, raw: unknown): ActionProfile => {
 }
 
 const runStep = async (
-  browser: BrowserRuntime,
+  browser: BrowserDriver,
   profile: ActionProfile,
   step: ActionStep,
   context: StepContext,
@@ -678,11 +720,16 @@ const runStep = async (
         action: profile.id,
         url,
       })
-    await browser.navigate(context.sessionID, url)
+    await browser.act(context.sessionID, { kind: "navigate", url })
     return undefined
   }
   if ("waitFor" in step) {
-    await browser.waitFor(context.sessionID, step.waitFor, step.timeoutMs, step.state)
+    await browser.act(context.sessionID, {
+      kind: "waitFor",
+      selector: step.waitFor,
+      ...timeout(step.timeoutMs),
+      ...(step.state !== undefined ? { state: step.state } : {}),
+    })
     return undefined
   }
   if ("fill" in step) {
@@ -690,7 +737,7 @@ const runStep = async (
     return undefined
   }
   if ("click" in step) {
-    await browser.click(context.sessionID, step.click, step.timeoutMs)
+    await browser.act(context.sessionID, { kind: "click", selector: step.click, ...timeout(step.timeoutMs) })
     ensureOrigin(browser, context.sessionID, profile)
     return undefined
   }
@@ -704,31 +751,36 @@ const runStep = async (
         message: `Upload source "${step.upload.from}" is not available`,
         action: profile.id,
       })
-    await browser.upload(context.sessionID, step.upload.selector, file, step.timeoutMs)
+    await browser.act(context.sessionID, {
+      kind: "upload",
+      selector: step.upload.selector,
+      file,
+      ...timeout(step.timeoutMs),
+    })
     return undefined
   }
   if ("submit" in step) {
-    await browser.submit(context.sessionID, step.submit.selector, step.timeoutMs)
+    await browser.act(context.sessionID, { kind: "submit", selector: step.submit.selector, ...timeout(step.timeoutMs) })
     ensureOrigin(browser, context.sessionID, profile)
     return undefined
   }
   if ("assert" in step) {
-    const found = await browser.text(
-      context.sessionID,
-      step.assert.selector,
-      step.timeoutMs === undefined ? undefined : { timeoutMs: step.timeoutMs },
-    )
+    const found = await browser.act(context.sessionID, {
+      kind: "read",
+      selector: step.assert.selector,
+      ...timeout(step.timeoutMs),
+    })
     const expected = step.assert.text === undefined ? undefined : substitute(profile, step.assert.text, context.values)
     if (expected !== undefined && found.value !== expected)
       throw new Error(`Expected "${expected}" but found "${found.value ?? ""}"`)
     return undefined
   }
-  const { artifactId } = await browser.screenshot(context.sessionID, step.screenshot)
+  const { artifactId } = await browser.screenshot(context.sessionID, { label: step.screenshot })
   return artifactId
 }
 
 const fillStep = async (
-  browser: BrowserRuntime,
+  browser: BrowserDriver,
   profile: ActionProfile,
   fill: { selector: string; text?: string; credential?: string },
   timeoutMs: number | undefined,
@@ -746,7 +798,7 @@ const fillStep = async (
       })
     // A credential is bound to an origin: the page may have navigated between `goto` and this fill.
     ensureOrigin(browser, context.sessionID, profile)
-    await browser.type(context.sessionID, fill.selector, value, timeoutMs)
+    await browser.act(context.sessionID, { kind: "type", selector: fill.selector, text: value, ...timeout(timeoutMs) })
     // The value is redacted already; the selector blacks the field out in every later capture.
     browser.protect(context.sessionID, { selector: fill.selector, value })
     return
@@ -767,7 +819,7 @@ const fillStep = async (
       message: "fill.text resolved to an empty value",
       action: profile.id,
     })
-  await browser.type(context.sessionID, fill.selector, value, timeoutMs)
+  await browser.act(context.sessionID, { kind: "type", selector: fill.selector, text: value, ...timeout(timeoutMs) })
 }
 
 /**
@@ -776,7 +828,7 @@ const fillStep = async (
  * `goto` checks its own target before navigating, but a `click` or a `submit` can land somewhere
  * else, and a credential typed after that would go to the wrong site.
  */
-const ensureOrigin = (browser: BrowserRuntime, sessionID: string, profile: ActionProfile): void => {
+const ensureOrigin = (browser: BrowserDriver, sessionID: string, profile: ActionProfile): void => {
   const url = browser.get(sessionID)?.url ?? ""
   if (!URL.canParse(url) || new URL(url).origin !== profile.origin)
     throw new ActionRunError({
@@ -901,5 +953,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
 const messageOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause))
+
+const timeout = (timeoutMs: number | undefined) => (timeoutMs === undefined ? {} : { timeoutMs })
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
