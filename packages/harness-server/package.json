@@ -5,15 +5,15 @@
   "private": true,
   "type": "module",
   "license": "MIT",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
   "scripts": {
     "dev": "bun src/index.ts",
     "build": "bun script/build.ts",
     "test": "bun test src",
     "replay": "bun src/replay/cli.ts run",
     "replay:export": "bun src/replay/cli.ts export",
-    "reflect:heuristics": "bun src/adaptive/learning/heuristics-cli.ts",
-    "reflect:eval": "bun src/adaptive/learning/eval-cli.ts",
-    "eval:live": "bun src/adaptive/promotion/cli.ts",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {

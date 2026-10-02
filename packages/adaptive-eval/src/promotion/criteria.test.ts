@@ -24,7 +24,7 @@ import {
 } from "./criteria"
 import type { Check, Evidence } from "./criteria"
 
-const ADR = join(import.meta.dir, "../../../../../docs/adr/0025-promotion-criteria.md")
+const ADR = join(import.meta.dir, "../../../../docs/adr/0025-promotion-criteria.md")
 
 describe("ADR-0025 and the criteria module", () => {
   test("the ADR embeds exactly the generated table", async () => {

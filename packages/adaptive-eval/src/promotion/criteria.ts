@@ -9,7 +9,7 @@
  * ADR, not an edit.
  */
 
-import type { HoldoutCapability } from "../holdout"
+import type { HoldoutCapability } from "@flupcode/harness-server/adaptive/holdout"
 
 export const PROMOTION_CAPABILITIES = [
   "toolTrim",

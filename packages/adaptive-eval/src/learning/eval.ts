@@ -18,21 +18,21 @@
  * read-only I/O and a fake engine stands in for the real one in tests.
  */
 
-import type { SessionEpisode } from "../episode"
-import type { AdaptiveConfig } from "../config"
-import type { Model } from "../../policy"
-import { createAdaptiveEgressGuard } from "../egress"
-import { questionsFor, readAnswers } from "../questions"
-import type { DecisionRequest } from "../decision"
-import { redactText } from "../redaction"
-import { createSmallLlmModel } from "../providers/small-llm"
-import type { SmallLlmEngine } from "../providers/small-llm"
-import { DecisionUnavailable } from "../providers/provider"
-import { createEngineSkillDrafter } from "./draft"
-import type { DraftEngine, SkillDraft } from "./draft"
-import { filterSkillContent } from "./content-filter"
-import { reflectionSignals } from "./reflection-job"
-import type { HeuristicCandidate } from "./heuristics"
+import type { SessionEpisode } from "@flupcode/harness-server/adaptive/episode"
+import type { AdaptiveConfig } from "@flupcode/harness-server/adaptive/config"
+import type { Model } from "@flupcode/harness-server/policy"
+import { createAdaptiveEgressGuard } from "@flupcode/harness-server/adaptive/egress"
+import { questionsFor, readAnswers } from "@flupcode/harness-server/adaptive/questions"
+import type { DecisionRequest } from "@flupcode/harness-server/adaptive/decision"
+import { redactText } from "@flupcode/harness-server/adaptive/redaction"
+import { createSmallLlmModel } from "@flupcode/harness-server/adaptive/providers/small-llm"
+import type { SmallLlmEngine } from "@flupcode/harness-server/adaptive/providers/small-llm"
+import { DecisionUnavailable } from "@flupcode/harness-server/adaptive/providers/provider"
+import { createEngineSkillDrafter } from "@flupcode/harness-server/adaptive/learning/draft"
+import type { DraftEngine, SkillDraft } from "@flupcode/harness-server/adaptive/learning/draft"
+import { filterSkillContent } from "@flupcode/harness-server/adaptive/learning/content-filter"
+import { reflectionSignals } from "@flupcode/harness-server/adaptive/learning/reflection-job"
+import type { HeuristicCandidate } from "@flupcode/harness-server/adaptive/learning/heuristics"
 
 /** The sample size the ticket asks for; the CLI may lower it, never raise it past the eligible pool. */
 export const EVAL_SAMPLE_SIZE = 20

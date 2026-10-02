@@ -62,7 +62,7 @@ jobs:
             *) all "event $EVENT" ;;
           esac
           matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
-          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|engine-contract)/|package\.json$|bun\.lock$|script/opencode-pin\.ts$|docs/opencode-boundary\.txt$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|adaptive-eval|remote|relay|flupcode-cli|engine-contract)/|package\.json$|bun\.lock$|script/opencode-pin\.ts$|docs/opencode-boundary\.txt$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           echo "engine=$(matches '^(packages/(engine-contract|remote|harness-server)/|packages/harness/src/engine/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -95,6 +95,7 @@ jobs:
           bun run --cwd packages/harness typecheck
           bun run --cwd packages/harness-desktop typecheck
           bun run --cwd packages/harness-server typecheck
+          bun run --cwd packages/adaptive-eval typecheck
           bun run --cwd packages/remote typecheck
           bun run --cwd packages/relay typecheck
           bun run --cwd packages/flupcode-cli typecheck
@@ -110,6 +111,7 @@ jobs:
           bun run --cwd packages/relay test
           bun run --cwd packages/flupcode-cli test
           bun run --cwd packages/harness-server test
+          bun run --cwd packages/adaptive-eval test
           bun run --cwd packages/harness-desktop test
 
       - name: Test harness

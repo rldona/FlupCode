@@ -41,7 +41,7 @@ acted on every session, so no online comparison of them was possible.
 
 ### 1. One set of criteria, in one code module
 
-The numbers live in `packages/harness-server/src/adaptive/promotion/criteria.ts` (`CRITERIA`,
+The numbers live in `packages/adaptive-eval/src/promotion/criteria.ts` (moved out of the server by PI-03) (`CRITERIA`,
 `EVALUATION`, `decide`). The table in §8 is generated from that module (`bun run eval:live -- table`)
 and `criteria.test.ts` fails if this document and the code disagree. The live report
 (`bun run eval:live -- report`, AH-G02) reads the same module. Changing a number after `start` is a

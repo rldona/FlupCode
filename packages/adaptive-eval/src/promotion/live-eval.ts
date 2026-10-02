@@ -8,14 +8,14 @@
  */
 
 import type { Database } from "bun:sqlite"
-import type { AdaptiveConfig } from "../config"
-import type { DecisionKind } from "../decision"
-import { episodeEvents } from "../events"
-import type { EpisodeEvent } from "../events"
-import { HOLDOUT_CAPABILITIES } from "../holdout"
-import type { Arm, HoldoutCapability } from "../holdout"
-import { LABELED_KINDS, LABEL_SETTLE_MS } from "../labeler"
-import { canonical } from "../value-gate"
+import type { AdaptiveConfig } from "@flupcode/harness-server/adaptive/config"
+import type { DecisionKind } from "@flupcode/harness-server/adaptive/decision"
+import { episodeEvents } from "@flupcode/harness-server/adaptive/events"
+import type { EpisodeEvent } from "@flupcode/harness-server/adaptive/events"
+import { HOLDOUT_CAPABILITIES } from "@flupcode/harness-server/adaptive/holdout"
+import type { Arm, HoldoutCapability } from "@flupcode/harness-server/adaptive/holdout"
+import { LABELED_KINDS, LABEL_SETTLE_MS } from "@flupcode/harness-server/adaptive/labeler"
+import { canonical } from "@flupcode/harness-server/adaptive/value-gate"
 import {
   CRITERIA,
   EVALUATION,
