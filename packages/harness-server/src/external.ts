@@ -1,4 +1,5 @@
 import { OUTPUT_LIMIT } from "./verify"
+import { childEnv } from "./child-env"
 
 /**
  * A task another vendor's CLI executes (H-38).
@@ -86,7 +87,7 @@ export async function runExternal(input: {
     // instead of replacing itself with it, and killing only the shell leaves the real process alive
     // holding the pipes — which reads as a hang, not as a kill, and is how this failed on Linux.
     detached: true,
-    env: { ...process.env, NO_COLOR: "1" },
+    env: childEnv({ NO_COLOR: "1" }),
   })
 
   let output = ""

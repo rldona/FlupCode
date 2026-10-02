@@ -2282,3 +2282,70 @@ describe("scheduling a web action (WA-7)", () => {
     repository.close()
   })
 })
+
+describe("the plugin token's scope (TI-10)", () => {
+  const scoped = () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    const runs: unknown[] = []
+    const handler = createHarnessHandler(repository, scheduler, {
+      token: "ui-token",
+      pluginToken: "plugin-token",
+      actions: {
+        list: () => ({ profiles: [], rejected: [] }),
+        run: async (request) => {
+          runs.push(request)
+          return { status: "dry-run" } as never
+        },
+      },
+      planExit: async () => ({ approved: false }),
+    })
+    const call = (token: string, method: string, path: string, body?: unknown) =>
+      handler(
+        new Request(`http://127.0.0.1:4097${path}`, {
+          method,
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+      )
+    return { repository, handler, call, runs }
+  }
+
+  test("the plugin token reaches what the engine's plugins call, and nothing else", async () => {
+    const { repository, call } = scoped()
+    const shot = repository.addArtifact({ kind: "screenshot", title: "evidence", producer: "harness", content: "png" })
+    const report = repository.addArtifact({ kind: "report", title: "notes", producer: "harness", content: "private" })
+
+    expect((await call("plugin-token", "GET", "/harness/actions")).status).toBe(200)
+    expect((await call("plugin-token", "POST", "/harness/plan-exit", { sessionID: "ses_1" })).status).toBe(200)
+    expect((await call("plugin-token", "GET", `/harness/artifacts/${shot.id}/raw`)).status).toBe(200)
+
+    for (const [method, path, body] of [
+      ["POST", "/harness/git/commit", { directory: "/tmp", message: "x", paths: ["a"] }],
+      ["POST", "/harness/git/branch", { directory: "/tmp", name: "x" }],
+      ["POST", "/harness/git/pr", { directory: "/tmp" }],
+      ["GET", "/harness/engine-config", undefined],
+      ["PATCH", "/harness/engine-config", { scope: "global", patch: {} }],
+      ["GET", `/harness/artifacts/${report.id}/raw`, undefined],
+      ["GET", "/harness/artifacts", undefined],
+      ["GET", "/harness/runs", undefined],
+      ["POST", "/harness/actions/validate", { id: "x", profile: {} }],
+      ["POST", "/harness/actions/run", { action: "x", sessionID: "s", project: "p", dryRun: true }],
+      ["POST", "/harness/actions/run", { action: "x", sessionID: "s", project: "p", preview: true }],
+    ] as const) {
+      const refused = await call("plugin-token", method, path, body)
+      expect([method, path, refused.status]).toEqual([method, path, 403])
+    }
+    repository.close()
+  })
+
+  test("the UI token keeps every route it had", async () => {
+    const { repository, call, runs } = scoped()
+    const report = repository.addArtifact({ kind: "report", title: "notes", producer: "harness", content: "private" })
+    expect((await call("ui-token", "GET", "/harness/engine-config")).status).not.toBe(403)
+    expect((await call("ui-token", "GET", `/harness/artifacts/${report.id}/raw`)).status).toBe(200)
+    expect((await call("ui-token", "POST", "/harness/actions/run", { action: "x", sessionID: "s", project: "p", dryRun: true })).status).toBe(200)
+    expect(runs).toHaveLength(1)
+    repository.close()
+  })
+})

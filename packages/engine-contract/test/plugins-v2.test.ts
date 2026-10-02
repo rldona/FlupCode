@@ -32,7 +32,7 @@ beforeAll(async () => {
       // Plugins load only outside pure mode; the harness is the stand-in below.
       OPENCODE_PURE: undefined,
       FLUPCODE_HARNESS_SERVER_URL: harness.url,
-      FLUPCODE_BROWSER_TOKEN: "browser-token",
+      FLUPCODE_PLUGIN_TOKEN: "plugin-token",
     },
     prepare: async (home) => {
       installed = (await installEnginePlugins(join(home, ".config", "opencode"))).paths.map((file) =>
@@ -201,7 +201,7 @@ const evidence: Record<string, () => Promise<void> | void> = {
       inputs: { query: "shoes" },
       approval: "apr_1",
     })
-    expect(harness.hits("GET /harness/actions").every((hit) => hit.authorization === "Bearer browser-token")).toBe(true)
+    expect(harness.hits("GET /harness/actions").every((hit) => hit.authorization === "Bearer plugin-token")).toBe(true)
   },
   "flupcode-deliver.js": async () => {
     const messages = (await call("GET", `/api/session/${sessionID}/message?limit=200`)) as {

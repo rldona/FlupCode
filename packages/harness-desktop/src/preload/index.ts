@@ -29,15 +29,12 @@ const speech: SpeechBridge | undefined = process.argv.includes("--flupcode-speec
     }
   : undefined
 
-// `base64(user:pass)` for the engine the main process started; see harness/src/transport.ts.
-const engineAuth = process.argv
-  .find((argument) => argument.startsWith("--flupcode-engine-auth="))
-  ?.slice("--flupcode-engine-auth=".length)
-
-// The loopback token the harness browser routes compare; see harness/src/remote.ts.
-const browserToken = process.argv
-  .find((argument) => argument.startsWith("--flupcode-browser-token="))
-  ?.slice("--flupcode-browser-token=".length)
+// `base64(user:pass)` for the engine the main process started (see harness/src/transport.ts) and the
+// loopback token the harness browser routes compare (see harness/src/remote.ts). Asked over IPC, not
+// read from the command line, which any local process can list (TI-10).
+const credentials = ipcRenderer.sendSync("flupcode:credentials") as { engineAuth?: string; browserToken?: string }
+const engineAuth = credentials.engineAuth
+const browserToken = credentials.browserToken
 
 contextBridge.exposeInMainWorld("flupcode", {
   chooseFolder: () => ipcRenderer.invoke("flupcode:choose-folder") as Promise<string | undefined>,

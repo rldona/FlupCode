@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { failureLine, parseFailures, type Failure } from "./failures"
+import { childEnv } from "./child-env"
 
 /**
  * Verification with evidence (H-22).
@@ -146,7 +147,7 @@ export async function runStep(step: VerifyStep, directory: string): Promise<Veri
     cwd: directory,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CI: "1", NO_COLOR: "1" },
+    env: childEnv({ CI: "1", NO_COLOR: "1" }),
   })
   const timer = setTimeout(() => child.kill(), STEP_TIMEOUT_MS)
   const [stdout, stderr, exitCode] = await Promise.all([

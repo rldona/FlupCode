@@ -97,7 +97,11 @@ Access (WA-9, AH-A05):
 - **Bearer.** `/harness/browser/*`, `/harness/actions/*`, `/harness/credentials` and
   `/harness/action-profiles` always answer **403** `invalid_token` without
   `Authorization: Bearer <token>`, where the token is `<configDir>/browser-token` (or
-  `FLUPCODE_BROWSER_TOKEN`). When a token exists — the entrypoint always creates one unless the write
+  `FLUPCODE_BROWSER_TOKEN`). The engine's plugins hold a second, narrower token,
+  `<configDir>/plugin-token` (or `FLUPCODE_PLUGIN_TOKEN`): it opens the action catalogue, approval
+  and run (not the editor's validate, dry run or preview), a run's evidence screenshots and
+  `/harness/plan-exit`, and nothing else (TI-10). Processes the server starts get neither token, nor
+  the engine's credentials or the vault key. When a token exists — the entrypoint always creates one unless the write
   fails — **every other `/harness` route asks for it too**: runs, best-of-n, task retry/cancel,
   workflows, routines, git, checkpoints, artifacts, the event stream, and the reads that carry
   prompts, files or config (context, files, config files, skills, agents, commands, memory, stash…).

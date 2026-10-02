@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { allFailures, configuredSteps, detectedSteps, evidenceText, focusedEvidence, runVerify, verifySteps } from "./verify"
+import { leaked, withSecrets } from "./child-env.fixture"
+import { allFailures, configuredSteps, detectedSteps, evidenceText, focusedEvidence, runStep, runVerify, verifySteps } from "./verify"
 
 const made: string[] = []
 const project = (files: Record<string, string>) => {
@@ -264,5 +265,13 @@ describe("what a retry is told", () => {
       steps: [{ name: "test", command: "bun test", exitCode: 1, durationMs: 10, output: "something odd" }],
     }
     expect(focusedEvidence(report)).toBe(evidenceText(report))
+  })
+})
+
+describe("what a verify step inherits (TI-10)", () => {
+  test("a check command sees none of the harness's secrets", async () => {
+    const result = await withSecrets(() => runStep({ name: "env", command: "env" }, process.cwd()))
+    expect(leaked(result.output)).toEqual([])
+    expect(result.output).toContain("PATH=")
   })
 })

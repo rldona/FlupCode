@@ -289,13 +289,13 @@ export async function ensureServer() {
   const args = ["serve", "--port", String(ENGINE_PORT), "--hostname", "127.0.0.1"]
   console.info(`[flupcode] starting the engine: ${[command, ...args].join(" ")}`)
   const secret = ensureEngineCredentials()
-  // The actions plugin reads its token and profiles from the harness, so the engine is told where
-  // that server answers. It is not the engine's own URL.
+  // The actions plugin reads its profiles from the harness, so the engine is told where that server
+  // answers. It is not the engine's own URL. No harness secret goes with it: an agent's shell inherits
+  // the engine's environment, and the plugins read their own scoped token from its file (TI-10).
   const env = {
-    ...process.env,
+    ...withoutHarnessSecrets(process.env),
     PATH: searchPath(),
     FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
-    FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
   }
   // FlupCode's own database: 2.x would migrate 1.x's `opencode.db` one way, so 1.x history only
   // reaches it through the explicit import (V2-61).
@@ -463,4 +463,11 @@ export function stopServer() {
   harnessChild = undefined
   child?.kill()
   child = undefined
+}
+
+/** The harness's secrets, which no engine process (and so no agent's shell) is handed (TI-10). */
+const HARNESS_SECRETS = ["FLUPCODE_BROWSER_TOKEN", "FLUPCODE_PLUGIN_TOKEN", "FLUPCODE_ENGINE_AUTH", "FLUPCODE_VAULT_KEY"]
+
+export function withoutHarnessSecrets(env: NodeJS.ProcessEnv) {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !HARNESS_SECRETS.includes(name)))
 }

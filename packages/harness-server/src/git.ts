@@ -14,6 +14,7 @@ import { rmSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import { selectHunks } from "./patch"
 import { confinedPath } from "./project-roots"
+import { childEnv } from "./child-env"
 
 export type GitCommit = { sha: string; subject: string; branch: string }
 
@@ -55,7 +56,7 @@ async function git(directory: string, args: string[], input?: string) {
       stdin: input === undefined ? "ignore" : "pipe",
       // Nothing here may stop to ask: a server has no terminal to ask at, and a git that blocks
       // on a credential or an editor prompt would hang the request until it timed out.
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true", NO_COLOR: "1" },
+      env: childEnv({ GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true", NO_COLOR: "1" }),
     })
     if (input !== undefined && child.stdin) {
       child.stdin.write(input)
