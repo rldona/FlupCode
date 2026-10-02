@@ -45,8 +45,27 @@ env:
 # October 2026 and a build that changes its own OS on a calendar date is a build that breaks on one.
 
 jobs:
+  # A release is what CI tested (HE-05): nothing is built unless `harness.yml`'s `gate`, the check
+  # `main` requires, passed on this very commit. It waits for a run still going, as on a tag pushed
+  # right after its merge.
+  tested:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+
+      - name: Require a passing gate on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/release-gate.sh "$GITHUB_SHA"
+
   # The release exists before anything is uploaded to it, and stays a draft until it is complete.
   open:
+    needs: [tested]
     runs-on: ubuntu-24.04
     steps:
       # `gh release create --verify-tag` reads the local tag, and the notes are generated from the

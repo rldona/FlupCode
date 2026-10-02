@@ -50,7 +50,11 @@ How FlupCode is versioned and released.
    Stop at the first failure (for example with `set -eo pipefail` in a script): a tag pushed after
    a rejected push starts a release from a commit that is not on `main`.
 
-3. `.github/workflows/release.yml` runs on the tag. It opens the release **as a draft**, and then each
+3. `.github/workflows/release.yml` runs on the tag. Its first job, `tested`, requires that
+   `harness.yml`'s `gate` passed on the tagged commit (`.github/scripts/release-gate.sh`): it waits
+   for a run still going, and a commit whose `gate` failed, was cancelled or never ran builds
+   nothing. Pushes to `main` no longer cancel each other's harness run, so every commit there keeps
+   its verdict. Then it opens the release **as a draft**, and then each
    job builds and publishes its own part of it, in parallel: the web bundle, the five `flupcode` CLI
    binaries, and the desktop installers per platform. A `verify` job reads the update manifests
    (`latest*.yml`) off the draft and fails if any file they name is not an asset, and only then is the
@@ -96,6 +100,25 @@ Installers are published on every release and the app auto-updates from GitHub R
 (`electron-updater`). They are **not signed or notarized** (F5-4, blocked on Apple and Windows
 certificates): macOS shows "FlupCode Not Opened" and needs **Open Anyway** or removing the quarantine
 flag, and Windows shows SmartScreen. See [USAGE.md](USAGE.md#installing-a-release).
+
+### Integrity (HE-05)
+
+- **What ships is what CI tested.** The `tested` job above: no `gate` on the tagged commit, no
+  release.
+- **Built for the architecture it claims.** The app ships three sidecars: the harness server, the
+  macOS speech helper and the Chromium the harness drives. Each is built or fetched once per
+  architecture electron-builder packages on that OS (`build.<os>.target[].arch`, read by
+  `packages/harness-desktop/scripts/archs.mjs`) into a folder named after it
+  (`harness-server/dist/<arch>/`, `out/speech/<arch>/`, `browsers/<arch>/`), and `extraResources`
+  takes the matching one with `${arch}`. The x64 Mac app used to carry the build machine's arm64
+  server, helper and browser. Check a build with `file` on
+  `FlupCode.app/Contents/Resources/harness-server/flupcode-harness`.
+- **The engine is the one pinned.** The desktop and the CLI fetch the OpenCode binary at first use
+  and check it against the sha512 committed beside the version (see [UPSTREAM.md](UPSTREAM.md)).
+- **Auto-update checks no signature.** `electron-updater` compares the download with the sha512 in
+  `latest*.yml`, which comes from the same release, and the unsigned Mac build installs the zip
+  itself and clears its quarantine. Anyone who can publish a release can ship an update; only
+  signing (F5-4) closes that.
 
 ### Icon geometry
 

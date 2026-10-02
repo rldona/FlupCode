@@ -12,9 +12,12 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push replaces its older run. A push to `main` never cancels the one before
+# it: every commit on `main` keeps its own `gate`, and a release requires that verdict on the commit
+# it tags (HE-05).
 concurrency:
-  group: harness-${{ github.ref }}
-  cancel-in-progress: true
+  group: harness-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -164,10 +167,30 @@ jobs:
           (cd packages/harness && bun test src/engine --timeout 60000)
           (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts src/project-roots.engine.test.ts src/usage-attribution.engine.test.ts src/usage-ledger.engine.test.ts src/usage-reconciler.engine.test.ts --timeout 120000)
 
+  # oxlint over the whole repository: errors fail, warnings are reported. Cheap, so it runs on every
+  # change rather than behind `changes`.
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
   # The one required check on `main`. A job skipped because its paths did not change is a pass; a
-  # failed or cancelled one, or a `changes` job that could not decide, is not.
+  # failed or cancelled one, or a `changes` or `lint` job that did not pass, is not.
   gate:
-    needs: [changes, build, engine]
+    needs: [changes, lint, build, engine]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -175,11 +198,13 @@ jobs:
       - name: Check results
         env:
           CHANGES: ${{ needs.changes.result }}
+          LINT: ${{ needs.lint.result }}
           BUILD: ${{ needs.build.result }}
           ENGINE: ${{ needs.engine.result }}
         run: |
-          echo "changes=$CHANGES build=$BUILD engine=$ENGINE"
+          echo "changes=$CHANGES lint=$LINT build=$BUILD engine=$ENGINE"
           [ "$CHANGES" = success ] || exit 1
+          [ "$LINT" = success ] || exit 1
           for result in "$BUILD" "$ENGINE"; do
             case "$result" in success|skipped) ;; *) exit 1 ;; esac
           done

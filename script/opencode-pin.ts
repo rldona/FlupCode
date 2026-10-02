@@ -3,10 +3,12 @@
 // FlupCode runs the official OpenCode 2 at one pinned version (ADR-0027). This keeps that pin
 // honest, and the boundary to the vendored upstream packages shrinking until V2-71 removes them.
 //
-//   bun script/opencode-pin.ts                  check: one version everywhere, no new boundary file
+//   bun script/opencode-pin.ts                  check: one version everywhere, the pinned sha512 of
+//                                               every platform binary is the registry's, and no new
+//                                               boundary file
 //   bun script/opencode-pin.ts --update         rewrite docs/opencode-boundary.txt from the tree
-//   bun script/opencode-pin.ts bump [version]   move the pin to <version>, or to the newest 2.x
-//                                               release older than bunfig's minimumReleaseAge
+//   bun script/opencode-pin.ts bump [version]   move the pin and its sha512s to <version>, or to the
+//                                               newest 2.x release older than bunfig's minimumReleaseAge
 
 import { $ } from "bun"
 import path from "path"
@@ -17,6 +19,8 @@ const BOUNDARY = "docs/opencode-boundary.txt"
 const REGISTRY = "https://registry.npmjs.org"
 // The packages that ship the pinned version, and the binaries `installOpenCodeV2` fetches.
 const PINNED = /^@opencode\/(client|plugin)$/
+// The sha512s beside the version: the body of the object is what `bump` rewrites.
+const INTEGRITY_BLOCK = /(export const OPENCODE_V2_INTEGRITY[^{]*\{\n)[^}]*(\})/
 const PLATFORMS = [
   "darwin-arm64",
   "darwin-x64",
@@ -41,6 +45,7 @@ async function check(update: boolean) {
       .filter((dep) => PINNED.test(dep.name) && dep.version !== pinned)
       .map((dep) => `${manifest.file}: ${dep.name} is ${dep.version}, the binary is ${pinned} (${PIN_FILE})`),
   )
+  const hashes = await integrityDrift()
   const crossing = await boundaryFiles()
   if (update) {
     await Bun.write(path.join(root, BOUNDARY), header() + crossing.map((file) => `${file}\n`).join(""))
@@ -51,6 +56,7 @@ async function check(update: boolean) {
   const cleared = declared.filter((file) => !crossing.includes(file))
 
   drift.forEach((line) => console.error(`::error::${line}`))
+  hashes.forEach((line) => console.error(`::error file=${PIN_FILE}::${line}`))
   undeclared.forEach((file) =>
     console.error(
       `::error file=${file}::${file} reaches upstream outside the pinned OpenCode 2 packages. Use @opencode/client, or own it (ADR-0027).`,
@@ -58,8 +64,10 @@ async function check(update: boolean) {
   )
   // Not a failure: the list is meant to shrink, and the pull request that shrinks it can say so.
   cleared.forEach((file) => console.log(`::notice::${file} no longer crosses the boundary; drop it from ${BOUNDARY}`))
-  if (drift.length > 0 || undeclared.length > 0) process.exit(1)
-  console.log(`OpenCode ${pinned} everywhere; ${crossing.length} files still cross the boundary (V2-71 empties it)`)
+  if (drift.length > 0 || hashes.length > 0 || undeclared.length > 0) process.exit(1)
+  console.log(
+    `OpenCode ${pinned} everywhere, its ${PLATFORMS.length} binaries pinned by sha512; ${crossing.length} files still cross the boundary (V2-71 empties it)`,
+  )
 }
 
 async function bump(requested: string | undefined) {
@@ -75,7 +83,15 @@ async function bump(requested: string | undefined) {
     await output("")
     return
   }
-  await rewrite(path.join(root, PIN_FILE), (text) => text.replace(/(OPENCODE_V2_VERSION = ")[^"]+"/, `$1${target}"`))
+  const hashes = await registryIntegrity(target)
+  await rewrite(path.join(root, PIN_FILE), (text) =>
+    text
+      .replace(/(OPENCODE_V2_VERSION = ")[^"]+"/, `$1${target}"`)
+      .replace(
+        INTEGRITY_BLOCK,
+        `$1${PLATFORMS.map((platform) => `  "${platform}": "${hashes[platform]}",\n`).join("")}$2`,
+      ),
+  )
   await Promise.all(
     manifests.map((file) =>
       rewrite(path.join(root, file), (text) =>
@@ -85,6 +101,45 @@ async function bump(requested: string | undefined) {
   )
   console.log(`OpenCode ${pinned} -> ${target}. Run bun install to refresh bun.lock.`)
   await output(target)
+}
+
+/**
+ * Where the pinned sha512s disagree with what the registry publishes for the pinned version: a
+ * platform missing or extra, or a hash that is not the registry's. The installer trusts only the
+ * pinned hashes, so a version moved without them would ship a binary nobody can install.
+ */
+async function integrityDrift() {
+  const text = await Bun.file(path.join(root, PIN_FILE)).text()
+  const block = text.match(INTEGRITY_BLOCK)
+  if (!block) return [`${PIN_FILE} has no OPENCODE_V2_INTEGRITY`]
+  const declared = Object.fromEntries(
+    [...block[0].matchAll(/"([a-z0-9-]+)": "([^"]+)"/g)].map((entry) => [entry[1], entry[2]]),
+  )
+  const published = await registryIntegrity(pinned)
+  return [
+    ...PLATFORMS.filter((platform) => declared[platform] !== published[platform]).map(
+      (platform) =>
+        `@opencode/cli-${platform}@${pinned}: pinned ${declared[platform] ?? "nothing"}, the registry publishes ${published[platform]}. Either the hash was edited or the registry serves another tarball under a published version: find out which before changing either.`,
+    ),
+    ...Object.keys(declared)
+      .filter((platform) => !PLATFORMS.includes(platform))
+      .map((platform) => `${platform} is pinned but is not a platform OpenCode 2 ships`),
+  ]
+}
+
+/** The `dist.integrity` the registry publishes for each platform binary of `version`. */
+async function registryIntegrity(version: string) {
+  const entries = await Promise.all(
+    PLATFORMS.map(async (platform) => {
+      const name = `@opencode/cli-${platform}`
+      const response = await fetch(`${REGISTRY}/${name.replace("/", "%2f")}/${version}`)
+      if (!response.ok) throw new Error(`GET ${name}@${version} answered ${response.status}`)
+      const integrity = ((await response.json()) as { dist?: { integrity?: string } }).dist?.integrity
+      if (!integrity?.startsWith("sha512-")) throw new Error(`${name}@${version} publishes no sha512`)
+      return [platform, integrity] as const
+    }),
+  )
+  return Object.fromEntries(entries)
 }
 
 /** Every FlupCode file that imports a vendored upstream package or depends on one. */

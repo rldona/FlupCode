@@ -14,7 +14,7 @@ function helperPath() {
   if (process.platform !== "darwin") return
   const path = app.isPackaged
     ? join(process.resourcesPath, "speech", "speech-helper")
-    : join(app.getAppPath(), "out", "speech", "speech-helper")
+    : join(app.getAppPath(), "out", "speech", process.arch, "speech-helper")
   return existsSync(path) ? path : undefined
 }
 
