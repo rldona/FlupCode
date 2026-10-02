@@ -1,6 +1,7 @@
 import { Show, createSignal, type Component } from "solid-js"
 import { DEFAULT_EXPORT_OPTIONS, type ExportOptions } from "../export"
 import { t } from "../i18n"
+import { Modal, ModalClose } from "./Modal"
 
 type ExportDialogProps = {
   open: boolean
@@ -24,75 +25,63 @@ export const ExportDialog: Component<ExportDialogProps> = (props) => {
   const toggle = (key: keyof ExportOptions) => setOptions({ ...options(), [key]: !options()[key] })
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("Export conversation")}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span>{t("Export conversation")}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
-          </div>
-          <p class="fc-settings-hint">{props.title}</p>
-          <div class="fc-settings-section">
-            <label class="fc-settings-row">
-              <span class="fc-settings-usage">
-                <span>{t("Include the thinking")}</span>
-                <span class="fc-settings-hint">{t("What the model thought, as a collapsed block.")}</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={!!options().reasoning}
-                aria-label={t("Include the thinking")}
-                onChange={() => toggle("reasoning")}
-              />
-            </label>
-            <label class="fc-settings-row">
-              <span class="fc-settings-usage">
-                <span>{t("Include tool calls")}</span>
-                <span class="fc-settings-hint">{t("Each call by name. Off leaves only the conversation.")}</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={!!options().tools}
-                aria-label={t("Include tool calls")}
-                onChange={() => toggle("tools")}
-              />
-            </label>
-            <label class="fc-settings-row">
-              <span class="fc-settings-usage">
-                <span>{t("Include tool output")}</span>
-                <span class="fc-settings-hint">{t("What the tools printed. The noisy half.")}</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={!!options().toolOutput}
-                aria-label={t("Include tool output")}
-                onChange={() => toggle("toolOutput")}
-              />
-            </label>
-          </div>
-          <div class="fc-dialog-actions">
-            <Show when={props.canShare}>
-              <button class="fc-button" type="button" onClick={() => props.onShare(options())}>
-                {t("Copy link")}
-              </button>
-            </Show>
-            <button class="fc-button" type="button" onClick={() => props.onExport("json", options())}>
-              {t("Download JSON")}
-            </button>
-            <button class="fc-button fc-button-primary" type="button" onClick={() => props.onExport("markdown", options())}>
-              {t("Download Markdown")}
-            </button>
-          </div>
-        </div>
+    <Modal open={props.open} onClose={props.onClose} label={t("Export conversation")}>
+      <div class="fc-modal-header">
+        <span>{t("Export conversation")}</span>
+        <ModalClose />
       </div>
-    </Show>
+      <p class="fc-settings-hint">{props.title}</p>
+      <div class="fc-settings-section">
+        <label class="fc-settings-row">
+          <span class="fc-settings-usage">
+            <span>{t("Include the thinking")}</span>
+            <span class="fc-settings-hint">{t("What the model thought, as a collapsed block.")}</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={!!options().reasoning}
+            aria-label={t("Include the thinking")}
+            onChange={() => toggle("reasoning")}
+          />
+        </label>
+        <label class="fc-settings-row">
+          <span class="fc-settings-usage">
+            <span>{t("Include tool calls")}</span>
+            <span class="fc-settings-hint">{t("Each call by name. Off leaves only the conversation.")}</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={!!options().tools}
+            aria-label={t("Include tool calls")}
+            onChange={() => toggle("tools")}
+          />
+        </label>
+        <label class="fc-settings-row">
+          <span class="fc-settings-usage">
+            <span>{t("Include tool output")}</span>
+            <span class="fc-settings-hint">{t("What the tools printed. The noisy half.")}</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={!!options().toolOutput}
+            aria-label={t("Include tool output")}
+            onChange={() => toggle("toolOutput")}
+          />
+        </label>
+      </div>
+      <div class="fc-dialog-actions">
+        <Show when={props.canShare}>
+          <button class="fc-button" type="button" onClick={() => props.onShare(options())}>
+            {t("Copy link")}
+          </button>
+        </Show>
+        <button class="fc-button" type="button" onClick={() => props.onExport("json", options())}>
+          {t("Download JSON")}
+        </button>
+        <button class="fc-button fc-button-primary" type="button" onClick={() => props.onExport("markdown", options())}>
+          {t("Download Markdown")}
+        </button>
+      </div>
+    </Modal>
   )
 }

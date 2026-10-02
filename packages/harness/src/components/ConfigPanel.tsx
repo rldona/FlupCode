@@ -3,6 +3,7 @@ import type { EngineClient } from "../client"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { failureDetail } from "./PanelBoundary"
+import { Modal, ModalClose } from "./Modal"
 
 type ConfigPanelProps = {
   open: boolean
@@ -62,64 +63,52 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
   }
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal fc-modal-wide"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("Config (advanced)")}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span class="fc-modal-heading">
-              <Show when={props.onBack}>
-                <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-                  ←
-                </button>
-              </Show>
-              <span>{t("Config (advanced)")}</span>
-            </span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
+    <Modal open={props.open} onClose={props.onClose} class="fc-modal fc-modal-wide" label={t("Config (advanced)")}>
+      <div class="fc-modal-header">
+        <span class="fc-modal-heading">
+          <Show when={props.onBack}>
+            <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
+              ←
             </button>
-          </div>
-          <Show when={failure()}>{(message) => <p class="fc-modal-error">{message()}</p>}</Show>
-          <textarea
-            class="fc-config-editor"
-            spellcheck={false}
-            value={text()}
-            onInput={(event) => setText(event.currentTarget.value)}
-          />
-          <div class="fc-field-row">
-            <label class="fc-field">
-              <span>{t("Scope")}</span>
-              <select
-                class="fc-toolbar-select"
-                value={scope()}
-                onChange={(event) => setScope(event.currentTarget.value as "project" | "global")}
-              >
-                <option value="project">{t("Project")}</option>
-                <option value="global">{t("Global")}</option>
-              </select>
-            </label>
-          </div>
-          <div class="fc-modal-links">
-            <button class="fc-button" type="button" disabled={loading()} onClick={() => void load(scope())}>
-              {t("Reload")}
-            </button>
-            <button
-              class="fc-button fc-button-primary"
-              type="button"
-              disabled={loading() || !!failure()}
-              onClick={() => void save()}
-            >
-              {t("Save")}
-            </button>
-          </div>
-        </div>
+          </Show>
+          <span>{t("Config (advanced)")}</span>
+        </span>
+        <ModalClose />
       </div>
-    </Show>
+      <Show when={failure()}>{(message) => <p class="fc-modal-error">{message()}</p>}</Show>
+      <textarea
+        class="fc-config-editor"
+        spellcheck={false}
+        value={text()}
+        onInput={(event) => setText(event.currentTarget.value)}
+      />
+      <div class="fc-field-row">
+        <label class="fc-field">
+          <span>{t("Scope")}</span>
+          <select
+            class="fc-toolbar-select"
+            value={scope()}
+            onChange={(event) => setScope(event.currentTarget.value as "project" | "global")}
+          >
+            <option value="project">{t("Project")}</option>
+            <option value="global">{t("Global")}</option>
+          </select>
+        </label>
+      </div>
+      <div class="fc-modal-links">
+        <button class="fc-button" type="button" disabled={loading()} onClick={() => void load(scope())}>
+          {t("Reload")}
+        </button>
+        <button
+          class="fc-button fc-button-primary"
+          type="button"
+          disabled={loading() || !!failure()}
+          onClick={() => void save()}
+        >
+          {t("Save")}
+        </button>
+      </div>
+    </Modal>
   )
 }
 

@@ -2,6 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, on, type Component }
 import type { ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { groupedModels, isDeprecated, modelKey } from "../model-catalog"
+import { Modal, ModalClose } from "./Modal"
 
 /** What the dialog asks for: a task, the models to try it on, and whether each attempt gets its tree. */
 export type BestOfNLaunch = {
@@ -58,121 +59,109 @@ export const BestOfNDialog: Component<BestOfNDialogProps> = (props) => {
   }
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal fc-launch-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("Best of N")}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span>{t("Best of N")}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
-          </div>
-
-          <p class="fc-usage-note">
-            {t("The same task on several models, each in its own run, then compare what they did.")}
-          </p>
-
-          <label class="fc-field">
-            <span>{t("Task")}</span>
-            <textarea
-              class="fc-input fc-launch-textarea"
-              value={prompt()}
-              placeholder={t("What should each model do?")}
-              onInput={(event) => setPrompt(event.currentTarget.value)}
-            />
-          </label>
-
-          <div class="fc-field">
-            <span>{t("Models")}</span>
-            <Show when={selected().length > 0}>
-              <div class="fc-launch-packs">
-                <For each={selected()}>
-                  {(key) => (
-                    <button
-                      class="fc-button"
-                      type="button"
-                      aria-label={t("Remove {name}", { name: key })}
-                      onClick={() => toggle(key, false)}
-                    >
-                      {key} ×
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-            <Show when={selected().length === 1}>
-              <p class="fc-usage-note">{t("Pick one more: a comparison needs two.")}</p>
-            </Show>
-            <input
-              class="fc-question-custom"
-              value={query()}
-              placeholder={t("Search models")}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-            />
-            <Show
-              when={props.models.length > 0}
-              fallback={
-                <p class="fc-palette-empty">{props.loading ? t("Loading models…") : t("No models")}</p>
-              }
-            >
-              <div class="fc-model-picker">
-                <For each={groups()}>
-                  {(group) => (
-                    <div class="fc-model-group">
-                      <div class="fc-model-group-label">{group.providerID}</div>
-                      <ul>
-                        <For each={group.items}>
-                          {(model) => {
-                            const key = modelKey(model)
-                            return (
-                              <li class="fc-model-row" classList={{ "fc-model-row-active": selected().includes(key) }}>
-                                <label class="fc-model-main">
-                                  <span class="fc-model-title">
-                                    <input
-                                      type="checkbox"
-                                      checked={selected().includes(key)}
-                                      onChange={(event) => toggle(key, event.currentTarget.checked)}
-                                    />
-                                    <span class="fc-model-name">{model.name}</span>
-                                    <Show when={isDeprecated(model)}>
-                                      <span class="fc-model-badge">{t("Deprecated")}</span>
-                                    </Show>
-                                  </span>
-                                  <span class="fc-model-id">{model.id}</span>
-                                </label>
-                              </li>
-                            )
-                          }}
-                        </For>
-                      </ul>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-
-          <label class="fc-field-row">
-            <input type="checkbox" checked={worktrees()} onChange={(event) => setWorktrees(event.currentTarget.checked)} />
-            <span>{t("A worktree per attempt")}</span>
-          </label>
-
-          <div class="fc-dialog-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Cancel")}
-            </button>
-            <button class="fc-button fc-button-primary" type="button" disabled={!ready()} onClick={launch}>
-              {t("Run")}
-            </button>
-          </div>
-        </div>
+    <Modal open={props.open} onClose={props.onClose} class="fc-modal fc-launch-modal" label={t("Best of N")}>
+      <div class="fc-modal-header">
+        <span>{t("Best of N")}</span>
+        <ModalClose />
       </div>
-    </Show>
+
+      <p class="fc-usage-note">
+        {t("The same task on several models, each in its own run, then compare what they did.")}
+      </p>
+
+      <label class="fc-field">
+        <span>{t("Task")}</span>
+        <textarea
+          class="fc-input fc-launch-textarea"
+          value={prompt()}
+          placeholder={t("What should each model do?")}
+          onInput={(event) => setPrompt(event.currentTarget.value)}
+        />
+      </label>
+
+      <div class="fc-field">
+        <span>{t("Models")}</span>
+        <Show when={selected().length > 0}>
+          <div class="fc-launch-packs">
+            <For each={selected()}>
+              {(key) => (
+                <button
+                  class="fc-button"
+                  type="button"
+                  aria-label={t("Remove {name}", { name: key })}
+                  onClick={() => toggle(key, false)}
+                >
+                  {key} ×
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+        <Show when={selected().length === 1}>
+          <p class="fc-usage-note">{t("Pick one more: a comparison needs two.")}</p>
+        </Show>
+        <input
+          class="fc-question-custom"
+          value={query()}
+          placeholder={t("Search models")}
+          onInput={(event) => setQuery(event.currentTarget.value)}
+        />
+        <Show
+          when={props.models.length > 0}
+          fallback={
+            <p class="fc-palette-empty">{props.loading ? t("Loading models…") : t("No models")}</p>
+          }
+        >
+          <div class="fc-model-picker">
+            <For each={groups()}>
+              {(group) => (
+                <div class="fc-model-group">
+                  <div class="fc-model-group-label">{group.providerID}</div>
+                  <ul>
+                    <For each={group.items}>
+                      {(model) => {
+                        const key = modelKey(model)
+                        return (
+                          <li class="fc-model-row" classList={{ "fc-model-row-active": selected().includes(key) }}>
+                            <label class="fc-model-main">
+                              <span class="fc-model-title">
+                                <input
+                                  type="checkbox"
+                                  checked={selected().includes(key)}
+                                  onChange={(event) => toggle(key, event.currentTarget.checked)}
+                                />
+                                <span class="fc-model-name">{model.name}</span>
+                                <Show when={isDeprecated(model)}>
+                                  <span class="fc-model-badge">{t("Deprecated")}</span>
+                                </Show>
+                              </span>
+                              <span class="fc-model-id">{model.id}</span>
+                            </label>
+                          </li>
+                        )
+                      }}
+                    </For>
+                  </ul>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+
+      <label class="fc-field-row">
+        <input type="checkbox" checked={worktrees()} onChange={(event) => setWorktrees(event.currentTarget.checked)} />
+        <span>{t("A worktree per attempt")}</span>
+      </label>
+
+      <div class="fc-dialog-actions">
+        <button class="fc-button" type="button" onClick={props.onClose}>
+          {t("Cancel")}
+        </button>
+        <button class="fc-button fc-button-primary" type="button" disabled={!ready()} onClick={launch}>
+          {t("Run")}
+        </button>
+      </div>
+    </Modal>
   )
 }

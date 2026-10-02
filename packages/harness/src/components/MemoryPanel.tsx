@@ -4,6 +4,7 @@ import type { ProjectMemory } from "../types"
 import { createClient } from "../client"
 import { formatMemoryTime, memoryConfidenceLabel, memoryScopeLabel } from "../memory"
 import { t } from "../i18n"
+import { Modal, ModalClose } from "./Modal"
 
 type MemoryPanelProps = {
   open: boolean
@@ -125,281 +126,269 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
     })
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal fc-modal-xl"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("Memory")}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span class="fc-modal-heading">
-              {t("Memory")}
-              <Show when={candidates() > 0}>
-                <button
-                  class="fc-memory-badge"
-                  type="button"
-                  title={t("Candidates are not used in prompts until you approve them.")}
-                  onClick={() => setStatus("candidate")}
-                >
-                  {t("{count} candidates to review", { count: candidates() })}
-                </button>
-              </Show>
-            </span>
-            <div class="fc-modal-actions">
-              <button class="fc-button" type="button" onClick={() => setCreating((value) => !value)}>
-                {t("Add memory")}
-              </button>
-              <button
-                class="fc-button"
-                type="button"
-                onClick={() => {
-                  current += 1
-                  void load(current)
-                }}
-              >
-                {t("Refresh")}
-              </button>
-              <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-                ×
-              </button>
-            </div>
-          </div>
-
-          <Show when={props.onAddNote}>
-            {/*
-              The harness's notes, not the engine's memory: what a person wants every turn in this
-              project to know, written by hand (H-37).
-            */}
-            <section class="fc-usage-block">
-              <h2>{t("Project notes")}</h2>
-              <p class="fc-usage-note">
-                {t("Kept by FlupCode and handed to every turn in this project, not the engine's memory.")}
-              </p>
-              <Show
-                when={(props.notes ?? []).length > 0}
-                fallback={<p class="fc-settings-hint">{t("Nothing written down.")}</p>}
-              >
-                <For each={props.notes}>
-                  {(entry) => (
-                    <div class="fc-usage-row fc-skill-row">
-                      <span class="fc-usage-key">{entry.text}</span>
-                      <button class="fc-button" type="button" onClick={() => props.onRemoveNote?.(entry.id)}>
-                        {t("Remove")}
-                      </button>
-                    </div>
-                  )}
-                </For>
-              </Show>
-              <div class="fc-field-row">
-                <label class="fc-field">
-                  <span>{t("A decision or convention")}</span>
-                  <input
-                    class="fc-input"
-                    value={note()}
-                    placeholder={t("Use the server, not the browser, for anything durable")}
-                    onInput={(event) => setNote(event.currentTarget.value)}
-                  />
-                </label>
-                <button
-                  class="fc-button"
-                  type="button"
-                  disabled={!note().trim()}
-                  onClick={() => {
-                    props.onAddNote?.(note().trim())
-                    setNote("")
-                  }}
-                >
-                  {t("Add note")}
-                </button>
-              </div>
-            </section>
-          </Show>
-
-          <Show when={creating()}>
-            <div class="fc-memory-form">
-              <input
-                class="fc-input"
-                value={newTitle()}
-                placeholder={t("Title")}
-                onInput={(event) => setNewTitle(event.currentTarget.value)}
-              />
-              <textarea
-                class="fc-input fc-memory-textarea"
-                value={newContent()}
-                placeholder={t("What should the agent remember?")}
-                onInput={(event) => setNewContent(event.currentTarget.value)}
-              />
-              <div class="fc-memory-form-actions">
-                <select
-                  class="fc-input fc-memory-select"
-                  value={newScope()}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value
-                    if (isScopeValue(value)) setNewScope(value)
-                  }}
-                >
-                  <For each={["global", "project", "agent", "session"] as const}>
-                    {(option) => <option value={option}>{memoryScopeLabel(option)}</option>}
-                  </For>
-                </select>
-                <button
-                  class="fc-button fc-button-primary"
-                  type="button"
-                  disabled={newTitle().trim().length === 0 || newContent().trim().length === 0}
-                  onClick={() => void addMemory()}
-                >
-                  {t("Save")}
-                </button>
-              </div>
-            </div>
-          </Show>
-
-          <div class="fc-memory-filters">
-            <input
-              class="fc-input fc-memory-search"
-              value={text()}
-              placeholder={t("Search memory")}
-              onInput={(event) => setText(event.currentTarget.value)}
-            />
-            <select
-              class="fc-input fc-memory-select"
-              value={scope()}
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                if (isScopeFilter(value)) setScope(value)
-              }}
+    <Modal open={props.open} onClose={props.onClose} class="fc-modal fc-modal-xl" label={t("Memory")}>
+      <div class="fc-modal-header">
+        <span class="fc-modal-heading">
+          {t("Memory")}
+          <Show when={candidates() > 0}>
+            <button
+              class="fc-memory-badge"
+              type="button"
+              title={t("Candidates are not used in prompts until you approve them.")}
+              onClick={() => setStatus("candidate")}
             >
-              <For each={SCOPES}>
-                {(option) => (
-                  <option value={option}>{option === "all" ? t("All scopes") : memoryScopeLabel(option)}</option>
-                )}
-              </For>
-            </select>
-            <select
-              class="fc-input fc-memory-select"
-              value={status()}
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                if (isStatusFilter(value)) setStatus(value)
-              }}
-            >
-              <For each={STATUSES}>
-                {(option) => <option value={option}>{option === "all" ? t("All statuses") : t(option)}</option>}
-              </For>
-            </select>
-          </div>
-
-          <Show when={error()}>
-            <div class="fc-modal-error">{error()}</div>
+              {t("{count} candidates to review", { count: candidates() })}
+            </button>
           </Show>
-
-          <Show when={!loading() || items().length > 0} fallback={<div class="fc-empty-state">{t("Loading…")}</div>}>
-            <Show
-              when={items().length > 0}
-              fallback={
-                <div class="fc-empty-state">
-                  <span class="fc-empty-title">{t("Nothing remembered yet")}</span>
-                  <span>{t("FlupCode learns useful project and user knowledge as you work.")}</span>
-                </div>
-              }
-            >
-              <ul class="fc-memory-list">
-                <For each={items()}>
-                  {(memory) => (
-                    <li class="fc-memory-row" classList={{ "fc-memory-row-editing": editing() === memory.id }}>
-                      <div class="fc-memory-row-head">
-                        <span class={`fc-memory-scope fc-memory-scope-${memory.scope}`}>
-                          {memoryScopeLabel(memory.scope)}
-                        </span>
-                        <span class="fc-memory-title">{memory.title}</span>
-                        <span class={`fc-memory-status fc-memory-status-${memory.status}`}>{t(memory.status)}</span>
-                      </div>
-                      <Show when={editing() === memory.id} fallback={<p class="fc-memory-content">{memory.content}</p>}>
-                        <input
-                          class="fc-input"
-                          value={editTitle()}
-                          onInput={(event) => setEditTitle(event.currentTarget.value)}
-                        />
-                        <textarea
-                          class="fc-input fc-memory-textarea"
-                          value={editContent()}
-                          onInput={(event) => setEditContent(event.currentTarget.value)}
-                        />
-                      </Show>
-                      <div class="fc-memory-meta">
-                        <span>{memory.kind}</span>
-                        <span>
-                          {t("Source")}: {memory.source}
-                        </span>
-                        <span>
-                          {t("Confidence")}: {memoryConfidenceLabel(memory.confidence)}
-                        </span>
-                        <span>
-                          {t("Used")}: {memory.useCount}
-                        </span>
-                        <span>
-                          {t("Updated")}: {formatMemoryTime(memory.timeLastUsed ?? memory.timeUpdated)}
-                        </span>
-                      </div>
-                      <div class="fc-memory-actions">
-                        <Show
-                          when={editing() === memory.id}
-                          fallback={
-                            <>
-                              <button class="fc-button" type="button" onClick={() => startEdit(memory)}>
-                                {t("Edit")}
-                              </button>
-                              <button
-                                class="fc-button"
-                                type="button"
-                                onClick={() => void act((client) => client.memory.verify({ id: memory.id }))}
-                              >
-                                {t("Verify")}
-                              </button>
-                              <Show when={memory.status === "candidate"}>
-                                <button
-                                  class="fc-button fc-button-primary"
-                                  type="button"
-                                  onClick={() =>
-                                    void act((client) => client.memory.update({ id: memory.id, status: "active" }))
-                                  }
-                                >
-                                  {t("Approve")}
-                                </button>
-                              </Show>
-                              <button
-                                class="fc-button fc-button-danger"
-                                type="button"
-                                onClick={() => void act((client) => client.memory.remove({ id: memory.id }))}
-                              >
-                                {t("Delete")}
-                              </button>
-                            </>
-                          }
-                        >
-                          <button
-                            class="fc-button fc-button-primary"
-                            type="button"
-                            onClick={() => void saveEdit(memory.id)}
-                          >
-                            {t("Save")}
-                          </button>
-                          <button class="fc-button" type="button" onClick={() => setEditing(undefined)}>
-                            {t("Cancel")}
-                          </button>
-                        </Show>
-                      </div>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-          </Show>
+        </span>
+        <div class="fc-modal-actions">
+          <button class="fc-button" type="button" onClick={() => setCreating((value) => !value)}>
+            {t("Add memory")}
+          </button>
+          <button
+            class="fc-button"
+            type="button"
+            onClick={() => {
+              current += 1
+              void load(current)
+            }}
+          >
+            {t("Refresh")}
+          </button>
+          <ModalClose />
         </div>
       </div>
-    </Show>
+
+      <Show when={props.onAddNote}>
+        {/*
+          The harness's notes, not the engine's memory: what a person wants every turn in this
+          project to know, written by hand (H-37).
+        */}
+        <section class="fc-usage-block">
+          <h2>{t("Project notes")}</h2>
+          <p class="fc-usage-note">
+            {t("Kept by FlupCode and handed to every turn in this project, not the engine's memory.")}
+          </p>
+          <Show
+            when={(props.notes ?? []).length > 0}
+            fallback={<p class="fc-settings-hint">{t("Nothing written down.")}</p>}
+          >
+            <For each={props.notes}>
+              {(entry) => (
+                <div class="fc-usage-row fc-skill-row">
+                  <span class="fc-usage-key">{entry.text}</span>
+                  <button class="fc-button" type="button" onClick={() => props.onRemoveNote?.(entry.id)}>
+                    {t("Remove")}
+                  </button>
+                </div>
+              )}
+            </For>
+          </Show>
+          <div class="fc-field-row">
+            <label class="fc-field">
+              <span>{t("A decision or convention")}</span>
+              <input
+                class="fc-input"
+                value={note()}
+                placeholder={t("Use the server, not the browser, for anything durable")}
+                onInput={(event) => setNote(event.currentTarget.value)}
+              />
+            </label>
+            <button
+              class="fc-button"
+              type="button"
+              disabled={!note().trim()}
+              onClick={() => {
+                props.onAddNote?.(note().trim())
+                setNote("")
+              }}
+            >
+              {t("Add note")}
+            </button>
+          </div>
+        </section>
+      </Show>
+
+      <Show when={creating()}>
+        <div class="fc-memory-form">
+          <input
+            class="fc-input"
+            value={newTitle()}
+            placeholder={t("Title")}
+            onInput={(event) => setNewTitle(event.currentTarget.value)}
+          />
+          <textarea
+            class="fc-input fc-memory-textarea"
+            value={newContent()}
+            placeholder={t("What should the agent remember?")}
+            onInput={(event) => setNewContent(event.currentTarget.value)}
+          />
+          <div class="fc-memory-form-actions">
+            <select
+              class="fc-input fc-memory-select"
+              value={newScope()}
+              onChange={(event) => {
+                const value = event.currentTarget.value
+                if (isScopeValue(value)) setNewScope(value)
+              }}
+            >
+              <For each={["global", "project", "agent", "session"] as const}>
+                {(option) => <option value={option}>{memoryScopeLabel(option)}</option>}
+              </For>
+            </select>
+            <button
+              class="fc-button fc-button-primary"
+              type="button"
+              disabled={newTitle().trim().length === 0 || newContent().trim().length === 0}
+              onClick={() => void addMemory()}
+            >
+              {t("Save")}
+            </button>
+          </div>
+        </div>
+      </Show>
+
+      <div class="fc-memory-filters">
+        <input
+          class="fc-input fc-memory-search"
+          value={text()}
+          placeholder={t("Search memory")}
+          onInput={(event) => setText(event.currentTarget.value)}
+        />
+        <select
+          class="fc-input fc-memory-select"
+          value={scope()}
+          onChange={(event) => {
+            const value = event.currentTarget.value
+            if (isScopeFilter(value)) setScope(value)
+          }}
+        >
+          <For each={SCOPES}>
+            {(option) => (
+              <option value={option}>{option === "all" ? t("All scopes") : memoryScopeLabel(option)}</option>
+            )}
+          </For>
+        </select>
+        <select
+          class="fc-input fc-memory-select"
+          value={status()}
+          onChange={(event) => {
+            const value = event.currentTarget.value
+            if (isStatusFilter(value)) setStatus(value)
+          }}
+        >
+          <For each={STATUSES}>
+            {(option) => <option value={option}>{option === "all" ? t("All statuses") : t(option)}</option>}
+          </For>
+        </select>
+      </div>
+
+      <Show when={error()}>
+        <div class="fc-modal-error">{error()}</div>
+      </Show>
+
+      <Show when={!loading() || items().length > 0} fallback={<div class="fc-empty-state">{t("Loading…")}</div>}>
+        <Show
+          when={items().length > 0}
+          fallback={
+            <div class="fc-empty-state">
+              <span class="fc-empty-title">{t("Nothing remembered yet")}</span>
+              <span>{t("FlupCode learns useful project and user knowledge as you work.")}</span>
+            </div>
+          }
+        >
+          <ul class="fc-memory-list">
+            <For each={items()}>
+              {(memory) => (
+                <li class="fc-memory-row" classList={{ "fc-memory-row-editing": editing() === memory.id }}>
+                  <div class="fc-memory-row-head">
+                    <span class={`fc-memory-scope fc-memory-scope-${memory.scope}`}>
+                      {memoryScopeLabel(memory.scope)}
+                    </span>
+                    <span class="fc-memory-title">{memory.title}</span>
+                    <span class={`fc-memory-status fc-memory-status-${memory.status}`}>{t(memory.status)}</span>
+                  </div>
+                  <Show when={editing() === memory.id} fallback={<p class="fc-memory-content">{memory.content}</p>}>
+                    <input
+                      class="fc-input"
+                      value={editTitle()}
+                      onInput={(event) => setEditTitle(event.currentTarget.value)}
+                    />
+                    <textarea
+                      class="fc-input fc-memory-textarea"
+                      value={editContent()}
+                      onInput={(event) => setEditContent(event.currentTarget.value)}
+                    />
+                  </Show>
+                  <div class="fc-memory-meta">
+                    <span>{memory.kind}</span>
+                    <span>
+                      {t("Source")}: {memory.source}
+                    </span>
+                    <span>
+                      {t("Confidence")}: {memoryConfidenceLabel(memory.confidence)}
+                    </span>
+                    <span>
+                      {t("Used")}: {memory.useCount}
+                    </span>
+                    <span>
+                      {t("Updated")}: {formatMemoryTime(memory.timeLastUsed ?? memory.timeUpdated)}
+                    </span>
+                  </div>
+                  <div class="fc-memory-actions">
+                    <Show
+                      when={editing() === memory.id}
+                      fallback={
+                        <>
+                          <button class="fc-button" type="button" onClick={() => startEdit(memory)}>
+                            {t("Edit")}
+                          </button>
+                          <button
+                            class="fc-button"
+                            type="button"
+                            onClick={() => void act((client) => client.memory.verify({ id: memory.id }))}
+                          >
+                            {t("Verify")}
+                          </button>
+                          <Show when={memory.status === "candidate"}>
+                            <button
+                              class="fc-button fc-button-primary"
+                              type="button"
+                              onClick={() =>
+                                void act((client) => client.memory.update({ id: memory.id, status: "active" }))
+                              }
+                            >
+                              {t("Approve")}
+                            </button>
+                          </Show>
+                          <button
+                            class="fc-button fc-button-danger"
+                            type="button"
+                            onClick={() => void act((client) => client.memory.remove({ id: memory.id }))}
+                          >
+                            {t("Delete")}
+                          </button>
+                        </>
+                      }
+                    >
+                      <button
+                        class="fc-button fc-button-primary"
+                        type="button"
+                        onClick={() => void saveEdit(memory.id)}
+                      >
+                        {t("Save")}
+                      </button>
+                      <button class="fc-button" type="button" onClick={() => setEditing(undefined)}>
+                        {t("Cancel")}
+                      </button>
+                    </Show>
+                  </div>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+      </Show>
+    </Modal>
   )
 }

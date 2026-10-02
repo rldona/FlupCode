@@ -18,6 +18,7 @@ import type {
   RoutineSchedule,
   Workflow,
 } from "../types"
+import { Modal, ModalClose, modalOpen } from "./Modal"
 
 type RoutinesPanelProps = {
   open: boolean
@@ -152,7 +153,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   createEffect(() => {
     if (!props.open) return
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return
+      if (event.key !== "Escape" || event.defaultPrevented || modalOpen()) return
       props.onClose()
     }
     document.addEventListener("keydown", closeOnEscape)
@@ -432,122 +433,111 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
             </div>
             <Show when={selected()}>
               {(routine) => (
-                <div class="fc-modal-backdrop" onClick={() => setSelectedID(undefined)}>
-                  <article
-                    class="fc-modal fc-detail-modal fc-routines-detail"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label={routine().name}
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <div class="fc-modal-header">
-                      <span>{routine().name}</span>
-                      <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setSelectedID(undefined)}>×</button>
-                    </div>
-                    <div class="fc-modal-body">
-                      <div class="fc-routines-kicker">{t("Routine")}</div>
-                      <p>{routine().description || t("No description")}</p>
-                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show><Show when={budgetFact(routine().policy?.budget)}>{(fact) => <div><dt>{t("Budget")}</dt><dd>{fact()}</dd></div>}</Show><Show when={routine().retry}>{(retry) => <div><dt>{t("Retries")}</dt><dd>{t("{count} after {minutes} min", { count: retry().count, minutes: retry().backoffMinutes })}</dd></div>}</Show><Show when={routine().schedule.type !== "manual"}><div><dt>{t("Missed runs")}</dt><dd>{routine().missed === "skip" ? t("Skip them") : t("Run once when back")}</dd></div></Show></dl>
-                      <section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section>
-                      <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><Show when={props.runAttention(run)} fallback={<span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-stopped": run.status === "stopped" }} />}>{(level) => <AttentionMark level={level()} />}</Show><span><strong>{runLabel(run)}</strong><small>{formatDateTime(run.startedAt)}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
-                    </div>
-                    <div class="fc-dialog-actions">
-                      <Show
-                        when={deleteID() !== routine().id}
-                        fallback={
-                          <>
-                            <span>{t("Delete this routine?")}</span>
-                            <button class="fc-button" type="button" onClick={() => setDeleteID(undefined)}>{t("Cancel")}</button>
-                            <button class="fc-button fc-button-danger" type="button" onClick={() => { const id = routine().id; props.onRemove(id); setDeleteID(undefined); if (selectedID() === id) setSelectedID(undefined) }}>{t("Delete")}</button>
-                          </>
-                        }
-                      >
-                        <Show when={props.busy && props.busyRoutineID === routine().id} fallback={<button class="fc-button fc-button-primary" type="button" disabled={props.busy || !props.serverAvailable} onClick={() => props.onRun(routine().id)}>▶ {t("Run now")}</button>}>
-                          <button class="fc-button fc-button-danger" type="button" onClick={props.onStop}>{t("Stop run")}</button>
-                        </Show>
-                        <button class="fc-button" type="button" onClick={() => openEdit(routine())}>{t("Edit")}</button>
-                        <button class="fc-button" type="button" onClick={() => props.onToggle(routine().id)}>{routine().enabled ? t("Pause") : t("Resume")}</button>
-                        <button class="fc-button fc-button-danger" type="button" onClick={() => setDeleteID(routine().id)}>{t("Delete")}</button>
+                <Modal
+                  onClose={() => setSelectedID(undefined)}
+                  class="fc-modal fc-detail-modal fc-routines-detail"
+                  label={routine().name}
+                >
+                  <div class="fc-modal-header">
+                    <span>{routine().name}</span>
+                    <ModalClose />
+                  </div>
+                  <div class="fc-modal-body">
+                    <div class="fc-routines-kicker">{t("Routine")}</div>
+                    <p>{routine().description || t("No description")}</p>
+                    <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show><Show when={budgetFact(routine().policy?.budget)}>{(fact) => <div><dt>{t("Budget")}</dt><dd>{fact()}</dd></div>}</Show><Show when={routine().retry}>{(retry) => <div><dt>{t("Retries")}</dt><dd>{t("{count} after {minutes} min", { count: retry().count, minutes: retry().backoffMinutes })}</dd></div>}</Show><Show when={routine().schedule.type !== "manual"}><div><dt>{t("Missed runs")}</dt><dd>{routine().missed === "skip" ? t("Skip them") : t("Run once when back")}</dd></div></Show></dl>
+                    <section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section>
+                    <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><Show when={props.runAttention(run)} fallback={<span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-stopped": run.status === "stopped" }} />}>{(level) => <AttentionMark level={level()} />}</Show><span><strong>{runLabel(run)}</strong><small>{formatDateTime(run.startedAt)}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
+                  </div>
+                  <div class="fc-dialog-actions">
+                    <Show
+                      when={deleteID() !== routine().id}
+                      fallback={
+                        <>
+                          <span>{t("Delete this routine?")}</span>
+                          <button class="fc-button" type="button" onClick={() => setDeleteID(undefined)}>{t("Cancel")}</button>
+                          <button class="fc-button fc-button-danger" type="button" onClick={() => { const id = routine().id; props.onRemove(id); setDeleteID(undefined); if (selectedID() === id) setSelectedID(undefined) }}>{t("Delete")}</button>
+                        </>
+                      }
+                    >
+                      <Show when={props.busy && props.busyRoutineID === routine().id} fallback={<button class="fc-button fc-button-primary" type="button" disabled={props.busy || !props.serverAvailable} onClick={() => props.onRun(routine().id)}>▶ {t("Run now")}</button>}>
+                        <button class="fc-button fc-button-danger" type="button" onClick={props.onStop}>{t("Stop run")}</button>
                       </Show>
-                    </div>
-                  </article>
-                </div>
+                      <button class="fc-button" type="button" onClick={() => openEdit(routine())}>{t("Edit")}</button>
+                      <button class="fc-button" type="button" onClick={() => props.onToggle(routine().id)}>{routine().enabled ? t("Pause") : t("Resume")}</button>
+                      <button class="fc-button fc-button-danger" type="button" onClick={() => setDeleteID(routine().id)}>{t("Delete")}</button>
+                    </Show>
+                  </div>
+                </Modal>
               )}
             </Show>
           </Show>
-        <Show when={editing()}>
-          <div class="fc-modal-backdrop" onClick={() => setEditing(false)}>
-            <div
-              class="fc-modal fc-form-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label={selectedID() ? t("Edit routine") : t("New routine")}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div class="fc-modal-header">
-                <span>{selectedID() ? t("Edit routine") : t("New routine")}</span>
-                <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setEditing(false)}>
-                  ×
-                </button>
-              </div>
-              <div class="fc-modal-body">
-              <p class="fc-modal-note">{t("Configure the instructions, project and schedule.")}</p>
-              <div class="fc-routine-editor-grid">
-              <label>{t("Name")}<input class="fc-question-custom" value={form().name} placeholder={t("Routine name")} onInput={(event) => updateForm({ name: event.currentTarget.value })} /></label>
-              <label>{t("Description")}<input class="fc-question-custom" value={form().description} placeholder={t("What this routine does")} onInput={(event) => updateForm({ description: event.currentTarget.value })} /></label>
-              <label>{t("Mode")}<select class="fc-question-custom" value={isAction() ? "action" : "prompt"} onChange={(event) => setMode(event.currentTarget.value === "action" ? "action" : "prompt")}><option value="prompt">{t("A prompt")}</option><option value="action" disabled={props.actions.length === 0}>{t("A web action")}</option></select></label>
-              <Show when={!isAction()}><label class="fc-routine-editor-wide">{t("Instructions")}<textarea class="fc-question-custom fc-routine-instructions" value={form().prompt} placeholder={t("Tell the agent what to do…")} onInput={(event) => updateForm({ prompt: event.currentTarget.value })} /></label></Show>
-              <Show when={isAction()}>
-                <label class="fc-routine-editor-wide">{t("Action")}<select class="fc-question-custom" value={form().action?.id ?? ""} onChange={(event) => selectAction(event.currentTarget.value)}><For each={props.actions}>{(action) => <option value={action.id}>{action.id} — {action.description}</option>}</For></select></label>
-                <Show when={selectedProfile()}>
-                  {(profile) => (
-                    <Show when={Object.keys(profile().inputs).length > 0} fallback={<p class="fc-modal-note">{t("This action needs no inputs.")}</p>}>
-                      <For each={Object.entries(profile().inputs)}>{([name, kind]) => (
-                        <Show when={kind === "image"} fallback={<label>{name}<input class="fc-question-custom" value={actionInputValue(name)} onInput={(event) => updateActionInput(name, event.currentTarget.value)} /></label>}>
-                          <label class="fc-routine-editor-wide">{name} · {t("Artifact")}<select class="fc-question-custom" value={actionImageValue(name)} onChange={(event) => updateActionInput(name, event.currentTarget.value ? { artifactId: event.currentTarget.value } : undefined)}><option value="">{t("Choose an artifact")}</option><For each={imageArtifacts(props.artifacts)}>{(artifact) => <option value={artifact.id}>{artifact.title}</option>}</For></select></label>
-                        </Show>
-                      )}</For>
-                    </Show>
-                  )}
-                </Show>
-                <Show when={selectedProfile()}>{(profile) => <p class="fc-modal-note">{profile().sensitive ? t("This action has effects; the routine carries the strong approval.") : t("This action only reads; the routine carries the read approval.")}</p>}</Show>
-              </Show>
-              <label>{t("Workflow (optional)")}<select class="fc-question-custom" value={form().workflow?.name ?? ""} disabled={isAction()} onChange={(event) => updateForm({ workflow: event.currentTarget.value ? { name: event.currentTarget.value } : undefined })}><option value="">{t("No workflow")}</option><For each={workflows() ?? []}>{(workflow) => <option value={workflow.name}>{workflow.name}</option>}</For><Show when={form().workflow && !chosenWorkflow()}><option value={form().workflow!.name}>{form().workflow!.name}</option></Show></select></label>
-              <Show when={!isAction() && chosenWorkflow()}>
-                {(workflow) => (
-                  <For each={workflow().inputs}>{(name) => <label>{name}<input class="fc-question-custom" value={form().workflow?.inputs?.[name] ?? ""} placeholder={workflow().inputDefaults?.[name] ?? ""} title={workflow().inputHelp?.[name]} onInput={(event) => updateWorkflowInput(name, event.currentTarget.value)} /></label>}</For>
-                )}
-              </Show>
-              <label>{t("Fallback model")}<input class="fc-question-custom" value={form().policy?.fallback ?? ""} placeholder="provider/model" onInput={(event) => updateForm({ policy: { ...form().policy, fallback: event.currentTarget.value } })} /></label>
-              {/* Each run it starts stops at this budget, at the step that crosses it (UL-08). A web action has no model to spend. */}
-              <Show when={!isAction()}>
-                <label>{t("Budget (cost)")}<input class="fc-question-custom" inputMode="decimal" value={form().policy?.budget?.cost ?? ""} placeholder="USD" onInput={(event) => updateBudget({ cost: event.currentTarget.value })} /></label>
-                <label>{t("Budget (tokens)")}<input class="fc-question-custom" inputMode="numeric" value={form().policy?.budget?.tokens ?? ""} onInput={(event) => updateBudget({ tokens: event.currentTarget.value })} /></label>
-                <label>{t("Warn at (%)")}<input class="fc-question-custom" inputMode="numeric" value={form().policy?.budget?.softPct ?? ""} placeholder="80" title={t("Warn once when a run has spent this share of its budget")} onInput={(event) => updateBudget({ softPct: event.currentTarget.value })} /></label>
-              </Show>
-              <label>{t("Project")}<select class="fc-question-custom" value={form().projectDirectory ?? ""} onChange={(event) => updateForm({ projectDirectory: event.currentTarget.value || undefined })}><option value="">{t("No folder")}</option><For each={props.projects}>{(project) => <option value={project.directory}>{project.name}</option>}</For></select></label>
-              <label>{t("Agent")}<select class="fc-question-custom" value={form().agent ?? ""} onChange={(event) => updateForm({ agent: event.currentTarget.value || undefined })}><option value="">{t("Default")}</option><For each={props.agents.filter((agent) => !agent.hidden && agent.mode !== "subagent")}>{(agent) => <option value={agent.id}>{agent.id}</option>}</For></select></label>
-              <label>{t("Model")}<select class="fc-question-custom" value={formModelValue()} onChange={(event) => { const [providerID, ...id] = event.currentTarget.value.split("/"); updateForm({ model: providerID && id.length > 0 ? { providerID, id: id.join("/") } : undefined }) }}><option value="">{t("Default model")}</option><For each={modelGroups()}>{(group) => <optgroup label={group.providerID}><For each={group.items}>{(model) => <option value={`${group.providerID}/${model.id}`}>{model.name}</option>}</For></optgroup>}</For></select></label>
-              <label>{t("Schedule")}<select class="fc-question-custom" value={form().schedule.type} onChange={(event) => updateSchedule(event.currentTarget.value as RoutineSchedule["type"])}><option value="manual">{t("Manual")}</option><option value="hourly">{t("Every hour")}</option><option value="daily">{t("Daily")}</option><option value="weekdays">{t("Weekdays")}</option><option value="weekly">{t("Weekly")}</option><option value="interval">{t("Interval")}</option><option value="cron">{t("Cron expression")}</option></select></label>
-              <Show when={["daily", "weekdays", "weekly"].includes(form().schedule.type)}><label>{t("Time")}<input class="fc-question-custom" type="time" value={formTimeValue()} onInput={(event) => updateScheduleFields({ time: event.currentTarget.value })} /></label></Show>
-              <Show when={form().schedule.type === "weekly"}><label>{t("Day")}<select class="fc-question-custom" value={formDayValue()} onChange={(event) => updateScheduleFields({ day: Number(event.currentTarget.value) })}><For each={days}>{(day) => <option value={day[0]}>{t(day[1])}</option>}</For></select></label></Show>
-              <Show when={form().schedule.type === "interval"}><label>{t("Minutes")}<input class="fc-question-custom" type="number" min="1" value={formIntervalValue()} onInput={(event) => updateScheduleFields({ intervalMinutes: Number(event.currentTarget.value) })} /></label></Show>
-              <Show when={form().schedule.type === "cron"}><label>{t("Cron expression")}<input class="fc-question-custom" value={formExpressionValue()} placeholder="15 8 * * 1-5" spellcheck={false} onInput={(event) => updateScheduleFields({ expression: event.currentTarget.value })} /></label></Show>
-              <Show when={wallClock(form().schedule.type)}><label>{t("Time zone")}<input class="fc-question-custom" list="fc-routine-zones" value={form().schedule.timezone ?? ""} placeholder={Intl.DateTimeFormat().resolvedOptions().timeZone} spellcheck={false} onChange={(event) => updateScheduleFields({ timezone: event.currentTarget.value })} /><datalist id="fc-routine-zones"><For each={ZONES}>{(zone) => <option value={zone} />}</For></datalist></label></Show>
-              <Show when={form().schedule.type !== "manual"}>
-                <label>{t("Missed runs")}<select class="fc-question-custom" value={form().missed ?? "catch-up"} onChange={(event) => updateForm({ missed: event.currentTarget.value === "skip" ? "skip" : undefined })}><option value="catch-up">{t("Run once when back")}</option><option value="skip">{t("Skip them")}</option></select></label>
-                <label>{t("Retries")}<input class="fc-question-custom" type="number" min="0" max="5" value={form().retry?.count ?? 0} onInput={(event) => updateForm({ retry: { count: Math.max(0, Math.min(5, Math.round(Number(event.currentTarget.value) || 0))), backoffMinutes: form().retry?.backoffMinutes ?? 5 } })} /></label>
-                <Show when={(form().retry?.count ?? 0) > 0}><label>{t("Minutes before the first retry")}<input class="fc-question-custom" type="number" min="0" value={form().retry?.backoffMinutes ?? 5} onInput={(event) => updateForm({ retry: { count: form().retry?.count ?? 1, backoffMinutes: Math.max(0, Math.round(Number(event.currentTarget.value) || 0)) } })} /></label></Show>
-              </Show>
-              </div>
-              </div>
-              <div class="fc-dialog-actions">
-                <button class="fc-button" type="button" onClick={() => setEditing(false)}>{t("Cancel")}</button>
-                <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable || !form().name.trim() || (!form().prompt.trim() && !form().action)} onClick={submit}>{t("Save")}</button>
-              </div>
-            </div>
+        <Modal
+          open={editing()}
+          onClose={() => setEditing(false)}
+          class="fc-modal fc-form-modal"
+          label={selectedID() ? t("Edit routine") : t("New routine")}
+        >
+          <div class="fc-modal-header">
+            <span>{selectedID() ? t("Edit routine") : t("New routine")}</span>
+            <ModalClose />
           </div>
-        </Show>
+          <div class="fc-modal-body">
+          <p class="fc-modal-note">{t("Configure the instructions, project and schedule.")}</p>
+          <div class="fc-routine-editor-grid">
+          <label>{t("Name")}<input class="fc-question-custom" value={form().name} placeholder={t("Routine name")} onInput={(event) => updateForm({ name: event.currentTarget.value })} /></label>
+          <label>{t("Description")}<input class="fc-question-custom" value={form().description} placeholder={t("What this routine does")} onInput={(event) => updateForm({ description: event.currentTarget.value })} /></label>
+          <label>{t("Mode")}<select class="fc-question-custom" value={isAction() ? "action" : "prompt"} onChange={(event) => setMode(event.currentTarget.value === "action" ? "action" : "prompt")}><option value="prompt">{t("A prompt")}</option><option value="action" disabled={props.actions.length === 0}>{t("A web action")}</option></select></label>
+          <Show when={!isAction()}><label class="fc-routine-editor-wide">{t("Instructions")}<textarea class="fc-question-custom fc-routine-instructions" value={form().prompt} placeholder={t("Tell the agent what to do…")} onInput={(event) => updateForm({ prompt: event.currentTarget.value })} /></label></Show>
+          <Show when={isAction()}>
+            <label class="fc-routine-editor-wide">{t("Action")}<select class="fc-question-custom" value={form().action?.id ?? ""} onChange={(event) => selectAction(event.currentTarget.value)}><For each={props.actions}>{(action) => <option value={action.id}>{action.id} — {action.description}</option>}</For></select></label>
+            <Show when={selectedProfile()}>
+              {(profile) => (
+                <Show when={Object.keys(profile().inputs).length > 0} fallback={<p class="fc-modal-note">{t("This action needs no inputs.")}</p>}>
+                  <For each={Object.entries(profile().inputs)}>{([name, kind]) => (
+                    <Show when={kind === "image"} fallback={<label>{name}<input class="fc-question-custom" value={actionInputValue(name)} onInput={(event) => updateActionInput(name, event.currentTarget.value)} /></label>}>
+                      <label class="fc-routine-editor-wide">{name} · {t("Artifact")}<select class="fc-question-custom" value={actionImageValue(name)} onChange={(event) => updateActionInput(name, event.currentTarget.value ? { artifactId: event.currentTarget.value } : undefined)}><option value="">{t("Choose an artifact")}</option><For each={imageArtifacts(props.artifacts)}>{(artifact) => <option value={artifact.id}>{artifact.title}</option>}</For></select></label>
+                    </Show>
+                  )}</For>
+                </Show>
+              )}
+            </Show>
+            <Show when={selectedProfile()}>{(profile) => <p class="fc-modal-note">{profile().sensitive ? t("This action has effects; the routine carries the strong approval.") : t("This action only reads; the routine carries the read approval.")}</p>}</Show>
+          </Show>
+          <label>{t("Workflow (optional)")}<select class="fc-question-custom" value={form().workflow?.name ?? ""} disabled={isAction()} onChange={(event) => updateForm({ workflow: event.currentTarget.value ? { name: event.currentTarget.value } : undefined })}><option value="">{t("No workflow")}</option><For each={workflows() ?? []}>{(workflow) => <option value={workflow.name}>{workflow.name}</option>}</For><Show when={form().workflow && !chosenWorkflow()}><option value={form().workflow!.name}>{form().workflow!.name}</option></Show></select></label>
+          <Show when={!isAction() && chosenWorkflow()}>
+            {(workflow) => (
+              <For each={workflow().inputs}>{(name) => <label>{name}<input class="fc-question-custom" value={form().workflow?.inputs?.[name] ?? ""} placeholder={workflow().inputDefaults?.[name] ?? ""} title={workflow().inputHelp?.[name]} onInput={(event) => updateWorkflowInput(name, event.currentTarget.value)} /></label>}</For>
+            )}
+          </Show>
+          <label>{t("Fallback model")}<input class="fc-question-custom" value={form().policy?.fallback ?? ""} placeholder="provider/model" onInput={(event) => updateForm({ policy: { ...form().policy, fallback: event.currentTarget.value } })} /></label>
+          {/* Each run it starts stops at this budget, at the step that crosses it (UL-08). A web action has no model to spend. */}
+          <Show when={!isAction()}>
+            <label>{t("Budget (cost)")}<input class="fc-question-custom" inputMode="decimal" value={form().policy?.budget?.cost ?? ""} placeholder="USD" onInput={(event) => updateBudget({ cost: event.currentTarget.value })} /></label>
+            <label>{t("Budget (tokens)")}<input class="fc-question-custom" inputMode="numeric" value={form().policy?.budget?.tokens ?? ""} onInput={(event) => updateBudget({ tokens: event.currentTarget.value })} /></label>
+            <label>{t("Warn at (%)")}<input class="fc-question-custom" inputMode="numeric" value={form().policy?.budget?.softPct ?? ""} placeholder="80" title={t("Warn once when a run has spent this share of its budget")} onInput={(event) => updateBudget({ softPct: event.currentTarget.value })} /></label>
+          </Show>
+          <label>{t("Project")}<select class="fc-question-custom" value={form().projectDirectory ?? ""} onChange={(event) => updateForm({ projectDirectory: event.currentTarget.value || undefined })}><option value="">{t("No folder")}</option><For each={props.projects}>{(project) => <option value={project.directory}>{project.name}</option>}</For></select></label>
+          <label>{t("Agent")}<select class="fc-question-custom" value={form().agent ?? ""} onChange={(event) => updateForm({ agent: event.currentTarget.value || undefined })}><option value="">{t("Default")}</option><For each={props.agents.filter((agent) => !agent.hidden && agent.mode !== "subagent")}>{(agent) => <option value={agent.id}>{agent.id}</option>}</For></select></label>
+          <label>{t("Model")}<select class="fc-question-custom" value={formModelValue()} onChange={(event) => { const [providerID, ...id] = event.currentTarget.value.split("/"); updateForm({ model: providerID && id.length > 0 ? { providerID, id: id.join("/") } : undefined }) }}><option value="">{t("Default model")}</option><For each={modelGroups()}>{(group) => <optgroup label={group.providerID}><For each={group.items}>{(model) => <option value={`${group.providerID}/${model.id}`}>{model.name}</option>}</For></optgroup>}</For></select></label>
+          <label>{t("Schedule")}<select class="fc-question-custom" value={form().schedule.type} onChange={(event) => updateSchedule(event.currentTarget.value as RoutineSchedule["type"])}><option value="manual">{t("Manual")}</option><option value="hourly">{t("Every hour")}</option><option value="daily">{t("Daily")}</option><option value="weekdays">{t("Weekdays")}</option><option value="weekly">{t("Weekly")}</option><option value="interval">{t("Interval")}</option><option value="cron">{t("Cron expression")}</option></select></label>
+          <Show when={["daily", "weekdays", "weekly"].includes(form().schedule.type)}><label>{t("Time")}<input class="fc-question-custom" type="time" value={formTimeValue()} onInput={(event) => updateScheduleFields({ time: event.currentTarget.value })} /></label></Show>
+          <Show when={form().schedule.type === "weekly"}><label>{t("Day")}<select class="fc-question-custom" value={formDayValue()} onChange={(event) => updateScheduleFields({ day: Number(event.currentTarget.value) })}><For each={days}>{(day) => <option value={day[0]}>{t(day[1])}</option>}</For></select></label></Show>
+          <Show when={form().schedule.type === "interval"}><label>{t("Minutes")}<input class="fc-question-custom" type="number" min="1" value={formIntervalValue()} onInput={(event) => updateScheduleFields({ intervalMinutes: Number(event.currentTarget.value) })} /></label></Show>
+          <Show when={form().schedule.type === "cron"}><label>{t("Cron expression")}<input class="fc-question-custom" value={formExpressionValue()} placeholder="15 8 * * 1-5" spellcheck={false} onInput={(event) => updateScheduleFields({ expression: event.currentTarget.value })} /></label></Show>
+          <Show when={wallClock(form().schedule.type)}><label>{t("Time zone")}<input class="fc-question-custom" list="fc-routine-zones" value={form().schedule.timezone ?? ""} placeholder={Intl.DateTimeFormat().resolvedOptions().timeZone} spellcheck={false} onChange={(event) => updateScheduleFields({ timezone: event.currentTarget.value })} /><datalist id="fc-routine-zones"><For each={ZONES}>{(zone) => <option value={zone} />}</For></datalist></label></Show>
+          <Show when={form().schedule.type !== "manual"}>
+            <label>{t("Missed runs")}<select class="fc-question-custom" value={form().missed ?? "catch-up"} onChange={(event) => updateForm({ missed: event.currentTarget.value === "skip" ? "skip" : undefined })}><option value="catch-up">{t("Run once when back")}</option><option value="skip">{t("Skip them")}</option></select></label>
+            <label>{t("Retries")}<input class="fc-question-custom" type="number" min="0" max="5" value={form().retry?.count ?? 0} onInput={(event) => updateForm({ retry: { count: Math.max(0, Math.min(5, Math.round(Number(event.currentTarget.value) || 0))), backoffMinutes: form().retry?.backoffMinutes ?? 5 } })} /></label>
+            <Show when={(form().retry?.count ?? 0) > 0}><label>{t("Minutes before the first retry")}<input class="fc-question-custom" type="number" min="0" value={form().retry?.backoffMinutes ?? 5} onInput={(event) => updateForm({ retry: { count: form().retry?.count ?? 1, backoffMinutes: Math.max(0, Math.round(Number(event.currentTarget.value) || 0)) } })} /></label></Show>
+          </Show>
+          </div>
+          </div>
+          <div class="fc-dialog-actions">
+            <button class="fc-button" type="button" onClick={() => setEditing(false)}>{t("Cancel")}</button>
+            <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable || !form().name.trim() || (!form().prompt.trim() && !form().action)} onClick={submit}>{t("Save")}</button>
+          </div>
+        </Modal>
       </section>
     </Show>
   )

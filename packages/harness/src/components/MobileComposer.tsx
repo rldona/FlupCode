@@ -12,6 +12,7 @@ import type { AppView, ChatClass } from "../chat"
 import { dictationAvailable } from "../dictation"
 import { isCowork, isPlainChat, useDictation } from "../composer-core"
 import { isDeprecated } from "../model-catalog"
+import { Modal } from "./Modal"
 
 /**
  * The prompt dock on a phone controlling a computer, modelled on the Claude Code mobile app: a
@@ -90,30 +91,22 @@ const BottomSheet: Component<{
   onBack?: () => void
   children: JSX.Element
 }> = (props) => (
-  <div class="fc-sheet-backdrop" onClick={props.onClose}>
-    <div
-      class="fc-sheet"
-      role="dialog"
-      aria-modal="true"
-      aria-label={props.title}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div class="fc-sheet-grip" aria-hidden="true" />
-      <div class="fc-sheet-header">
-        <button
-          class="fc-sheet-icon"
-          type="button"
-          aria-label={props.onBack ? t("Back") : t("Close")}
-          onClick={() => (props.onBack ?? props.onClose)()}
-        >
-          <Icon path={props.onBack ? "M15 18l-6-6 6-6" : "M6 6l12 12M18 6L6 18"} />
-        </button>
-        <span class="fc-sheet-title">{props.title}</span>
-        <span class="fc-sheet-icon" aria-hidden="true" />
-      </div>
-      <div class="fc-sheet-body">{props.children}</div>
+  <Modal onClose={props.onClose} backdropClass="fc-sheet-backdrop" class="fc-sheet" label={props.title}>
+    <div class="fc-sheet-grip" aria-hidden="true" />
+    <div class="fc-sheet-header">
+      <button
+        class="fc-sheet-icon"
+        type="button"
+        aria-label={props.onBack ? t("Back") : t("Close")}
+        onClick={() => (props.onBack ?? props.onClose)()}
+      >
+        <Icon path={props.onBack ? "M15 18l-6-6 6-6" : "M6 6l12 12M18 6L6 18"} />
+      </button>
+      <span class="fc-sheet-title">{props.title}</span>
+      <span class="fc-sheet-icon" aria-hidden="true" />
     </div>
-  </div>
+    <div class="fc-sheet-body">{props.children}</div>
+  </Modal>
 )
 
 const Option: Component<{ label: string; detail?: string; active?: boolean; badge?: string; onClick: () => void }> = (

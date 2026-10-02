@@ -5,6 +5,7 @@ import { runTitle } from "../run-title"
 import { t } from "../i18n"
 import { sessionTitle } from "../session-title"
 import { isCoworkSession } from "../chat"
+import { Modal, ModalClose } from "./Modal"
 
 /** What can be found. The order is the order of the tabs. */
 export const KINDS = ["session", "project", "artifact", "routine", "run", "workflow", "command", "file"] as const
@@ -292,149 +293,133 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
   })
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-palette"
-          role="dialog"
-          aria-modal="true"
+    <Modal open={props.open} onClose={props.onClose} class="fc-palette" label={t("Search")}>
+      <div class="fc-palette-head">
+        <input
+          ref={input}
+          class="fc-palette-input"
+          value={query()}
+          placeholder={t("Search")}
           aria-label={t("Search")}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-palette-head">
-            <input
-              ref={input}
-              class="fc-palette-input"
-              value={query()}
-              placeholder={t("Search")}
-              aria-label={t("Search")}
-              onInput={(event) => {
-                setQuery(event.currentTarget.value)
-                setActive(0)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  props.onClose()
-                  return
-                }
-                if (event.key === "ArrowDown") {
-                  event.preventDefault()
-                  moveItem(1)
-                  return
-                }
-                if (event.key === "ArrowUp") {
-                  event.preventDefault()
-                  moveItem(-1)
-                  return
-                }
-                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                  // Only when the caret has nowhere to go, or typing a query becomes impossible.
-                  const caret = event.currentTarget.selectionStart ?? 0
-                  const atEdge = event.key === "ArrowLeft" ? caret === 0 : caret === event.currentTarget.value.length
-                  if (!atEdge) return
-                  event.preventDefault()
-                  moveTab(event.key === "ArrowLeft" ? -1 : 1)
-                  return
-                }
-                if (event.key === "Enter") {
-                  event.preventDefault()
-                  select(items()[active()])
-                }
-              }}
-            />
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
-          </div>
+          onInput={(event) => {
+            setQuery(event.currentTarget.value)
+            setActive(0)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault()
+              moveItem(1)
+              return
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault()
+              moveItem(-1)
+              return
+            }
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+              // Only when the caret has nowhere to go, or typing a query becomes impossible.
+              const caret = event.currentTarget.selectionStart ?? 0
+              const atEdge = event.key === "ArrowLeft" ? caret === 0 : caret === event.currentTarget.value.length
+              if (!atEdge) return
+              event.preventDefault()
+              moveTab(event.key === "ArrowLeft" ? -1 : 1)
+              return
+            }
+            if (event.key === "Enter") {
+              event.preventDefault()
+              select(items()[active()])
+            }
+          }}
+        />
+        <ModalClose />
+      </div>
 
-          <Show when={tabs().length > 1}>
-            <div class="fc-palette-tabs">
+      <Show when={tabs().length > 1}>
+        <div class="fc-palette-tabs">
+          <button
+            class="fc-palette-tab"
+            classList={{ "fc-palette-tab-active": !tab() }}
+            type="button"
+            onClick={() => {
+              setTab(undefined)
+              setActive(0)
+              input?.focus()
+            }}
+          >
+            {t("All")}
+          </button>
+          <For each={tabs()}>
+            {(kind) => (
               <button
                 class="fc-palette-tab"
-                classList={{ "fc-palette-tab-active": !tab() }}
+                classList={{ "fc-palette-tab-active": tab() === kind }}
                 type="button"
                 onClick={() => {
-                  setTab(undefined)
+                  setTab(kind)
                   setActive(0)
                   input?.focus()
                 }}
               >
-                {t("All")}
+                {t(LABELS[kind])}
               </button>
-              <For each={tabs()}>
-                {(kind) => (
-                  <button
-                    class="fc-palette-tab"
-                    classList={{ "fc-palette-tab-active": tab() === kind }}
-                    type="button"
-                    onClick={() => {
-                      setTab(kind)
-                      setActive(0)
-                      input?.focus()
-                    }}
-                  >
-                    {t(LABELS[kind])}
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          <Show when={items().length > 0} fallback={<div class="fc-palette-empty">{t("No results")}</div>}>
-            <div class="fc-palette-list" ref={list}>
-              <For each={groups()}>
-                {(group) => (
-                  <>
-                    <Show when={!tab()}>
-                      <div class="fc-palette-group">{t(LABELS[group.kind])}</div>
-                    </Show>
-                    <For each={group.items}>
-                      {(item) => {
-                        const index = () => items().indexOf(item)
-                        return (
-                          <button
-                            class="fc-palette-item"
-                            classList={{ "fc-palette-item-active": active() === index() && !item.disabled }}
-                            type="button"
-                            disabled={item.disabled}
-                            onMouseEnter={() => setActive(index())}
-                            onClick={() => select(item)}
-                          >
-                            <span class="fc-palette-badge">{BADGES[item.kind]}</span>
-                            <span class="fc-palette-label">{item.label}</span>
-                            <Show when={item.cowork}>
-                              <span class="fc-cowork-badge">{t("Cowork")}</span>
-                            </Show>
-                            <Show when={item.detail}>
-                              <span class="fc-palette-desc">{item.detail}</span>
-                            </Show>
-                          </button>
-                        )
-                      }}
-                    </For>
-                  </>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          <div class="fc-palette-foot">
-            <span>
-              {t("Select")} <kbd>↑</kbd>
-              <kbd>↓</kbd>
-            </span>
-            <Show when={tabs().length > 1}>
-              <span>
-                {t("Change type")} <kbd>←</kbd>
-                <kbd>→</kbd>
-              </span>
-            </Show>
-            <span>
-              {t("Open")} <kbd>↵</kbd>
-            </span>
-          </div>
+            )}
+          </For>
         </div>
+      </Show>
+
+      <Show when={items().length > 0} fallback={<div class="fc-palette-empty">{t("No results")}</div>}>
+        <div class="fc-palette-list" ref={list}>
+          <For each={groups()}>
+            {(group) => (
+              <>
+                <Show when={!tab()}>
+                  <div class="fc-palette-group">{t(LABELS[group.kind])}</div>
+                </Show>
+                <For each={group.items}>
+                  {(item) => {
+                    const index = () => items().indexOf(item)
+                    return (
+                      <button
+                        class="fc-palette-item"
+                        classList={{ "fc-palette-item-active": active() === index() && !item.disabled }}
+                        type="button"
+                        disabled={item.disabled}
+                        onMouseEnter={() => setActive(index())}
+                        onClick={() => select(item)}
+                      >
+                        <span class="fc-palette-badge">{BADGES[item.kind]}</span>
+                        <span class="fc-palette-label">{item.label}</span>
+                        <Show when={item.cowork}>
+                          <span class="fc-cowork-badge">{t("Cowork")}</span>
+                        </Show>
+                        <Show when={item.detail}>
+                          <span class="fc-palette-desc">{item.detail}</span>
+                        </Show>
+                      </button>
+                    )
+                  }}
+                </For>
+              </>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <div class="fc-palette-foot">
+        <span>
+          {t("Select")} <kbd>↑</kbd>
+          <kbd>↓</kbd>
+        </span>
+        <Show when={tabs().length > 1}>
+          <span>
+            {t("Change type")} <kbd>←</kbd>
+            <kbd>→</kbd>
+          </span>
+        </Show>
+        <span>
+          {t("Open")} <kbd>↵</kbd>
+        </span>
       </div>
-    </Show>
+    </Modal>
   )
 }

@@ -1,7 +1,6 @@
-import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
 import { degradedText, modelDisplayName } from "../adaptive-copy"
-import { holdModalFocus } from "../modal-focus"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { adaptiveSurfaces, createHarnessClient, type DecisionPageFilter } from "../client"
@@ -14,6 +13,7 @@ import type {
   ValueGateStatus,
 } from "../types"
 import { PanelFailure } from "./PanelBoundary"
+import { Modal, ModalClose } from "./Modal"
 
 type DecisionsPanelProps = {
   open: boolean
@@ -432,27 +432,21 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
         </div>
 
         <Show when={opened()}>
-          {(decision) => (
-            <div class="fc-modal-backdrop" onClick={() => setOpened(undefined)}>
-              <div
-                ref={(node) => {
-                  const id = decision().id
-                  onCleanup(holdModalFocus(node, () => rowOf(id)))
-                }}
+          {(decision) => {
+            // The row it was opened from, read now: once it closes, `decision` is gone.
+            const id = decision().id
+            return (
+              <Modal
+                onClose={() => setOpened(undefined)}
+                returnFocus={() => rowOf(id)}
                 class="fc-modal fc-form-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-label={t("Decision")}
-                tabIndex={-1}
-                onClick={(event) => event.stopPropagation()}
+                label={t("Decision")}
               >
                 <div class="fc-modal-header">
                   <span class="fc-modal-heading" dir="auto">
                     {kindTitle(decision())}
                   </span>
-                  <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setOpened(undefined)}>
-                    ×
-                  </button>
+                  <ModalClose />
                 </div>
                 <div class="fc-modal-body">
                   <Show
@@ -491,9 +485,9 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
                     </div>
                   </details>
                 </div>
-              </div>
-            </div>
-          )}
+              </Modal>
+            )
+          }}
         </Show>
       </section>
     </Show>

@@ -4,6 +4,7 @@ import type { AgentFile } from "../types"
 import type { AgentInfo, McpServer, ModelInfo } from "../engine-types"
 import { effortLabel } from "../effort"
 import { ModelPicker } from "./ModelPicker"
+import { Modal, ModalClose } from "./Modal"
 
 type AgentsPanelProps = {
   open: boolean
@@ -367,276 +368,269 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
             </Show>
           </section>
 
-          <Show when={editing()}>
-            <div class="fc-modal-backdrop" onClick={closeEditor}>
-              <div
-                class="fc-modal fc-form-modal fc-agent-form"
-                role="dialog"
-                aria-modal="true"
-                aria-label={creating() ? t("New agent") : selected()?.name}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div class="fc-modal-header">
-                  <span>{creating() ? t("New agent") : selected()?.name}</span>
-                  <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={closeEditor}>
-                    ×
-                  </button>
+          <Modal
+            open={editing()}
+            onClose={closeEditor}
+            class="fc-modal fc-form-modal fc-agent-form"
+            label={creating() ? t("New agent") : (selected()?.name ?? "")}
+          >
+              <div class="fc-modal-header">
+                <span>{creating() ? t("New agent") : selected()?.name}</span>
+                <ModalClose />
+              </div>
+              <div class="fc-modal-body">
+              <Show when={selected()?.problem}>
+              {(why) => (
+                <div class="fc-routines-notice">
+                  {t("Saving would overwrite what this file says: {why}", { why: why() })}
                 </div>
-                <div class="fc-modal-body">
-                <Show when={selected()?.problem}>
-                {(why) => (
-                  <div class="fc-routines-notice">
-                    {t("Saving would overwrite what this file says: {why}", { why: why() })}
-                  </div>
-                )}
-              </Show>
+              )}
+            </Show>
 
+            <label class="fc-field">
+              <span>{t("Name")}</span>
+              <input
+                class="fc-question-custom"
+                value={name()}
+                disabled={!creating()}
+                onInput={(event) => setName(event.currentTarget.value)}
+                placeholder="reviewer"
+              />
+            </label>
+            <Show when={creating()}>
               <label class="fc-field">
-                <span>{t("Name")}</span>
+                <span>{t("Where")}</span>
+                <select
+                  class="fc-question-custom"
+                  value={scope()}
+                  onChange={(event) => setScope(event.currentTarget.value as "global" | "project")}
+                >
+                  <option value="project" disabled={!props.hasProject}>
+                    {t("This project")}
+                  </option>
+                  <option value="global">{t("Everywhere")}</option>
+                </select>
+              </label>
+            </Show>
+
+            <label class="fc-field">
+              <span>{t("Description")}</span>
+              <textarea
+                class="fc-field-area fc-agent-description"
+                rows={3}
+                value={form().description}
+                onInput={(event) => setForm({ ...form(), description: event.currentTarget.value })}
+                placeholder={t("When to use it")}
+              />
+            </label>
+
+            <div class="fc-field-row">
+              <label class="fc-field">
+                <span>{t("Mode")}</span>
+                <select
+                  class="fc-question-custom"
+                  value={form().mode}
+                  onChange={(event) => setForm({ ...form(), mode: event.currentTarget.value })}
+                >
+                  <For each={MODES}>{(mode) => <option value={mode}>{t(mode)}</option>}</For>
+                </select>
+              </label>
+              <label class="fc-field">
+                <span>{t("Model")}</span>
+                <button
+                  class="fc-question-custom fc-agent-model-button"
+                  type="button"
+                  aria-haspopup="dialog"
+                  onClick={() => setModelPickerOpen(true)}
+                >
+                  <span class="fc-agent-model-name">{modelName() || t("the default")}</span>
+                  <span class="fc-agent-model-chevron" aria-hidden="true">
+                    ▾
+                  </span>
+                </button>
+              </label>
+              <label class="fc-field">
+                <span>{t("Variant")}</span>
+                <select
+                  class="fc-question-custom"
+                  value={form().variant}
+                  onChange={(event) => setForm({ ...form(), variant: event.currentTarget.value })}
+                >
+                  <option value="">{t("unset")}</option>
+                  <For each={variantOptions()}>{(id) => <option value={id}>{effortLabel(id)}</option>}</For>
+                </select>
+              </label>
+            </div>
+
+            <div class="fc-field-row">
+              <label class="fc-field">
+                <span>{t("Temperature")}</span>
                 <input
                   class="fc-question-custom"
-                  value={name()}
-                  disabled={!creating()}
-                  onInput={(event) => setName(event.currentTarget.value)}
-                  placeholder="reviewer"
+                  value={form().temperature}
+                  onInput={(event) => setForm({ ...form(), temperature: event.currentTarget.value })}
+                  placeholder={t("unset")}
                 />
               </label>
-              <Show when={creating()}>
-                <label class="fc-field">
-                  <span>{t("Where")}</span>
-                  <select
-                    class="fc-question-custom"
-                    value={scope()}
-                    onChange={(event) => setScope(event.currentTarget.value as "global" | "project")}
-                  >
-                    <option value="project" disabled={!props.hasProject}>
-                      {t("This project")}
-                    </option>
-                    <option value="global">{t("Everywhere")}</option>
-                  </select>
-                </label>
-              </Show>
-
               <label class="fc-field">
-                <span>{t("Description")}</span>
-                <textarea
-                  class="fc-field-area fc-agent-description"
-                  rows={3}
-                  value={form().description}
-                  onInput={(event) => setForm({ ...form(), description: event.currentTarget.value })}
-                  placeholder={t("When to use it")}
+                <span>{t("Steps")}</span>
+                <input
+                  class="fc-question-custom"
+                  value={form().steps}
+                  onInput={(event) => setForm({ ...form(), steps: event.currentTarget.value })}
+                  placeholder={t("unset")}
                 />
               </label>
+              <label class="fc-field">
+                <span>{t("Colour")}</span>
+                <input
+                  class="fc-question-custom"
+                  value={form().color}
+                  onInput={(event) => setForm({ ...form(), color: event.currentTarget.value })}
+                  placeholder="#44BA81"
+                />
+              </label>
+            </div>
 
-              <div class="fc-field-row">
-                <label class="fc-field">
-                  <span>{t("Mode")}</span>
-                  <select
-                    class="fc-question-custom"
-                    value={form().mode}
-                    onChange={(event) => setForm({ ...form(), mode: event.currentTarget.value })}
-                  >
-                    <For each={MODES}>{(mode) => <option value={mode}>{t(mode)}</option>}</For>
-                  </select>
-                </label>
-                <label class="fc-field">
-                  <span>{t("Model")}</span>
+            <div class="fc-field-row">
+              <label class="fc-check">
+                <input
+                  type="checkbox"
+                  checked={form().hidden}
+                  onChange={(event) => setForm({ ...form(), hidden: event.currentTarget.checked })}
+                />
+                <span>{t("Hidden from the @ menu")}</span>
+              </label>
+              <label class="fc-check">
+                <input
+                  type="checkbox"
+                  checked={form().disable}
+                  onChange={(event) => setForm({ ...form(), disable: event.currentTarget.checked })}
+                />
+                <span>{t("Disabled")}</span>
+              </label>
+            </div>
+
+            <h3>{t("Tools")}</h3>
+            <p class="fc-usage-note">{t("Click to switch off, again to switch on, again to leave it unset.")}</p>
+            <div class="fc-context-chips">
+              <For each={[...props.tools, ...props.mcp.map((server) => server.name)]}>
+                {(tool) => (
                   <button
-                    class="fc-question-custom fc-agent-model-button"
+                    class="fc-context-chip fc-agent-tool"
                     type="button"
-                    aria-haspopup="dialog"
-                    onClick={() => setModelPickerOpen(true)}
+                    data-state={form().tools[tool] === undefined ? "unset" : form().tools[tool] ? "on" : "off"}
+                    onClick={() => toggleTool(tool)}
                   >
-                    <span class="fc-agent-model-name">{modelName() || t("the default")}</span>
-                    <span class="fc-agent-model-chevron" aria-hidden="true">
-                      ▾
-                    </span>
+                    {tool}
                   </button>
-                </label>
-                <label class="fc-field">
-                  <span>{t("Variant")}</span>
-                  <select
-                    class="fc-question-custom"
-                    value={form().variant}
-                    onChange={(event) => setForm({ ...form(), variant: event.currentTarget.value })}
-                  >
-                    <option value="">{t("unset")}</option>
-                    <For each={variantOptions()}>{(id) => <option value={id}>{effortLabel(id)}</option>}</For>
-                  </select>
-                </label>
-              </div>
-
-              <div class="fc-field-row">
-                <label class="fc-field">
-                  <span>{t("Temperature")}</span>
-                  <input
-                    class="fc-question-custom"
-                    value={form().temperature}
-                    onInput={(event) => setForm({ ...form(), temperature: event.currentTarget.value })}
-                    placeholder={t("unset")}
-                  />
-                </label>
-                <label class="fc-field">
-                  <span>{t("Steps")}</span>
-                  <input
-                    class="fc-question-custom"
-                    value={form().steps}
-                    onInput={(event) => setForm({ ...form(), steps: event.currentTarget.value })}
-                    placeholder={t("unset")}
-                  />
-                </label>
-                <label class="fc-field">
-                  <span>{t("Colour")}</span>
-                  <input
-                    class="fc-question-custom"
-                    value={form().color}
-                    onInput={(event) => setForm({ ...form(), color: event.currentTarget.value })}
-                    placeholder="#44BA81"
-                  />
-                </label>
-              </div>
-
-              <div class="fc-field-row">
-                <label class="fc-check">
-                  <input
-                    type="checkbox"
-                    checked={form().hidden}
-                    onChange={(event) => setForm({ ...form(), hidden: event.currentTarget.checked })}
-                  />
-                  <span>{t("Hidden from the @ menu")}</span>
-                </label>
-                <label class="fc-check">
-                  <input
-                    type="checkbox"
-                    checked={form().disable}
-                    onChange={(event) => setForm({ ...form(), disable: event.currentTarget.checked })}
-                  />
-                  <span>{t("Disabled")}</span>
-                </label>
-              </div>
-
-              <h3>{t("Tools")}</h3>
-              <p class="fc-usage-note">{t("Click to switch off, again to switch on, again to leave it unset.")}</p>
-              <div class="fc-context-chips">
-                <For each={[...props.tools, ...props.mcp.map((server) => server.name)]}>
-                  {(tool) => (
-                    <button
-                      class="fc-context-chip fc-agent-tool"
-                      type="button"
-                      data-state={form().tools[tool] === undefined ? "unset" : form().tools[tool] ? "on" : "off"}
-                      onClick={() => toggleTool(tool)}
-                    >
-                      {tool}
-                    </button>
-                  )}
-                </For>
-              </div>
-
-              <h3>{t("Permissions")}</h3>
-              <div class="fc-permission-bulk">
-                <For each={BULK_ACTIONS}>
-                  {(bulk) => (
-                    <button class="fc-button" type="button" onClick={() => setAllPermissions(bulk.action)}>
-                      {t(bulk.label)}
-                    </button>
-                  )}
-                </For>
-              </div>
-              <For each={PERMISSIONS}>
-                {(key) => (
-                  <div class="fc-usage-row">
-                    <span class="fc-usage-key">{key}</span>
-                    <select
-                      class="fc-question-custom fc-agent-permission"
-                      value={form().permission[key] ?? ""}
-                      onChange={(event) => setPermission(key, event.currentTarget.value)}
-                    >
-                      <option value="">{t("unset")}</option>
-                      <For each={ACTIONS}>{(action) => <option value={action}>{t(action)}</option>}</For>
-                    </select>
-                  </div>
                 )}
               </For>
-
-              <h3>{t("Prompt")}</h3>
-              <p class="fc-usage-note">{t("The body of the file: what this agent is told before your own message.")}</p>
-              <textarea
-                class="fc-question-custom fc-agent-prompt"
-                rows={10}
-                value={prompt()}
-                onInput={(event) => setPrompt(event.currentTarget.value)}
-              />
-
-              <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
-
-              </div>
-              <div class="fc-dialog-actions">
-                <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
-                  {saving() ? t("Saving…") : t("Save")}
-                </button>
-                <Show when={selected()}>
-                  {(file) => (
-                    <Show
-                      when={confirming() === file().path}
-                      fallback={
-                        <button class="fc-button" type="button" onClick={() => setConfirming(file().path)}>
-                          {t("Delete")}
-                        </button>
-                      }
-                    >
-                      <span class="fc-confirm-inline">
-                        <span>{t("Delete {name}?", { name: file().name })}</span>
-                        <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
-                          {t("Cancel")}
-                        </button>
-                        <button
-                          class="fc-button fc-button-danger"
-                          type="button"
-                          onClick={async () => {
-                            await props.onDelete(file().path)
-                            setConfirming(undefined)
-                            setOpenPath(undefined)
-                          }}
-                        >
-                          {t("Delete")}
-                        </button>
-                      </span>
-                    </Show>
-                  )}
-                </Show>
-              </div>
-              <Show when={selected()}>
-                {(file) => <p class="fc-usage-note fc-agent-path">{file().path}</p>}
-              </Show>
-              {/*
-                The same picker the dock opens: an agent file names its model as `provider/model`,
-                and typing that by hand is knowing an id the engine already lists. It sits inside the
-                dialog so its own backdrop click closes the picker and not the editor behind it.
-              */}
-              <ModelPicker
-                open={modelPickerOpen()}
-                models={props.models}
-                selectedKey={form().model || undefined}
-                favorites={props.favorites}
-                emptyLabel={t("Default model")}
-                onClear={() => {
-                  setForm({ ...form(), model: "" })
-                  setModelPickerOpen(false)
-                }}
-                onSelect={(providerID, id) => {
-                  // Another model may not offer the level this one had; the engine rejects an unknown
-                  // one, so it is dropped rather than written into the file.
-                  const model = props.models.find((entry) => entry.providerID === providerID && entry.id === id)
-                  const keepsVariant = !!form().variant && (model?.variants.some((v) => v.id === form().variant) ?? false)
-                  setForm({ ...form(), model: `${providerID}/${id}`, variant: keepsVariant ? form().variant : "" })
-                  setModelPickerOpen(false)
-                }}
-                onToggleFavorite={props.onToggleFavorite}
-                onClose={() => setModelPickerOpen(false)}
-              />
-              </div>
             </div>
-          </Show>
+
+            <h3>{t("Permissions")}</h3>
+            <div class="fc-permission-bulk">
+              <For each={BULK_ACTIONS}>
+                {(bulk) => (
+                  <button class="fc-button" type="button" onClick={() => setAllPermissions(bulk.action)}>
+                    {t(bulk.label)}
+                  </button>
+                )}
+              </For>
+            </div>
+            <For each={PERMISSIONS}>
+              {(key) => (
+                <div class="fc-usage-row">
+                  <span class="fc-usage-key">{key}</span>
+                  <select
+                    class="fc-question-custom fc-agent-permission"
+                    value={form().permission[key] ?? ""}
+                    onChange={(event) => setPermission(key, event.currentTarget.value)}
+                  >
+                    <option value="">{t("unset")}</option>
+                    <For each={ACTIONS}>{(action) => <option value={action}>{t(action)}</option>}</For>
+                  </select>
+                </div>
+              )}
+            </For>
+
+            <h3>{t("Prompt")}</h3>
+            <p class="fc-usage-note">{t("The body of the file: what this agent is told before your own message.")}</p>
+            <textarea
+              class="fc-question-custom fc-agent-prompt"
+              rows={10}
+              value={prompt()}
+              onInput={(event) => setPrompt(event.currentTarget.value)}
+            />
+
+            <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
+
+            </div>
+            <div class="fc-dialog-actions">
+              <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
+                {saving() ? t("Saving…") : t("Save")}
+              </button>
+              <Show when={selected()}>
+                {(file) => (
+                  <Show
+                    when={confirming() === file().path}
+                    fallback={
+                      <button class="fc-button" type="button" onClick={() => setConfirming(file().path)}>
+                        {t("Delete")}
+                      </button>
+                    }
+                  >
+                    <span class="fc-confirm-inline">
+                      <span>{t("Delete {name}?", { name: file().name })}</span>
+                      <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
+                        {t("Cancel")}
+                      </button>
+                      <button
+                        class="fc-button fc-button-danger"
+                        type="button"
+                        onClick={async () => {
+                          await props.onDelete(file().path)
+                          setConfirming(undefined)
+                          setOpenPath(undefined)
+                        }}
+                      >
+                        {t("Delete")}
+                      </button>
+                    </span>
+                  </Show>
+                )}
+              </Show>
+            </div>
+            <Show when={selected()}>
+              {(file) => <p class="fc-usage-note fc-agent-path">{file().path}</p>}
+            </Show>
+            {/*
+              The same picker the dock opens: an agent file names its model as `provider/model`,
+              and typing that by hand is knowing an id the engine already lists. It sits inside the
+              dialog so its own backdrop click closes the picker and not the editor behind it.
+            */}
+            <ModelPicker
+              open={modelPickerOpen()}
+              models={props.models}
+              selectedKey={form().model || undefined}
+              favorites={props.favorites}
+              emptyLabel={t("Default model")}
+              onClear={() => {
+                setForm({ ...form(), model: "" })
+                setModelPickerOpen(false)
+              }}
+              onSelect={(providerID, id) => {
+                // Another model may not offer the level this one had; the engine rejects an unknown
+                // one, so it is dropped rather than written into the file.
+                const model = props.models.find((entry) => entry.providerID === providerID && entry.id === id)
+                const keepsVariant = !!form().variant && (model?.variants.some((v) => v.id === form().variant) ?? false)
+                setForm({ ...form(), model: `${providerID}/${id}`, variant: keepsVariant ? form().variant : "" })
+                setModelPickerOpen(false)
+              }}
+              onToggleFavorite={props.onToggleFavorite}
+              onClose={() => setModelPickerOpen(false)}
+            />
+          </Modal>
 
           {/*
             Said rather than quietly missing: the engine reports more agents than there are files,

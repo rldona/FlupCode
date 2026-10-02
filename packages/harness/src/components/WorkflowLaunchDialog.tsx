@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ContextPack, RunPolicy, Workflow } from "../types"
+import { Modal, ModalClose } from "./Modal"
 
 export type WorkflowLaunch = {
   inputs: Record<string, string>
@@ -99,129 +100,122 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
     setPacks((current) => (on ? [...current, name] : current.filter((entry) => entry !== name)))
 
   return (
-    <Show when={props.open && props.workflow}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal fc-launch-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("Run {name}", { name: props.workflow?.name ?? "" })}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span>{t("Run {name}", { name: props.workflow?.name ?? "" })}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
-          </div>
+    <Modal
+      open={props.open && !!props.workflow}
+      onClose={props.onClose}
+      class="fc-modal fc-launch-modal"
+      label={t("Run {name}", { name: props.workflow?.name ?? "" })}
+    >
+      <div class="fc-modal-header">
+        <span>{t("Run {name}", { name: props.workflow?.name ?? "" })}</span>
+        <ModalClose />
+      </div>
 
-          <p class="fc-usage-note">{props.workflow?.description}</p>
+      <p class="fc-usage-note">{props.workflow?.description}</p>
 
-          <For each={props.workflow?.inputs ?? []}>
-            {(name) => (
-              <label class="fc-field">
-                <span>{name}</span>
-                <input
-                  class="fc-question-custom"
-                  value={inputs()[name] ?? ""}
-                  placeholder={props.workflow?.inputHelp?.[name] ?? props.workflow?.inputDefaults?.[name] ?? name}
-                  title={props.workflow?.inputHelp?.[name]}
-                  onInput={(event) => setInputs((current) => ({ ...current, [name]: event.currentTarget.value }))}
-                />
-              </label>
-            )}
-          </For>
-
-          <Show when={props.packs.length > 0}>
-            <div class="fc-field">
-              <span>{t("Context packs")}</span>
-              <div class="fc-launch-packs">
-                <For each={props.packs}>
-                  {(pack) => (
-                    <label class="fc-field-row">
-                      <input
-                        type="checkbox"
-                        checked={packs().includes(pack.name)}
-                        onChange={(event) => togglePack(pack.name, event.currentTarget.checked)}
-                      />
-                      <span>{pack.name}</span>
-                    </label>
-                  )}
-                </For>
-              </div>
-            </div>
-          </Show>
-
-          <label class="fc-field-row">
-            <input type="checkbox" checked={worktrees()} onChange={(event) => setWorktrees(event.currentTarget.checked)} />
-            <span>{t("A worktree per writing task")}</span>
-          </label>
-
-          <Show when={(props.workflow?.tasks ?? []).length > 1}>
-            <label class="fc-field">
-              <span>{t("Run until task")}</span>
-              <select
-                class="fc-question-custom"
-                value={until()}
-                onChange={(event) => setUntil(event.currentTarget.value)}
-              >
-                <option value="">{t("Whole workflow")}</option>
-                <For each={props.workflow?.tasks ?? []}>{(task) => <option value={task.id}>{task.id}</option>}</For>
-              </select>
-            </label>
-          </Show>
-
+      <For each={props.workflow?.inputs ?? []}>
+        {(name) => (
           <label class="fc-field">
-            <span>{t("Fallback model")}</span>
+            <span>{name}</span>
             <input
               class="fc-question-custom"
-              placeholder="provider/model"
-              value={fallback()}
-              onInput={(event) => setFallback(event.currentTarget.value)}
+              value={inputs()[name] ?? ""}
+              placeholder={props.workflow?.inputHelp?.[name] ?? props.workflow?.inputDefaults?.[name] ?? name}
+              title={props.workflow?.inputHelp?.[name]}
+              onInput={(event) => setInputs((current) => ({ ...current, [name]: event.currentTarget.value }))}
             />
           </label>
-          <div class="fc-field-row">
-            <label class="fc-field">
-              <span>{t("Budget (tokens)")}</span>
-              <input
-                class="fc-question-custom"
-                inputMode="numeric"
-                value={budgetTokens()}
-                onInput={(event) => setBudgetTokens(event.currentTarget.value)}
-              />
-            </label>
-            <label class="fc-field">
-              <span>{t("Budget (cost)")}</span>
-              <input
-                class="fc-question-custom"
-                inputMode="decimal"
-                value={budgetCost()}
-                onInput={(event) => setBudgetCost(event.currentTarget.value)}
-              />
-            </label>
-            <label class="fc-field">
-              <span>{t("Warn at (%)")}</span>
-              <input
-                class="fc-question-custom"
-                inputMode="numeric"
-                placeholder="80"
-                title={t("Warn once when a run has spent this share of its budget")}
-                value={budgetWarn()}
-                onInput={(event) => setBudgetWarn(event.currentTarget.value)}
-              />
-            </label>
-          </div>
+        )}
+      </For>
 
-          <div class="fc-dialog-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Cancel")}
-            </button>
-            <button class="fc-button fc-button-primary" type="button" disabled={!complete()} onClick={launch}>
-              {t("Run")}
-            </button>
+      <Show when={props.packs.length > 0}>
+        <div class="fc-field">
+          <span>{t("Context packs")}</span>
+          <div class="fc-launch-packs">
+            <For each={props.packs}>
+              {(pack) => (
+                <label class="fc-field-row">
+                  <input
+                    type="checkbox"
+                    checked={packs().includes(pack.name)}
+                    onChange={(event) => togglePack(pack.name, event.currentTarget.checked)}
+                  />
+                  <span>{pack.name}</span>
+                </label>
+              )}
+            </For>
           </div>
         </div>
+      </Show>
+
+      <label class="fc-field-row">
+        <input type="checkbox" checked={worktrees()} onChange={(event) => setWorktrees(event.currentTarget.checked)} />
+        <span>{t("A worktree per writing task")}</span>
+      </label>
+
+      <Show when={(props.workflow?.tasks ?? []).length > 1}>
+        <label class="fc-field">
+          <span>{t("Run until task")}</span>
+          <select
+            class="fc-question-custom"
+            value={until()}
+            onChange={(event) => setUntil(event.currentTarget.value)}
+          >
+            <option value="">{t("Whole workflow")}</option>
+            <For each={props.workflow?.tasks ?? []}>{(task) => <option value={task.id}>{task.id}</option>}</For>
+          </select>
+        </label>
+      </Show>
+
+      <label class="fc-field">
+        <span>{t("Fallback model")}</span>
+        <input
+          class="fc-question-custom"
+          placeholder="provider/model"
+          value={fallback()}
+          onInput={(event) => setFallback(event.currentTarget.value)}
+        />
+      </label>
+      <div class="fc-field-row">
+        <label class="fc-field">
+          <span>{t("Budget (tokens)")}</span>
+          <input
+            class="fc-question-custom"
+            inputMode="numeric"
+            value={budgetTokens()}
+            onInput={(event) => setBudgetTokens(event.currentTarget.value)}
+          />
+        </label>
+        <label class="fc-field">
+          <span>{t("Budget (cost)")}</span>
+          <input
+            class="fc-question-custom"
+            inputMode="decimal"
+            value={budgetCost()}
+            onInput={(event) => setBudgetCost(event.currentTarget.value)}
+          />
+        </label>
+        <label class="fc-field">
+          <span>{t("Warn at (%)")}</span>
+          <input
+            class="fc-question-custom"
+            inputMode="numeric"
+            placeholder="80"
+            title={t("Warn once when a run has spent this share of its budget")}
+            value={budgetWarn()}
+            onInput={(event) => setBudgetWarn(event.currentTarget.value)}
+          />
+        </label>
       </div>
-    </Show>
+
+      <div class="fc-dialog-actions">
+        <button class="fc-button" type="button" onClick={props.onClose}>
+          {t("Cancel")}
+        </button>
+        <button class="fc-button fc-button-primary" type="button" disabled={!complete()} onClick={launch}>
+          {t("Run")}
+        </button>
+      </div>
+    </Modal>
   )
 }

@@ -1,5 +1,6 @@
 import { Show, createEffect, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
+import { Modal, ModalClose } from "./Modal"
 
 type RenameDialogProps = {
   open: boolean
@@ -43,59 +44,37 @@ export const RenameDialog: Component<RenameDialogProps> = (props) => {
   }
 
   return (
-    <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div
-          class="fc-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={props.title}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div class="fc-modal-header">
-            <span>{props.title}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
-          </div>
-          <Show when={props.description}>
-            <p class="fc-rename-description">{props.description}</p>
-          </Show>
-          <input
-            ref={input}
-            class="fc-question-custom fc-rename-input"
-            value={value()}
-            placeholder={props.placeholder ?? t("New title")}
-            aria-label={props.placeholder ?? t("New title")}
-            spellcheck={false}
-            onInput={(event) => setValue(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault()
-                save()
-                return
-              }
-              if (event.key === "Escape") {
-                event.preventDefault()
-                props.onClose()
-              }
-            }}
-          />
-          <div class="fc-dialog-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Cancel")}
-            </button>
-            <button
-              class="fc-button fc-button-primary"
-              type="button"
-              disabled={value().trim().length === 0}
-              onClick={save}
-            >
-              {t("Save")}
-            </button>
-          </div>
-        </div>
+    <Modal open={props.open} onClose={props.onClose} label={props.title}>
+      <div class="fc-modal-header">
+        <span>{props.title}</span>
+        <ModalClose />
       </div>
-    </Show>
+      <Show when={props.description}>
+        <p class="fc-rename-description">{props.description}</p>
+      </Show>
+      <input
+        ref={input}
+        class="fc-question-custom fc-rename-input"
+        value={value()}
+        placeholder={props.placeholder ?? t("New title")}
+        aria-label={props.placeholder ?? t("New title")}
+        spellcheck={false}
+        onInput={(event) => setValue(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault()
+            save()
+          }
+        }}
+      />
+      <div class="fc-dialog-actions">
+        <button class="fc-button" type="button" onClick={props.onClose}>
+          {t("Cancel")}
+        </button>
+        <button class="fc-button fc-button-primary" type="button" disabled={value().trim().length === 0} onClick={save}>
+          {t("Save")}
+        </button>
+      </div>
+    </Modal>
   )
 }

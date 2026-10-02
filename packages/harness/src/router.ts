@@ -227,45 +227,6 @@ export function createRouter(app: AppStores) {
     onConfirm: () => void
   }>()
 
-  // Escape and Tab behave the same in every dialog (H-24): Escape closes the topmost one, and Tab
-  // stays inside it. Done once here, a dialog added later gets both without remembering to.
-  createEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      // The stand-in a closing dialog leaves behind (modal-motion) is a copy with the same role:
-      // it must not answer for the dialog still underneath it.
-      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).filter(
-        (dialog) => !dialog.closest(".fc-modal-leaving") && dialog.offsetParent !== null,
-      )
-      const top = dialogs.at(-1)
-      if (!top) return
-      if (event.key === "Escape") {
-        const close = top.querySelector<HTMLButtonElement>('button[aria-label="Close"], button[aria-label="Cerrar"]')
-        event.preventDefault()
-        close?.click()
-        return
-      }
-      if (event.key !== "Tab") return
-      const selector =
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      const focusable = Array.from(top.querySelectorAll<HTMLElement>(selector)).filter(
-        (node) => node.offsetParent !== null,
-      )
-      const first = focusable[0]
-      const last = focusable.at(-1)
-      if (!first || !last) return
-      const active = document.activeElement
-      if (event.shiftKey && (active === first || !top.contains(active))) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && (active === last || !top.contains(active))) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener("keydown", onKey, true)
-    onCleanup(() => document.removeEventListener("keydown", onKey, true))
-  })
-
   // An http(s) link in the transcript belongs to the reader's own browser: the integrated panel
   // cannot render another origin (sandboxed iframe, X-Frame-Options), and the system browser can.
   // Ask first — with a "don't ask again for this host" — unless the host was already allowed.
