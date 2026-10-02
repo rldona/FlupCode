@@ -303,10 +303,10 @@ export function createRuns(app: AppStores) {
     ]
   })
 
-  // The runs still going, for the phone supervisor (H-12). Finished ones are history; a phone is
-  // for seeing what needs an answer, not for reading back.
+  // What needs the reader, for the phone's home (H-12, UX-02): runs going, and the ones that ended
+  // since its Runs view was last open. Everything else is in that view (HE-02).
   const remoteRuns = createMemo(() =>
-    app.settings.mobileRemote() ? runs().filter((run) => run.status === "running" || run.status === "awaiting") : [],
+    app.settings.mobileRemote() ? runs().filter((run) => runsAttention()[run.id] !== undefined) : [],
   )
 
   const setRoutineState = (next: Routine[]) => {
@@ -520,8 +520,11 @@ export function createRuns(app: AppStores) {
           .map(async (run) => ({ ...run, tasks: await current.runs.tasks(run.id).catch(() => []) })),
       )
       setRuns(withTasks)
+      // Over remote control the run list is what says whether the harness answers (HE-02).
+      if (remote.activeHost()) setRoutinesServerAvailable(true)
     } catch {
       // The connection that failed is about to be reported by the loop below.
+      if (remote.activeHost()) setRoutinesServerAvailable(false)
     }
   }
 
@@ -540,7 +543,8 @@ export function createRuns(app: AppStores) {
         for (let attempt = 0; !controller.signal.aborted; attempt++) {
           // Every connection starts by reading the list once. That is what makes the first paint and
           // every reconnection agree with the server, and it is the only request a quiet server gets.
-          await refreshRoutines()
+          // A phone reaches the harness with the remote scope (HE-02): runs, not routines.
+          if (!remote.activeHost()) await refreshRoutines()
           await refreshRuns()
           try {
             for await (const event of createHarnessClient(url).events({ signal: controller.signal })) {

@@ -6303,6 +6303,56 @@ button.fc-status {
   font-size: var(--fc-text-md);
 }
 
+/* The phone's Runs view (HE-02): the home's cards, each with the answers its run takes. */
+.fc-remote-runs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-remote-runs-list {
+  gap: var(--fc-space-2);
+  padding-top: var(--fc-space-4);
+}
+
+.fc-remote-run {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--fc-space-3);
+}
+
+.fc-remote-run-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-3);
+  min-width: 0;
+}
+
+.fc-remote-run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+}
+
+.fc-remote-run-actions .fc-remote-pill {
+  align-self: auto;
+}
+
+.fc-remote-run-actions .fc-remote-run-primary {
+  border-color: var(--fc-text);
+  background: var(--fc-text);
+  color: var(--fc-bg);
+}
+
+.fc-remote-run-actions .fc-remote-run-danger {
+  color: var(--fc-danger);
+}
+
+.fc-remote-run-actions .fc-remote-pill:disabled {
+  opacity: 0.5;
+}
+
 .fc-remote-fab {
   position: fixed;
   right: var(--fc-space-4);

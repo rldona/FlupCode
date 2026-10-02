@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { acceptChannel, connectChannel, createTunnelClient, random, serveTunnel, wirePair } from "../src"
+import { FLOW_WINDOW, MAX_REQUEST_BODY, acceptChannel, connectChannel, createTunnelClient, random, serveTunnel, wirePair } from "../src"
 
 const seen: { authorization: string | null; origin: string | null }[] = []
 let sseCancelled = false
@@ -46,16 +46,61 @@ const engine = Bun.serve<string | null>({
   },
 })
 
-afterAll(() => engine.stop(true))
+// The harness beside the engine (HE-02): it records the bearer each call arrived with.
+const harnessSeen: { path: string; authorization: string | null }[] = []
+let harnessPulled = 0
+const harness = Bun.serve({
+  port: 0,
+  fetch(request) {
+    const url = new URL(request.url)
+    harnessSeen.push({ path: url.pathname + url.search, authorization: request.headers.get("authorization") })
+    // 64 MiB, made as it is asked for, so a test can tell how far ahead of the reader the host read.
+    if (url.pathname === "/harness/artifacts/huge/raw") {
+      let sent = 0
+      return new Response(
+        new ReadableStream({
+          type: "bytes",
+          pull(controller) {
+            if (sent >= HUGE) return controller.close()
+            const chunk = new Uint8Array(256 * 1024).fill(sent / (256 * 1024))
+            sent += chunk.byteLength
+            harnessPulled = sent
+            controller.enqueue(chunk)
+          },
+        }),
+      )
+    }
+    if (url.pathname === "/harness/echo") return request.arrayBuffer().then((body) => Response.json({ size: body.byteLength }))
+    return Response.json({ data: [] })
+  },
+})
+const HUGE = 64 * 1024 * 1024
 
-async function setup() {
+afterAll(() => {
+  engine.stop(true)
+  harness.stop(true)
+})
+
+/** What the host has written to the phone's side of the wire, in bytes, framing and sealing included. */
+let hostSent = 0
+
+async function setup(options: { remoteToken?: () => string | undefined } = {}) {
   const [clientWire, hostWire] = wirePair()
+  const send = hostWire.send.bind(hostWire)
+  hostWire.send = (data) => {
+    hostSent += data.byteLength
+    send(data)
+  }
   const psk = random(32)
   const [client, accepted] = await Promise.all([
     connectChannel(clientWire, { mode: "device", id: "d1", psk }),
     acceptChannel(hostWire, () => psk),
   ])
-  serveTunnel(accepted.channel, { target: `http://127.0.0.1:${engine.port}`, credentials: btoa("opencode:secret") })
+  serveTunnel(accepted.channel, {
+    target: `http://127.0.0.1:${engine.port}`,
+    credentials: btoa("opencode:secret"),
+    ...(options.remoteToken ? { harness: { target: `http://127.0.0.1:${harness.port}`, token: options.remoteToken } } : {}),
+  })
   return createTunnelClient(client)
 }
 
@@ -136,6 +181,84 @@ describe("tunnel", () => {
     tunnel.close()
     await expect(reader.read()).rejects.toThrow("Remote connection closed")
     await expect(tunnel.fetch("https://remote.invalid/echo")).rejects.toThrow("Remote connection closed")
+  })
+
+  test("routes /harness/* to the harness with the remote token, never the phone's or the engine's", async () => {
+    const tunnel = await setup({ remoteToken: () => "remote-token" })
+    const response = await tunnel.fetch("https://remote.invalid/harness/runs?x=1", {
+      headers: { authorization: "Bearer stolen-ui-token" },
+    })
+    expect(response.status).toBe(200)
+    expect(harnessSeen.at(-1)).toEqual({ path: "/harness/runs?x=1", authorization: "Bearer remote-token" })
+    // The engine's own paths still go to the engine, with its credentials.
+    expect((await tunnel.fetch("https://remote.invalid/echo")).status).toBe(201)
+    expect(seen.at(-1)?.authorization).toBe(`Basic ${btoa("opencode:secret")}`)
+    // A path that only looks like the harness after it is resolved is decided on what it resolves to.
+    await tunnel.fetch("https://remote.invalid/harness/../echo")
+    expect(seen.at(-1)?.authorization).toBe(`Basic ${btoa("opencode:secret")}`)
+    expect(harnessSeen.filter((entry) => entry.path === "/harness/../echo")).toEqual([])
+  })
+
+  test("without a remote token the harness is called with no bearer, so it refuses", async () => {
+    const tunnel = await setup({ remoteToken: () => undefined })
+    await tunnel.fetch("https://remote.invalid/harness/runs", { headers: { authorization: "Bearer stolen-ui-token" } })
+    expect(harnessSeen.at(-1)).toEqual({ path: "/harness/runs", authorization: null })
+  })
+
+  test("a socket to the harness is closed: it has none", async () => {
+    const tunnel = await setup({ remoteToken: () => "remote-token" })
+    const socket = tunnel.socket("wss://remote.invalid/harness/events")
+    const code = await new Promise<number>((resolve) => (socket.onclose = (event) => resolve(event.code)))
+    expect(code).toBe(1008)
+  })
+
+  test("a request body over the cap is answered 413 and never reaches the server", async () => {
+    const tunnel = await setup({ remoteToken: () => "remote-token" })
+    const before = harnessSeen.length
+    const refused = await tunnel.fetch("https://remote.invalid/harness/echo", {
+      method: "POST",
+      body: new Uint8Array(MAX_REQUEST_BODY + 1),
+    })
+    expect(refused.status).toBe(413)
+    expect(harnessSeen.length).toBe(before)
+    // Just under the cap goes through.
+    const accepted = await tunnel.fetch("https://remote.invalid/harness/echo", {
+      method: "POST",
+      body: new Uint8Array(1024 * 1024),
+    })
+    expect(await accepted.json()).toEqual({ size: 1024 * 1024 })
+  })
+
+  test("a large response is read no further ahead of the phone than the window, and arrives whole", async () => {
+    const tunnel = await setup({ remoteToken: () => "remote-token" })
+    const sentBefore = hostSent
+    const response = await tunnel.fetch("https://remote.invalid/harness/artifacts/huge/raw")
+    const reader = response.body!.getReader()
+    const first = await reader.read()
+    let received = first.value!.byteLength
+    // The phone stops reading: the host sends no more than the window, and stops asking the harness.
+    await Bun.sleep(300)
+    const stalled = { sent: hostSent, pulled: harnessPulled }
+    await Bun.sleep(300)
+    expect({ sent: hostSent, pulled: harnessPulled }).toEqual(stalled)
+    // A window, and at most one step of credit for what the first read took.
+    expect(hostSent - sentBefore).toBeLessThan(FLOW_WINDOW * 1.25)
+    // What sits in the sockets between the host and the harness is the kernel's, but far from all of it.
+    expect(harnessPulled).toBeLessThan(HUGE / 2)
+    // Reading again moves it on, to the last byte, in order.
+    let index = 0
+    let ordered = first.value!.every((byte) => byte === 0)
+    for (;;) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      const offset = received
+      received += chunk.value.byteLength
+      ordered &&= chunk.value.every((byte, at) => byte === Math.floor((offset + at) / (256 * 1024)) % 256)
+      index++
+    }
+    expect(received).toBe(HUGE)
+    expect(ordered).toBe(true)
+    expect(index).toBeGreaterThan(0)
   })
 
   test("delivers control messages", async () => {

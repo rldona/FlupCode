@@ -107,7 +107,10 @@ Access (WA-9, AH-A05):
   `<configDir>/plugin-token` (or `FLUPCODE_PLUGIN_TOKEN`): it opens the action catalogue, approval
   and run (not the editor's validate, dry run or preview), a run's evidence screenshots and
   `/harness/plan-exit`, the usage ledger's ingest and the artifacts index, which only it may write,
-  and nothing else (TI-10, UL-01, RP-03). Processes the server starts get neither token, nor
+  and nothing else (TI-10, UL-01, RP-03). The remote host (the desktop app, `flupcode remote`)
+  carries a paired phone's `/harness/*` calls through the tunnel with a third, `<configDir>/remote-token`
+  (file only): it reads runs and artifacts, approves a run's gate and stops a run, and every other route
+  answers **403** `out_of_scope` (HE-02, `src/remote-scope.ts`). Processes the server starts get neither token, nor
   the engine's credentials or the vault key. When a token exists — the entrypoint always creates one unless the write
   fails — **every other `/harness` route asks for it too**: runs, best-of-n, task retry/cancel,
   workflows, routines, git, checkpoints, artifacts, the event stream, and the reads that carry

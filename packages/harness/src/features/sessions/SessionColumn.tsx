@@ -71,8 +71,12 @@ export function SessionColumn() {
                 projects={app.sessions.projects()}
                 runs={app.runs.remoteRuns()}
                 runAttention={app.runs.runsAttention()}
+                runsAvailable={app.runs.routinesServerAvailable()}
                 onOpen={app.sessions.openMobileSession}
-                onOpenRun={app.sessions.openMobileSession}
+                onShowRuns={(runID) => {
+                  app.runs.setRunFocus(runID ? { runID } : undefined)
+                  app.router.showScreen("runs")
+                }}
                 onNew={app.sessions.startMobileSession}
                 onAddDevice={() => app.router.setRemoteOpen(true)}
               />

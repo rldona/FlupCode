@@ -11,6 +11,8 @@ const Type = {
   resBody: 0x14,
   resEnd: 0x15,
   abort: 0x16,
+  /** The client read this many more bytes of a response (HE-02): the host may send that much more. */
+  credit: 0x17,
   wsOpen: 0x20,
   wsOpened: 0x21,
   wsText: 0x22,
@@ -20,6 +22,17 @@ const Type = {
 } as const
 
 const CHUNK = 64 * 1024
+/**
+ * How far a response may run ahead of the phone reading it (HE-02). The host sends no more than this
+ * past what the phone said it read, so a large artifact or a slow phone holds a window's worth of
+ * memory on each side instead of the whole body. A client that predates flow control does not ask for
+ * it, and is sent everything as before.
+ */
+export const FLOW_WINDOW = 1024 * 1024
+/** The phone says what it read in steps of this, not per chunk. */
+const CREDIT_STEP = FLOW_WINDOW / 4
+/** The largest request body the host accepts from a phone; anything over is answered 413 unsent. */
+export const MAX_REQUEST_BODY = 32 * 1024 * 1024
 const NULL_BODY_STATUS = new Set([204, 205, 304])
 const DROPPED_REQUEST_HEADERS = new Set([
   "host",
@@ -70,6 +83,12 @@ function sendChunks(channel: SecureChannel, type: number, stream: number, bytes:
   ).forEach((chunk) => channel.send(encode(type, stream, chunk)))
 }
 
+function uint32(value: number) {
+  const bytes = new Uint8Array(4)
+  new DataView(bytes.buffer).setUint32(0, value)
+  return bytes
+}
+
 function readJson(payload: Uint8Array): Record<string, unknown> {
   const value: unknown = JSON.parse(text(payload))
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {}
@@ -117,6 +136,9 @@ type ClientStream =
       resolve: (response: Response) => void
       reject: (error: unknown) => void
       controller?: ReadableStreamDefaultController<Bytes>
+      /** Bytes of the body received, and how many of them the host was told were read. */
+      received: number
+      credited: number
     }
   | { kind: "ws"; socket: TunnelSocket }
 
@@ -227,20 +249,34 @@ export function createTunnelClient(channel: SecureChannel) {
       }
       return stream.resolve(
         new Response(
-          new ReadableStream<Bytes>({
-            start(controller) {
-              stream.controller = controller
+          new ReadableStream<Bytes>(
+            {
+              start(controller) {
+                stream.controller = controller
+              },
+              // Called as the reader takes chunks out: what left the queue was read, and the host may
+              // send that much more.
+              pull(controller) {
+                const read = stream.received - (FLOW_WINDOW - (controller.desiredSize ?? 0)) - stream.credited
+                if (read < CREDIT_STEP || !streams.has(frame.stream)) return
+                stream.credited += read
+                channel.send(encode(Type.credit, frame.stream, uint32(read)))
+              },
+              cancel() {
+                if (!streams.delete(frame.stream)) return
+                channel.send(encode(Type.abort, frame.stream))
+              },
             },
-            cancel() {
-              if (!streams.delete(frame.stream)) return
-              channel.send(encode(Type.abort, frame.stream))
-            },
-          }),
+            new ByteLengthQueuingStrategy({ highWaterMark: FLOW_WINDOW }),
+          ),
           init,
         ),
       )
     }
-    if (frame.type === Type.resBody) return stream.controller?.enqueue(frame.payload.slice())
+    if (frame.type === Type.resBody) {
+      stream.received += frame.payload.byteLength
+      return stream.controller?.enqueue(frame.payload.slice())
+    }
     if (frame.type === Type.resEnd) {
       streams.delete(frame.stream)
       return stream.controller?.close()
@@ -265,11 +301,14 @@ export function createTunnelClient(channel: SecureChannel) {
     const url = new URL(request.url)
     const body = request.body ? new Uint8Array(await request.arrayBuffer()) : undefined
     const id = nextStream++
-    const response = new Promise<Response>((resolve, reject) => streams.set(id, { kind: "http", resolve, reject }))
+    const response = new Promise<Response>((resolve, reject) =>
+      streams.set(id, { kind: "http", resolve, reject, received: 0, credited: 0 }),
+    )
     sendJson(channel, Type.reqHead, id, {
       method: request.method,
       path: url.pathname + url.search,
       headers: [...request.headers],
+      flow: true,
     })
     if (body) sendChunks(channel, Type.reqBody, id, body)
     channel.send(encode(Type.reqEnd, id))
@@ -329,13 +368,33 @@ type HostSocket = {
   close(code?: number, reason?: string): void
 }
 
-/** Host side of the tunnel: replays requests and sockets against the local engine. */
+type HostRequest = {
+  head: Record<string, unknown>
+  chunks: Uint8Array[]
+  /** Bytes of body received; past `MAX_REQUEST_BODY` the chunks are dropped and the answer is 413. */
+  size: number
+  abort: AbortController
+  /** How much more of the response the client may be sent; unbounded for a client without flow control. */
+  window: number
+  wake?: () => void
+}
+
+/**
+ * Host side of the tunnel: replays requests and sockets against the local engine, and `/harness/*`
+ * against the harness beside it (HE-02) with the remote host's own bearer.
+ */
 export function serveTunnel(
   channel: SecureChannel,
   options: {
     target: string
     /** `base64(user:pass)` for the engine, when it requires Basic auth. */
     credentials?: string
+    /**
+     * FlupCode's harness, which `/harness/*` reaches instead of the engine, and the `remote`-scoped
+     * token it is called with: read on each call, so a token the harness rotated is picked up. Without
+     * one the call goes out with no bearer, and the harness refuses it.
+     */
+    harness?: { target: string; token: () => string | undefined }
     fetch?: typeof globalThis.fetch
     createSocket?: (url: string) => HostSocket
   },
@@ -344,29 +403,53 @@ export function serveTunnel(
   const createSocket = options.createSocket ?? ((url: string) => new WebSocket(url) as unknown as HostSocket)
   const target = new URL(options.target)
   const control = controlListeners()
-  const requests = new Map<number, { head: Record<string, unknown>; chunks: Uint8Array[]; abort: AbortController }>()
+  const requests = new Map<number, HostRequest>()
   const sockets = new Map<number, HostSocket>()
 
+  /** Where a path goes, decided on the path it resolves to: `/harness/../api` is the engine's. */
   const resolve = (path: unknown) => {
     if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return undefined
     const url = new URL(path, target)
-    return url.origin === target.origin ? url : undefined
+    if (url.origin !== target.origin) return undefined
+    const harness = options.harness && (url.pathname === "/harness" || url.pathname.startsWith("/harness/"))
+    if (!harness) return { url, harness: false }
+    return { url: new URL(url.pathname + url.search, options.harness!.target), harness: true }
   }
 
   const abortStream = (stream: number, message: string) => sendJson(channel, Type.abort, stream, { message })
 
-  const run = async (
-    stream: number,
-    entry: { head: Record<string, unknown>; chunks: Uint8Array[]; abort: AbortController },
-  ) => {
-    const url = resolve(entry.head.path)
-    if (!url) return abortStream(stream, "Invalid path")
+  const answer = (stream: number, status: number, body: Record<string, unknown>) => {
+    requests.delete(stream)
+    sendJson(channel, Type.resHead, stream, { status, statusText: "", headers: [["content-type", "application/json"]] })
+    channel.send(encode(Type.resBody, stream, utf8(JSON.stringify(body))))
+    channel.send(encode(Type.resEnd, stream))
+  }
+
+  /** Sends a body piece once the client has room for it; false once the request is gone. */
+  const sendBody = async (stream: number, entry: HostRequest, bytes: Uint8Array) => {
+    for (let offset = 0; offset < bytes.byteLength; offset += CHUNK) {
+      while (entry.window <= 0 && requests.has(stream)) await new Promise<void>((wake) => (entry.wake = wake))
+      if (!requests.has(stream)) return false
+      const piece = bytes.subarray(offset, offset + CHUNK)
+      entry.window -= piece.byteLength
+      channel.send(encode(Type.resBody, stream, piece))
+    }
+    return true
+  }
+
+  const run = async (stream: number, entry: HostRequest) => {
+    if (entry.size > MAX_REQUEST_BODY)
+      return answer(stream, 413, { error: "Request body too large for remote control", code: "too_large" })
+    const route = resolve(entry.head.path)
+    if (!route) return abortStream(stream, "Invalid path")
     const headers = new Headers(
       headerList(entry.head.headers).filter(([name]) => !DROPPED_REQUEST_HEADERS.has(name.toLowerCase())),
     )
-    if (options.credentials) headers.set("authorization", `Basic ${options.credentials}`)
+    const token = route.harness ? options.harness!.token() : undefined
+    if (token) headers.set("authorization", `Bearer ${token}`)
+    if (!route.harness && options.credentials) headers.set("authorization", `Basic ${options.credentials}`)
     const method = typeof entry.head.method === "string" ? entry.head.method.toUpperCase() : "GET"
-    const response = await doFetch(url, {
+    const response = await doFetch(route.url, {
       method,
       headers,
       body: method === "GET" || method === "HEAD" || entry.chunks.length === 0 ? undefined : concat(...entry.chunks),
@@ -382,16 +465,18 @@ export function serveTunnel(
     while (reader) {
       const chunk = await reader.read()
       if (chunk.done) break
-      if (!requests.has(stream)) return reader.cancel()
-      sendChunks(channel, Type.resBody, stream, chunk.value)
+      if (!(await sendBody(stream, entry, chunk.value))) return reader.cancel()
     }
     requests.delete(stream)
     channel.send(encode(Type.resEnd, stream))
   }
 
   const openSocket = (stream: number, head: Record<string, unknown>) => {
-    const url = resolve(head.path)
-    if (!url) return sendJson(channel, Type.wsClose, stream, { code: 1008, reason: "Invalid path" })
+    const route = resolve(head.path)
+    if (!route) return sendJson(channel, Type.wsClose, stream, { code: 1008, reason: "Invalid path" })
+    // The harness has no sockets: its stream is a plain request.
+    if (route.harness) return sendJson(channel, Type.wsClose, stream, { code: 1008, reason: "Not a socket" })
+    const url = route.url
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
     if (options.credentials) url.searchParams.set("auth_token", options.credentials)
     const socket = createSocket(url.toString())
@@ -410,13 +495,35 @@ export function serveTunnel(
     socket.onerror = () => undefined
   }
 
+  const forget = (stream: number) => {
+    const entry = requests.get(stream)
+    requests.delete(stream)
+    entry?.abort.abort()
+    entry?.wake?.()
+  }
+
   channel.onMessage((data) => {
     const frame = decode(data)
     if (!frame) return
     if (frame.type === Type.control) return control.emit(frame.payload)
-    if (frame.type === Type.reqHead)
-      return requests.set(frame.stream, { head: readJson(frame.payload), chunks: [], abort: new AbortController() })
-    if (frame.type === Type.reqBody) return requests.get(frame.stream)?.chunks.push(frame.payload.slice())
+    if (frame.type === Type.reqHead) {
+      const head = readJson(frame.payload)
+      return requests.set(frame.stream, {
+        head,
+        chunks: [],
+        size: 0,
+        abort: new AbortController(),
+        window: head.flow === true ? FLOW_WINDOW : Number.POSITIVE_INFINITY,
+      })
+    }
+    if (frame.type === Type.reqBody) {
+      const entry = requests.get(frame.stream)
+      if (!entry) return
+      entry.size += frame.payload.byteLength
+      // Past the cap nothing more is kept: the request is answered 413 when it ends.
+      if (entry.size > MAX_REQUEST_BODY) return void (entry.chunks = [])
+      return entry.chunks.push(frame.payload.slice())
+    }
     if (frame.type === Type.reqEnd) {
       const entry = requests.get(frame.stream)
       if (!entry) return
@@ -425,11 +532,15 @@ export function serveTunnel(
         abortStream(frame.stream, error instanceof Error ? error.message : String(error))
       })
     }
-    if (frame.type === Type.abort) {
+    if (frame.type === Type.credit) {
       const entry = requests.get(frame.stream)
-      requests.delete(frame.stream)
-      return entry?.abort.abort()
+      if (!entry || frame.payload.byteLength !== 4) return
+      entry.window += new DataView(frame.payload.buffer, frame.payload.byteOffset).getUint32(0)
+      const wake = entry.wake
+      entry.wake = undefined
+      return wake?.()
     }
+    if (frame.type === Type.abort) return forget(frame.stream)
     if (frame.type === Type.wsOpen) return openSocket(frame.stream, readJson(frame.payload))
     const socket = sockets.get(frame.stream)
     if (!socket) return
@@ -442,8 +553,7 @@ export function serveTunnel(
   })
 
   channel.onClose(() => {
-    requests.forEach((entry) => entry.abort.abort())
-    requests.clear()
+    Array.from(requests.keys()).forEach(forget)
     sockets.forEach((socket) => socket.close())
     sockets.clear()
   })

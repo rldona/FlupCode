@@ -51,7 +51,12 @@ const frame = (entry: StoredEvent) => `id: ${entry.seq}\ndata: ${JSON.stringify(
  * the history would tell it about runs and routines that have since been deleted — which is exactly
  * what happened: every reconnect resurrected every run the server had ever started.
  */
-export function eventStream(repository: SqliteRoutineRepository, afterSeq: number | undefined) {
+export function eventStream(
+  repository: SqliteRoutineRepository,
+  afterSeq: number | undefined,
+  /** Which events this reader may see (HE-02); every one when absent. Skipped ones still move the cursor. */
+  only?: (event: ServerEvent) => boolean,
+) {
   let unsubscribe: (() => void) | undefined
   let heartbeat: ReturnType<typeof setInterval> | undefined
 
@@ -81,7 +86,7 @@ export function eventStream(repository: SqliteRoutineRepository, afterSeq: numbe
         } else {
           for (const entry of repository.listEvents(afterSeq, MAX_PENDING)) {
             cursor = entry.seq
-            send(frame(entry))
+            if (!only || only(entry.event)) send(frame(entry))
           }
         }
       }
@@ -89,6 +94,7 @@ export function eventStream(repository: SqliteRoutineRepository, afterSeq: numbe
       unsubscribe = repository.subscribe((entry) => {
         if (entry.seq <= cursor) return
         cursor = entry.seq
+        if (only && !only(entry.event)) return
         if (!send(frame(entry))) close()
       })
 

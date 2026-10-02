@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 /**
@@ -72,4 +72,15 @@ export function engineEnvBesideHarness(env: NodeJS.ProcessEnv, harnessUrl: strin
 export async function harnessHealthy(url: string) {
   const response = await fetch(`${url}/harness/health`, { signal: AbortSignal.timeout(1500) }).catch(() => undefined)
   return response?.ok === true
+}
+
+/**
+ * The harness's `remote`-scoped bearer (HE-02), from the file the harness writes in FlupCode's config
+ * folder: what the remote host calls the harness with for a paired phone. Read on each call, so a
+ * harness started after the host, or one that made a new token, is picked up. Nothing when absent.
+ */
+export function readRemoteToken(configDir: string) {
+  const file = join(configDir, "remote-token")
+  if (!existsSync(file)) return undefined
+  return readFileSync(file, "utf8").trim() || undefined
 }

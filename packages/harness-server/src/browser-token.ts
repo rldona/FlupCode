@@ -42,6 +42,15 @@ export function pluginTokenFile(dir: string = flupcodeConfigDir()): string {
   return join(dir, "plugin-token")
 }
 
+/**
+ * The remote host's bearer (HE-02): a sibling of `browser-token`. The desktop app and `flupcode remote`
+ * read it to carry a paired phone's `/harness/*` calls through the tunnel, and the server lets it reach
+ * runs and artifacts, a gate's approval and a stop (`remote-scope.ts`), nothing else.
+ */
+export function remoteTokenFile(dir: string = flupcodeConfigDir()): string {
+  return join(dir, "remote-token")
+}
+
 /** The one door every token uses; one implementation, several names. */
 function readTokenFile(file: string): string | undefined {
   if (!existsSync(file)) return undefined
@@ -81,6 +90,15 @@ export function readPluginToken(file: string = pluginTokenFile()): string | unde
 }
 
 export function readOrCreatePluginToken(file: string = pluginTokenFile()): string {
+  return readOrCreateTokenFile(file)
+}
+
+/** Reads the remote token if it is already there, and never creates anything: only the entrypoint writes. */
+export function readRemoteToken(file: string = remoteTokenFile()): string | undefined {
+  return readTokenFile(file)
+}
+
+export function readOrCreateRemoteToken(file: string = remoteTokenFile()): string {
   return readOrCreateTokenFile(file)
 }
 

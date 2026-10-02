@@ -3,6 +3,8 @@ import { hostname } from "node:os"
 import { join } from "node:path"
 import { BrowserWindow, app, ipcMain, safeStorage } from "electron"
 import { createRemoteHost, type RemoteHostStore } from "@flupcode/remote"
+import { readRemoteToken } from "@flupcode/remote/harness-host"
+import { tokenFileDir } from "./browser-token-file"
 import { HARNESS_SERVER_URL, SERVER_URL, engineCredentials, harnessBrowserToken } from "./server"
 
 /**
@@ -75,6 +77,8 @@ export function initRemoteHost() {
     engineCredentials: engineCredentials(),
     harness: HARNESS_SERVER_URL,
     harnessToken: harnessBrowserToken(),
+    // A phone reaches runs and artifacts with the harness's remote scope, never the window's token (HE-02).
+    remoteToken: () => readRemoteToken(tokenFileDir()),
     defaultRelay: process.env.FLUPCODE_RELAY_URL ?? "wss://relay.flupcode.com",
     appUrl: process.env.FLUPCODE_APP_URL ?? "https://app.flupcode.com/",
     hostName: hostname(),

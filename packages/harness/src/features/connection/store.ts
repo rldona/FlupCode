@@ -38,7 +38,8 @@ export function createConnection(app: AppStores) {
   }
   const harnessServerUrl = () => localHarnessServerUrl()
   // A tab paired earlier trades its refresh cookie for a token before the first harness read (HE-01).
-  void restorePairing(harnessServerUrl())
+  // Not over remote control: the computer's host calls the harness for the phone (HE-02).
+  if (!remote.activeHost()) void restorePairing(harnessServerUrl())
   // The desktop app hosts remote control; tracking its bridge keeps the top bar honest about the
   // relay connection instead of showing the local engine's "Connected".
   const [hostRemote, setHostRemote] = createSignal<RemoteHostState>()
