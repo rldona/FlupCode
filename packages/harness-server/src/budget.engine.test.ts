@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
-import { join } from "node:path"
 import { CONTRACT_LINE, startEngine, type Engine } from "@flupcode/engine-contract/engine"
 import { startModel } from "@flupcode/engine-contract/model"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { createHarnessHandler } from "./api"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
@@ -39,7 +37,7 @@ beforeAll(async () => {
       FLUPCODE_HARNESS_SERVER_URL: `http://127.0.0.1:${server.port}`,
       FLUPCODE_PLUGIN_TOKEN: "plugin-token",
     },
-    prepare: async (home) => void (await installEnginePlugins(join(home, ".config", "opencode"))),
+    flupcodePlugins: true,
   })
   scheduler = new RoutineScheduler({ repository, engineURL: engine.url, authorization: engine.authorization })
   handler = createHarnessHandler(repository, scheduler, { token: "ui-token", pluginToken: "plugin-token" })
