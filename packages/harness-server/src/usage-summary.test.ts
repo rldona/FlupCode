@@ -406,11 +406,9 @@ describe("the usage read routes (UL-05)", () => {
       expect((await get(path, "")).status).toBe(403)
       expect((await get(path, "ui-token")).status).toBe(200)
     }
-    // The adaptive per-session costs stay for the screen that reads them, marked as replaced.
-    const old = await get("/harness/adaptive/metrics/sessions", "ui-token")
-    expect(old.status).toBe(200)
-    expect(old.headers.get("deprecation")).toBe("true")
-    expect(old.headers.get("link")).toBe('</harness/usage/summary?groupBy=session>; rel="successor-version"')
+    // The adaptive per-session summary had no reader left once the cost screen moved to the ledger
+    // (UL-06), so it is gone (PI-03); the ledger's per-session summary replaces it.
+    expect((await get("/harness/adaptive/metrics/sessions", "ui-token")).status).toBe(404)
     repository.close()
   })
 })

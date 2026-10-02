@@ -59,7 +59,6 @@ import type { GuardrailService } from "./adaptive/guardrails"
 import { handleCompactionAnchorsRequest } from "./adaptive/compaction-anchors"
 import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptive/session-metrics"
 import { armFor, armsFor } from "./adaptive/holdout"
-import { handleSessionSummaryRead } from "./adaptive/session-summary"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import { handleModelKeyRequest } from "./adaptive/model-key-routes"
 import type { ModelKey } from "./adaptive/model-key"
@@ -75,13 +74,6 @@ const json = (value: unknown, status = 200) =>
   })
 
 const error = (message: string, status: number) => json({ error: message }, status)
-
-/** A route kept for a screen that still reads it, pointing at the one that replaces it (RFC 9745). */
-const deprecate = (response: Response, successor: string) => {
-  response.headers.set("deprecation", "true")
-  response.headers.set("link", `<${successor}>; rel="successor-version"`)
-  return response
-}
 
 /** A folder a caller named that is not inside a project the engine knows (TI-11). */
 const notAProject = () => error("That folder is not a project FlupCode knows", 403)
@@ -957,20 +949,6 @@ export const createHarnessHandler = (
       if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleSessionMetricsRead(request, repository)
-    }
-    // Every session's summary in one read (AH-B02), so the cost screen does not ask per session.
-    if (
-      path[1] === "adaptive" &&
-      path[2] === "metrics" &&
-      path[3] === "sessions" &&
-      path.length === 4 &&
-      request.method === "GET"
-    ) {
-      if (options.token && !uiCaller(request))
-        return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      // Deprecated as a cost source (UL-05): its money is the adaptive baseline's per-turn fold, not
-      // the ledger. UL-06 moves the session costs to `/harness/usage/sessions/:id`.
-      return deprecate(handleSessionSummaryRead(request, repository), "/harness/usage/summary?groupBy=session")
     }
     // The read side of the guardrails (FH-062): only a browser reads the live advisory, so it takes
     // the artifacts bearer like `/harness/adaptive/decisions`, never the acting token. Reading only —
