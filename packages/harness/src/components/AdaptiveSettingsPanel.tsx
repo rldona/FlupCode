@@ -17,6 +17,7 @@ import type {
 import { Toggle } from "./Toggle"
 import { ConfirmDialog } from "./ConfirmDialog"
 import { Segmented } from "./Segmented"
+import { failureDetail } from "./PanelBoundary"
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -1316,7 +1317,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
               : props.loading
                 ? t("Reading…")
                 : props.failure instanceof Error
-                  ? props.failure.message
+                  ? failureDetail(props.failure)
                   : t("The harness server did not answer.")}
           </p>
         }

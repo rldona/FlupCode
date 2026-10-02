@@ -221,6 +221,11 @@ const ES: Record<string, string> = {
   "Try again": "Reintentar",
   "{name} could not be shown": "No se pudo mostrar: {name}",
   "{name} could not be read": "No se pudo leer: {name}",
+  "The harness server refused this page: it needs the desktop app or a paired device.":
+    "El servidor del harness rechazó esta página: necesita la app de escritorio o un dispositivo emparejado.",
+  "The changes": "los cambios",
+  "Commits and checkpoints are not available here": "Los commits y los puntos de retorno no están disponibles aquí",
+  "The cost report": "el informe de coste",
   "The decisions screen": "la pantalla de decisiones",
   "The context screen": "la pantalla de contexto",
   "The skills screen": "la pantalla de skills",

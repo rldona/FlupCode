@@ -29,6 +29,7 @@ import {
   createClient,
   createHarnessClient,
   engineTargetVersion,
+  HarnessError,
   type HistoryImportStatus,
   isSessionGone,
   probeServer,
@@ -583,6 +584,11 @@ export const App: Component = () => {
   const [runs, setRuns] = createSignal<Run[]>([])
   const [routinesServerAvailable, setRoutinesServerAvailable] = createSignal(false)
   const [routinesServerLoading, setRoutinesServerLoading] = createSignal(false)
+  /**
+   * The harness answered but refused this page its loopback token (`403 invalid_token`). It is not
+   * down, and saying "not reachable" sent people looking for a server that was running (TI-14).
+   */
+  const [harnessRefusal, setHarnessRefusal] = createSignal<HarnessError>()
   /** The web actions the server knows (WA-7), for the routine editor's action preset. */
   const [actionProfiles, setActionProfiles] = createSignal<ActionProfileSummary[]>([])
   createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
@@ -1552,7 +1558,7 @@ export const App: Component = () => {
     const directory = usageOnlyProject() ? (vcsDirectory() ?? "") : ""
     return `${harnessServerUrl()}\n${directory}\n${usageDays() ?? 0}`
   }
-  const [usage] = createResource(usageKey, (key) => {
+  const [usage, { refetch: refetchUsage }] = createResource(usageKey, (key) => {
     const [url = "", directory = "", days = "0"] = key.split("\n")
     return createHarnessClient(url).usage({ directory: directory || undefined, days: Number(days) || undefined })
   })
@@ -1831,11 +1837,6 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  const changesError = () => {
-    const failure = changes.error as unknown
-    if (!failure) return undefined
-    return failure instanceof Error ? failure.message : String(failure)
-  }
   // Blocked work is read from the runtime that raised it: every turn runs on the legacy runner, and
   // the v2 registries answer empty for it, which is what left an agent waiting on a question no dock
   // could show. Sessions that still hold a v2 request from before are merged in by id.
@@ -3752,8 +3753,10 @@ export const App: Component = () => {
           setRoutineState(remote)
         }
         setRoutinesServerAvailable(true)
-      } catch {
+        setHarnessRefusal(undefined)
+      } catch (cause) {
         setRoutinesServerAvailable(false)
+        setHarnessRefusal(cause instanceof HarnessError && cause.code === "invalid_token" ? cause : undefined)
       } finally {
         setRoutinesServerLoading(false)
       }
@@ -5391,7 +5394,9 @@ export const App: Component = () => {
             defaultBranch={vcsInfo()?.default_branch}
             changes={changes() ?? []}
             loading={changes.loading}
-            error={changesError()}
+            failure={changes.failure()}
+            refusal={harnessRefusal()}
+            onRetryHarness={() => void refreshRoutines()}
             mode={diffMode()}
             canCommit={routinesServerAvailable()}
             committing={committing()}
@@ -5561,7 +5566,8 @@ export const App: Component = () => {
             open={usageOpen()}
             report={usage()}
             loading={usage.loading}
-            error={usage.error ? (usage.error instanceof Error ? usage.error.message : String(usage.error)) : undefined}
+            failure={usage.failure() ?? harnessRefusal()}
+            onRetry={() => void (harnessRefusal() ? refreshRoutines() : refetchUsage())}
             days={usageDays()}
             onDays={setUsageDays}
             directory={vcsDirectory()}
@@ -6178,7 +6184,7 @@ export const App: Component = () => {
           saving: adaptiveSaving(),
           warnings: adaptiveWarnings(),
           error: adaptiveError(),
-          voi: adaptiveVoi.error ? undefined : adaptiveVoi(),
+          voi: adaptiveVoi.failure() ? undefined : adaptiveVoi(),
         }}
         onAdaptivePatch={patchAdaptive}
         onAdaptiveAcknowledgeRuntime={acknowledgeRuntime}
