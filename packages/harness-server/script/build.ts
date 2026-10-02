@@ -13,6 +13,8 @@
  *   bun script/build.ts [arch...]   one binary per architecture, in `dist/<arch>/`: by default every
  *                                   architecture the desktop packages on this OS, so the x64 Mac app
  *                                   gets an x86_64 server and not the build machine's (HE-05)
+ *   bun script/build.ts <os>-<arch>...  for another OS too, in `dist/<os>-<arch>/`: the release ships one
+ *                                   beside each `flupcode` binary, for `flupcode serve` (HE-01)
  */
 import path from "node:path"
 import { packagedArchs } from "../../harness-desktop/scripts/archs.mjs"
@@ -28,7 +30,7 @@ const os = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platfo
 
 for (const arch of archs) {
   const outfile = path.join(directory, "dist", arch, "flupcode-harness")
-  const target = `bun-${os}-${arch}` as Bun.Build.CompileTarget
+  const target = (arch.includes("-") ? `bun-${arch}` : `bun-${os}-${arch}`) as Bun.Build.CompileTarget
   const result = await Bun.build({
     entrypoints: [path.join(directory, "src", "index.ts")],
     compile: { outfile, target },

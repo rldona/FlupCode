@@ -1,4 +1,4 @@
-import { For, Index, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
+import { For, Index, Show, createEffect, createMemo, createSignal, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo, PermissionV2Request, QuestionV2Request, SessionMessageInfo } from "../engine-types"
 import type { Artifact, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, Unattended, UsageRunReport } from "../types"
@@ -28,6 +28,8 @@ type RunsPanelProps = {
   /** What each run needs from the reader (UX-02), by run id: the sidebar's mark, on its card. */
   attention: Record<string, Attention | undefined>
   serverAvailable: boolean
+  /** Shown instead of "not reachable" when the harness refused a tab that can pair (HE-01). */
+  pairing?: JSX.Element
   /** Resolves once the server has interrupted the run's sessions; rejects when it could not. */
   onStop: (id: string) => Promise<void>
   onApprove: (id: string) => void
@@ -267,11 +269,24 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
         </Show>
 
         <Show when={!props.serverAvailable}>
-          <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
+          <Show
+            when={props.pairing}
+            fallback={<div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>}
+          >
+            {props.pairing}
+          </Show>
         </Show>
 
         <div class="fc-runs-layout">
-        <Show when={props.runs.length > 0} fallback={<div class="fc-runs-empty">{t("Nothing has run yet.")}</div>}>
+        {/* An unpaired tab has read nothing, so it does not say nothing has run (P4). */}
+        <Show
+          when={props.runs.length > 0}
+          fallback={
+            <Show when={!props.pairing || props.serverAvailable}>
+              <div class="fc-runs-empty">{t("Nothing has run yet.")}</div>
+            </Show>
+          }
+        >
           <div class="fc-runs-list">
             <For each={props.runs}>
               {(run) => (

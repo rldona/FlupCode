@@ -45,6 +45,15 @@ desktop app while it is open, or `flupcode serve`. `flupcode serve --install` ke
 running at every login (a launchd agent on macOS, a systemd user unit on Linux), so the page connects
 with nothing to start. `flupcode serve --uninstall` removes it.
 
+`flupcode serve` also hosts the harness (runs, routines, artifacts) on the loopback. A hosted tab
+reads it only after pairing with a one-time code `flupcode serve` or `flupcode pair` prints (HE-01):
+the code is traded once at `POST /harness/pair` for a `ui`-scoped token bound to the tab's origin,
+valid 15 minutes and kept in memory, plus a refresh cookie (`HttpOnly`, partitioned) the harness
+rotates on every use; a replayed refresh token ends that pairing, wrong codes are rate-limited, and
+`flupcode pair revoke` ends them all. Until it pairs, the harness answers that origin its health
+check and a refusal the app turns into the pairing form, nothing else. Pairings are kept as hashes in
+`~/.config/flupcode/paired-tabs.json`.
+
 **The first connection asks for local network access.** Chrome 141 and later treat a public page
 reaching a service on your machine as a *local network request*, gated behind a permission the user
 grants once per site. FlupCode asks for it from the button in the connection banner — the prompt only
@@ -714,8 +723,10 @@ Downloaded with `curl` the binary is not quarantined; if you download it from a 
 The same binary runs FlupCode's web app against OpenCode 2 on this computer: `flupcode serve`
 starts the engine and answers at `http://127.0.0.1:4096`. It signs in for app.flupcode.com and
 `localhost:4444` only, since OpenCode 2 always asks for a password a page cannot send. The desktop
-app does the same while it is open. `flupcode serve --install` runs it at every login (macOS and
-Linux). See [GETTING-STARTED.md](GETTING-STARTED.md).
+app does the same while it is open. It also runs FlupCode's harness, `flupcode-harness-<platform>`
+from the same release placed beside `flupcode`, and prints the code that pairs a web app tab with it.
+`flupcode serve --install` runs both at every login (macOS and Linux). See
+[GETTING-STARTED.md](GETTING-STARTED.md).
 
 It exposes the OpenCode server at `http://127.0.0.1:4096` (starting `opencode serve` if needed),
 prints a QR code to scan, and keeps running until you type `q`. While it runs, type `p` for a new

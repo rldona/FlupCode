@@ -52,11 +52,38 @@ export function engineCredentials() {
 }
 
 /**
- * The loopback token the harness browser routes compare. The desktop app hands it to the renderer
- * next to the engine credentials; a browser tab has none and the live view stays read-only there.
+ * The token the harness compares (the UI's scope). The desktop app hands it to the renderer next to
+ * the engine credentials; a browser tab has none until it pairs with a code (`pairing.ts`, HE-01),
+ * and then holds a short-lived one in memory only.
  */
 export function harnessBrowserToken() {
-  return typeof window === "undefined" ? undefined : window.flupcode?.browserToken
+  if (typeof window === "undefined") return undefined
+  return window.flupcode?.browserToken ?? pairedToken
+}
+
+/** Whether this page was handed the harness token, rather than having to pair for one. */
+export function hostsHarnessToken() {
+  return typeof window !== "undefined" && window.flupcode?.browserToken !== undefined
+}
+
+let pairedToken: string | undefined
+
+export function setPairedToken(token: string | undefined) {
+  pairedToken = token
+}
+
+/**
+ * A paired tab gets its token back from the refresh cookie when it loads; harness calls wait for that
+ * first, or the screens that read at startup would be refused and say so (HE-01).
+ */
+let restoring: Promise<unknown> = Promise.resolve()
+
+export function setPairingRestore(restore: Promise<unknown>) {
+  restoring = restore
+}
+
+export function pairingRestored() {
+  return restoring
 }
 
 /**

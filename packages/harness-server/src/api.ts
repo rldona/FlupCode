@@ -24,7 +24,8 @@ import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
 import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
-import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
+import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, hostedWebOrigin, preflightResponse } from "./cors"
+import { pairCookie, pairCookieFrom, type Pairing, type PairingGrant, type PairingRefusal } from "./pairing"
 import type { ActionApprover } from "./action-approval"
 import type { BrowserPolicy } from "./browser-policy"
 import { readBrowserMcpCall, type BrowserMcpGate } from "./browser-mcp"
@@ -538,6 +539,11 @@ export type HarnessHandlerOptions = {
   usagePricing?: Pick<ReturnType<typeof createUsagePricing>, "classify">
   /** The folders a caller may name (TI-11); the engine's projects and worktrees when absent. */
   projectRoots?: ProjectRoots
+  /**
+   * Browser tabs paired with a one-time code (HE-01). Their token is the UI's scope, used only from
+   * the origin that paired; without it `/harness/pair/*` is an ordinary 404.
+   */
+  pairing?: Pairing
 }
 
 export const createHarnessHandler = (
@@ -548,6 +554,16 @@ export const createHarnessHandler = (
   const roots = options.projectRoots ?? projectRoots(() => scheduler.engine.projectRoots())
   const pluginCaller = (request: Request) =>
     !!options.pluginToken && tokenMatches(options.pluginToken, bearerFrom(request))
+  // A paired tab's token, from the origin it paired on (HE-01).
+  const pairedCaller = (request: Request) =>
+    !!options.pairing && options.pairing.verify(bearerFrom(request), request.headers.get("origin") ?? undefined)
+  // The UI's scope (TI-10): the token the desktop hands its window, or a paired tab's.
+  const uiCaller = (request: Request) => tokenMatches(options.token ?? "", bearerFrom(request)) || pairedCaller(request)
+  // FlupCode's web app served from elsewhere (HE-01): only pairing, until it holds a paired token.
+  const hostedCaller = (request: Request) => {
+    const origin = request.headers.get("origin") ?? undefined
+    return !!options.pairing && hostedWebOrigin(origin) && !allowedHarnessOrigin(origin)
+  }
   // The one artifact read a plugin makes: a run's evidence screenshot, shown back in the chat.
   const evidenceRead = (request: Request, path: string[]) =>
     request.method === "GET" &&
@@ -562,32 +578,37 @@ export const createHarnessHandler = (
     // below stops it reading; only its `Host`, which still names the attacker's domain, gives it away.
     if (!allowedHarnessHost(request.headers.get("host") ?? undefined, options.hostname ?? "127.0.0.1"))
       return json({ error: "Forbidden", code: "invalid_host" }, 403)
+    if (path[1] === "pair" && options.pairing) return handlePairRequest(request, path, options.pairing)
+    // The hosted web app reads nothing but the health check until it pairs (HE-01). Decided here, not
+    // by CORS alone: a request CORS hides the answer of still runs.
+    if (hostedCaller(request) && !(path[1] === "health" && request.method === "GET") && !pairedCaller(request))
+      return json({ error: "This tab is not paired with this computer", code: "invalid_token" }, 403)
     // CSRF is not stopped by CORS: a simple cross-origin request still runs server-side while only
     // hiding its answer. So a mutating request that names an origin has to name an allowed one —
-    // callers without an origin (curl, the plugin, node) are unaffected.
+    // callers without an origin (curl, the plugin, node) are unaffected. A paired hosted tab got here.
     if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS") {
       const origin = request.headers.get("origin") ?? undefined
-      if (origin !== undefined && !allowedHarnessOrigin(origin)) return error("Forbidden", 403)
+      if (origin !== undefined && !allowedHarnessOrigin(origin) && !hostedCaller(request)) return error("Forbidden", 403)
     }
     // The browser runtime is the one surface a page can reach from outside the process, so it is
     // behind its own bearer token rather than the loopback address alone (WA-1).
     if (path[1] === "browser" && options.browser) {
-      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleBrowserRequest(request, path.slice(2), options.browser)
     }
     // The runner drives the browser on the user's machine, so it sits behind the same bearer as
     // `/harness/browser/*` (WA-2). Without a runner the path is an ordinary 404.
     if (path[1] === "actions" && options.actions) {
-      if (!tokenMatches(options.token ?? "", bearerFrom(request)) && !pluginCaller(request))
+      if (!uiCaller(request) && !pluginCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      const caller = tokenMatches(options.token ?? "", bearerFrom(request)) ? "ui" : "plugin"
+      const caller = uiCaller(request) ? "ui" : "plugin"
       return handleActionRequest(request, path.slice(2), options.actions, options.actionApprover, caller)
     }
     // The browser policy's grants and audit (BU-01). Revoking is the reader's, and so is reading what
     // the agent did: the app's bearer only, never the plugins'.
     if (path[1] === "browser-policy" && options.browserPolicy && options.token) {
-      if (!tokenMatches(options.token, bearerFrom(request))) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      if (!uiCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
       if (path[2] === "grants" && path.length === 3 && request.method === "GET")
         return json({ data: options.browserPolicy.grants() })
       if (path[2] === "grants" && path[3] && path.length === 4 && request.method === "DELETE")
@@ -608,14 +629,14 @@ export const createHarnessHandler = (
     // the vault is behind the same bearer rather than the loopback address alone, and it is only a
     // route at all when a key was resolved.
     if (path[1] === "credentials" && options.credentials) {
-      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleCredentialRequest(request, path.slice(2), options.credentials)
     }
     // The plan's hand-off (V2-33): OpenCode 2's `plan_exit` tool has no way to ask, so it asks here,
     // behind the bearer the engine's plugins hold.
     if (path[1] === "plan-exit" && request.method === "POST" && options.planExit) {
-      if (!tokenMatches(options.token ?? "", bearerFrom(request)) && !pluginCaller(request))
+      if (!uiCaller(request) && !pluginCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       const body = (await request.json().catch(() => ({}))) as { sessionID?: unknown }
       if (typeof body.sessionID !== "string" || !body.sessionID) return error("A session is required", 400)
@@ -671,7 +692,7 @@ export const createHarnessHandler = (
     // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
     // needs the profile id and the shape the form wrote.
     if (path[1] === "action-profiles") {
-      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleActionProfileRequest(request, path.slice(2))
     }
@@ -680,7 +701,7 @@ export const createHarnessHandler = (
     // the user's own file, so it requires that bearer, and without one the route is an ordinary 404.
     if (path[1] === "engine-config" && path.length === 2) {
       if (request.method === "PATCH" && !options.token) return json({ error: "Not found", code: "not_found" }, 404)
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleEngineConfigRequest(request)
     }
@@ -702,7 +723,7 @@ export const createHarnessHandler = (
       options.runtimeProbe &&
       options.token
     ) {
-      if (!tokenMatches(options.token, bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       await options.runtimeProbe.acknowledge()
       return json({ data: { alerts: options.runtimeProbe.alerts() } })
@@ -711,7 +732,7 @@ export const createHarnessHandler = (
     // was observed to be doing, so it takes the same bearer when one is configured. Reading only —
     // there is no route that makes a decision.
     if (path[1] === "adaptive" && path[2] === "decisions" && options.decisions) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleDecisionRequest(request, path.slice(2), options.decisions)
     }
@@ -725,21 +746,21 @@ export const createHarnessHandler = (
       request.method === "GET" &&
       options.decisions
     ) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleLabelCoverageRead(request, repository)
     }
     // The value-of-information gate (AH-C05): whether each assigned model is asked, warming up,
     // exploring or paused, from the decision audit's labels. Same bearer; reading only.
     if (path[1] === "adaptive" && path[2] === "voi" && path.length === 3 && request.method === "GET" && options.valueGate) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleValueGateRead(options.valueGate)
     }
     // The context plan audit (FH-022) is as sensitive as the decision audit: it says what a run or
     // an episode was observed to carry. Same bearer, reading only — there is no route that plans.
     if (path[1] === "adaptive" && path[2] === "plans" && options.context) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleContextPlanRequest(request, path.slice(2), options.context)
     }
@@ -750,12 +771,12 @@ export const createHarnessHandler = (
     // an open loopback writer. Reading stays on the audit route below.
     if (path[1] === "adaptive" && path[2] === "proposals" && request.method === "POST" && options.proposalReview) {
       if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
-      if (!tokenMatches(options.token, bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleProposalReviewRequest(request, path.slice(2), options.proposalReview)
     }
     if (path[1] === "adaptive" && path[2] === "proposals" && options.proposals) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleProposalRequest(request, path.slice(2), options.proposals)
     }
@@ -769,12 +790,12 @@ export const createHarnessHandler = (
       options.learnedSkillActions
     ) {
       if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
-      if (!tokenMatches(options.token, bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleLearnedSkillAction(request, path.slice(2), options.learnedSkills, options.learnedSkillActions)
     }
     if (path[1] === "adaptive" && path[2] === "learned-skills" && options.learnedSkills) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleLearnedSkillRequest(request, path.slice(2), options.learnedSkills)
     }
@@ -784,7 +805,7 @@ export const createHarnessHandler = (
     // open loopback writer.
     if (path[1] === "adaptive" && path[2] === "config" && path.length === 3 && options.adaptiveConfig) {
       if (request.method === "PATCH" && !options.token) return json({ error: "Not found", code: "not_found" }, 404)
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleAdaptiveConfigRequest(request, options.adaptiveConfig)
     }
@@ -793,7 +814,7 @@ export const createHarnessHandler = (
     // store or remove one, and no answer ever carries the key. Without the bearer it is a 404.
     if (path[1] === "adaptive" && path[2] === "model-key" && path.length === 3 && options.modelKey) {
       if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
-      if (!tokenMatches(options.token, bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleModelKeyRequest(request, options.modelKey)
     }
@@ -802,7 +823,7 @@ export const createHarnessHandler = (
     // behind that bearer: with none configured the routes are an ordinary 404 and not announced.
     if (path[1] === "adaptive" && path[2] === "sessions" && options.overrides) {
       if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
-      if (!tokenMatches(options.token, bearerFrom(request)))
+      if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleSessionOverrideRequest(request, path.slice(2), {
         overrides: options.overrides,
@@ -933,7 +954,7 @@ export const createHarnessHandler = (
     }
     // Its read side takes the artifacts bearer, like the other adaptive audits a browser reads.
     if (path[1] === "adaptive" && path[2] === "metrics" && path.length === 3 && request.method === "GET") {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleSessionMetricsRead(request, repository)
     }
@@ -945,7 +966,7 @@ export const createHarnessHandler = (
       path.length === 4 &&
       request.method === "GET"
     ) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       // Deprecated as a cost source (UL-05): its money is the adaptive baseline's per-turn fold, not
       // the ledger. UL-06 moves the session costs to `/harness/usage/sessions/:id`.
@@ -962,7 +983,7 @@ export const createHarnessHandler = (
       request.method === "GET" &&
       options.guardrails
     ) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (options.token && !uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleGuardrailsStatusRequest(request, options.guardrails)
     }
@@ -1032,7 +1053,7 @@ export const createHarnessHandler = (
     if (
       options.token &&
       !openToAnyCaller(request, path) &&
-      !tokenMatches(options.token, bearerFrom(request)) &&
+      !uiCaller(request) &&
       !(pluginCaller(request) && evidenceRead(request, path))
     )
       return json({ error: "Forbidden", code: "invalid_token" }, 403)
@@ -2162,8 +2183,78 @@ export const createHarnessHandler = (
    * sets `access-control-allow-origin` itself, and a response can never carry the blanket `*` it
    * used to (WA-9).
    */
-  return async (request: Request) => {
-    if (request.method === "OPTIONS") return applyHarnessCors(preflightResponse(), request)
-    return applyHarnessCors(await handle(request), request)
+  /**
+   * `/harness/pair/*` (HE-01). A code is asked for by `flupcode` with the UI's token and no origin, so
+   * no page can ask for one; a tab trades it once for a token bound to its origin, and refreshes that
+   * token with the cookie the trade set. Every other route then checks the token and the origin.
+   */
+  const handlePairRequest = async (request: Request, path: string[], pairing: Pairing) => {
+    const origin = request.headers.get("origin") ?? undefined
+    const local = origin === undefined && !!options.token && tokenMatches(options.token, bearerFrom(request))
+    if (path[2] === "codes" && path.length === 3 && request.method === "POST") {
+      if (!local) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return json({ data: pairing.issueCode() })
+    }
+    if (path[2] === "tabs" && path.length === 3 && request.method === "DELETE") {
+      if (!local) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return json({ data: { revoked: pairing.revokeAll() } })
+    }
+    const page = origin !== undefined && (allowedHarnessOrigin(origin) || hostedWebOrigin(origin))
+    if (path.length === 2 && request.method === "POST") {
+      if (!page) return error("Pairing is for a FlupCode web page", 403)
+      const body = (await request.json().catch(() => ({}))) as { code?: unknown }
+      if (typeof body.code !== "string" || !body.code.trim()) return error("A code is required", 400)
+      return paired(pairing.exchange(body.code, origin))
+    }
+    if (path[2] === "refresh" && path.length === 3 && request.method === "POST") {
+      if (!page) return error("Pairing is for a FlupCode web page", 403)
+      return paired(pairing.refresh(pairCookieFrom(request), origin))
+    }
+    return error("Not found", 404)
   }
+
+  /**
+   * Every answer passes through here so the origin is decided in one place: the handler no longer
+   * sets `access-control-allow-origin` itself, and a response can never carry the blanket `*` it
+   * used to (WA-9). The hosted web app reads pairing, the health check and the refusal that tells it
+   * to pair; anything else only with a paired token (HE-01).
+   */
+  return async (request: Request) => {
+    const path = splitPath(request)
+    const pairRoute = path[0] === "harness" && path[1] === "pair"
+    if (request.method === "OPTIONS")
+      return applyHarnessCors(preflightResponse(), request, { origin: hostedCaller(request), credentials: pairRoute })
+    const response = await handle(request)
+    const readable =
+      hostedCaller(request) &&
+      (pairRoute ||
+        (path[1] === "health" && request.method === "GET") ||
+        pairedCaller(request) ||
+        response.status === 403)
+    return applyHarnessCors(response, request, { origin: readable, credentials: pairRoute })
+  }
+}
+
+/** A pairing answer: the tab's token in the body, the refresh token in the cookie, or why not. */
+function paired(result: PairingGrant | PairingRefusal) {
+  if ("refused" in result) {
+    if (result.refused === "rate_limited")
+      return new Response(JSON.stringify({ error: "Too many wrong codes; wait a minute", code: "rate_limited" }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": String(result.retryAfter ?? 60) },
+      })
+    const response = json(
+      result.refused === "invalid_code"
+        ? { error: "That code is wrong, used or expired", code: "invalid_code" }
+        : { error: "This tab is not paired with this computer", code: "not_paired" },
+      403,
+    )
+    // A refresh token that no longer works is dropped, so the tab stops sending it.
+    if (result.refused === "not_paired") response.headers.set("set-cookie", pairCookie("", 0))
+    return response
+  }
+  const response = json({ data: { token: result.token, expiresAt: result.expiresAt } })
+  response.headers.set("set-cookie", pairCookie(result.refresh, result.refreshExpiresAt))
+  response.headers.set("cache-control", "no-store")
+  return response
 }

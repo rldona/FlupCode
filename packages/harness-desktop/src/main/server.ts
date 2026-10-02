@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import { existsSync } from "node:fs"
 import { homedir, release } from "node:os"
 import { delimiter, join } from "node:path"
 import { BrowserWindow, app, clipboard, dialog } from "electron"
@@ -8,6 +7,12 @@ import { diagnosticsBundle } from "@flupcode/remote/diagnostics"
 import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { engineConfigDir, installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { startEngineProxy } from "@flupcode/remote/engine-proxy"
+import {
+  engineEnvBesideHarness,
+  harnessHealthy,
+  harnessServerEnv,
+  resolveHarnessServer,
+} from "@flupcode/remote/harness-host"
 import { openCodeV2Env, OPENCODE_V2_VERSION, resolveOpenCodeV2 } from "@flupcode/remote/opencode-v2"
 import { portInUse, reapOrphan, superviseChild, type ChildFailure, type Supervisor } from "@flupcode/remote/supervisor"
 import { readFileToken, readOrCreateFileToken, tokenFileDir } from "./browser-token-file"
@@ -84,13 +89,8 @@ function runningEngine() {
   return detectEngine(SERVER_URL, fetch, { headers: authHeaders() })
 }
 
-export async function isHarnessServerHealthy() {
-  try {
-    const response = await fetch(`${HARNESS_SERVER_URL}/harness/health`, { signal: AbortSignal.timeout(1500) })
-    return response.ok
-  } catch {
-    return false
-  }
+export function isHarnessServerHealthy() {
+  return harnessHealthy(HARNESS_SERVER_URL)
 }
 
 function commandExists(command: string) {
@@ -170,28 +170,17 @@ async function serveEngine() {
   })
 }
 
-function resolveHarnessServer(): { command: string; args: string[]; cwd?: string } | undefined {
-  if (process.env.FLUPCODE_HARNESS_SERVER) {
-    return { command: process.env.FLUPCODE_HARNESS_SERVER, args: [] }
-  }
-
+function harnessServer(): { command: string; args: string[]; cwd?: string } | undefined {
   // `bun build --compile` writes `flupcode-harness.exe` on Windows whatever the outfile says, so the
   // packaged binary is looked for under the name it actually has. Asking for the wrong one is how
   // 1.8.0 shipped a Windows app with no server at all, silently: electron-builder skipped a resource
   // that did not exist and the build stayed green.
   const packagedName = process.platform === "win32" ? "flupcode-harness.exe" : "flupcode-harness"
-  const packaged = join(process.resourcesPath, "harness-server", packagedName)
-  if (existsSync(packaged)) return { command: packaged, args: [] }
-
-  const directory = repoHarnessDir()
-  if (existsSync(join(directory, "src", "index.ts"))) {
-    return {
-      command: process.env.FLUPCODE_BUN ?? "bun",
-      args: ["run", "./src/index.ts"],
-      cwd: directory,
-    }
-  }
-
+  const resolved = resolveHarnessServer({
+    binaries: [join(process.resourcesPath, "harness-server", packagedName)],
+    checkout: repoHarnessDir(),
+  })
+  if (resolved) return resolved
   if (commandExists("flupcode-harness")) return { command: "flupcode-harness", args: [] }
   return undefined
 }
@@ -331,11 +320,7 @@ export async function ensureServer() {
   // The actions plugin reads its profiles from the harness, so the engine is told where that server
   // answers. It is not the engine's own URL. No harness secret goes with it: an agent's shell inherits
   // the engine's environment, and the plugins read their own scoped token from its file (TI-10).
-  const env = {
-    ...withoutHarnessSecrets(process.env),
-    PATH: searchPath(),
-    FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
-  }
+  const env = engineEnvBesideHarness({ ...process.env, PATH: searchPath() }, HARNESS_SERVER_URL)
   // FlupCode's own database: 2.x would migrate 1.x's `opencode.db` one way, so 1.x history only
   // reaches it through the explicit import (V2-61). A restart reuses the same password, so the proxy
   // and the harness keep signing in.
@@ -369,7 +354,7 @@ export async function ensureHarnessServer() {
   if (orphan.reaped) console.info(`[flupcode] stopped the harness an earlier launch left running (pid ${orphan.pid})`)
   if (await isHarnessServerHealthy()) return
 
-  const resolved = resolveHarnessServer()
+  const resolved = harnessServer()
   if (!resolved) return
 
   const port = new URL(HARNESS_SERVER_URL).port || "4097"
@@ -386,18 +371,17 @@ export async function ensureHarnessServer() {
     args: resolved.args,
     options: {
       cwd: resolved.cwd,
-      env: {
-        ...process.env,
-        PATH: searchPath(),
-        FLUPCODE_ENGINE_URL: SERVER_URL,
-        FLUPCODE_HARNESS_PORT: port,
-        FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
-        ...(authorization ? { FLUPCODE_ENGINE_AUTH: authorization } : {}),
+      env: harnessServerEnv({
+        env: { ...process.env, PATH: searchPath() },
+        engineUrl: SERVER_URL,
+        port,
+        authorization,
+        browserToken: harnessBrowserToken(),
+        vaultKey,
         // The Chromium that ships beside the app, so Playwright finds it without a download of its
         // own. In development it is not packaged, and the system browser is used instead (WA-9).
-        ...(app.isPackaged ? { PLAYWRIGHT_BROWSERS_PATH: join(process.resourcesPath, "browsers") } : {}),
-        ...(vaultKey ? { FLUPCODE_VAULT_KEY: vaultKey } : {}),
-      },
+        ...(app.isPackaged ? { browsers: join(process.resourcesPath, "browsers") } : {}),
+      }),
       shell: process.platform === "win32",
     },
     dir: app.getPath("userData"),
@@ -521,7 +505,7 @@ async function changeV2Database(input: {
   action: string
   done: (answer: Record<string, unknown>) => string
 }) {
-  const resolved = resolveHarnessServer()
+  const resolved = harnessServer()
   // Only the engine this app started is FlupCode's 2.x engine on FlupCode's database; one someone else
   // runs keeps it open, and changing a database under a running engine is how it gets corrupted.
   if (!resolved || (!engine && (await runningEngine()).kind !== "none")) {
@@ -578,11 +562,4 @@ export function stopServer() {
   proxy = undefined
   void harness?.stop()
   void engine?.stop()
-}
-
-/** The harness's secrets, which no engine process (and so no agent's shell) is handed (TI-10). */
-const HARNESS_SECRETS = ["FLUPCODE_BROWSER_TOKEN", "FLUPCODE_PLUGIN_TOKEN", "FLUPCODE_ENGINE_AUTH", "FLUPCODE_VAULT_KEY"]
-
-export function withoutHarnessSecrets(env: NodeJS.ProcessEnv) {
-  return Object.fromEntries(Object.entries(env).filter(([name]) => !HARNESS_SECRETS.includes(name)))
 }

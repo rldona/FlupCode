@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-import { spawn, spawnSync, type ChildProcess } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, hostname } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { parseArgs } from "node:util"
 import { createRemoteHost, PAIRING_TTL, type RemoteHostState, type RemoteHostStore } from "@flupcode/remote"
 import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
@@ -17,6 +17,12 @@ import {
 } from "@flupcode/remote/opencode-v2"
 import { diagnosticsBundle } from "@flupcode/remote/diagnostics"
 import { engineConfigDir } from "@flupcode/remote/engine-plugins"
+import {
+  engineEnvBesideHarness,
+  harnessHealthy,
+  harnessServerEnv,
+  resolveHarnessServer,
+} from "@flupcode/remote/harness-host"
 import { flupcodeDataDir, reapOrphan, superviseChild } from "@flupcode/remote/supervisor"
 import QRCode from "qrcode"
 import pkg from "../package.json"
@@ -29,8 +35,10 @@ Usage:
   flupcode remote [options]        Let a phone control this computer's OpenCode sessions
   flupcode remote devices          List paired devices
   flupcode remote revoke <device>  Remove a paired device (number from "devices", id or name)
-  flupcode serve [--port 4096]     Run OpenCode 2 for FlupCode's web app on this computer
+  flupcode serve [--port 4096]     Run OpenCode 2 and FlupCode's harness for the web app on this computer
   flupcode serve --install         Run it whenever you log in (macOS, Linux); --uninstall undoes it
+  flupcode pair                    Print a one-time code that pairs a web app tab with this computer
+  flupcode pair revoke             Unpair every web app tab
   flupcode engine install          Fetch the pinned OpenCode 2 engine and print where it is
   flupcode engine import-v1        Copy OpenCode 1.x history into FlupCode's OpenCode 2 engine
   flupcode engine import-memory    Copy a running OpenCode 1.x engine's memories into it
@@ -42,6 +50,7 @@ Options:
   --relay <url>    Relay (default: wss://relay.flupcode.com)
   --app <url>      Web app that opens pairing links (default: https://app.flupcode.com/)
   --no-serve       Do not start "opencode serve" when the engine is not running
+  --harness-port <port>  serve, pair: where FlupCode's harness listens (default: 4097)
   --from <path|url>  import-v1: the 1.x database (default: ~/.local/share/opencode/opencode.db);
                      import-memory: the running 1.x engine (default: http://127.0.0.1:4096)
   -h, --help       Show this help
@@ -50,7 +59,10 @@ Options:
 While running, type: p (new pairing code), d (devices), r <n> (remove device), q (quit).
 
 Environment: OPENCODE_SERVER_PASSWORD / OPENCODE_SERVER_USERNAME for a password-protected engine,
-FLUPCODE_CONFIG_DIR to change where the host identity and devices are stored. An OpenCode 2 engine
+FLUPCODE_CONFIG_DIR to change where the host identity, devices and tokens are stored,
+FLUPCODE_WEB_ORIGINS for the places besides app.flupcode.com the web app is served from (comma-separated).
+FLUPCODE_HARNESS_SERVER names the harness server binary; by default it is flupcode-harness beside
+this one. An OpenCode 2 engine
 always runs behind a password, so one flupcode starts gets a password of its own, and its own
 database: OpenCode 1.x history reaches it only through "flupcode engine import-v1".
 The engine flupcode starts is OpenCode 2 (the pinned engine, or FLUPCODE_OPENCODE); OpenCode 1.x is
@@ -183,22 +195,25 @@ async function ensureEngine(engine: string, credentials: string | undefined, ser
   const signIn = btoa(`opencode:${password}`)
   console.log(dim(`Starting opencode serve on ${engine}…`))
   const url = new URL(engine)
-  const child = spawn(command, ["serve", "--hostname", url.hostname, "--port", url.port || "4096"], {
-    stdio: "ignore",
-    shell: process.platform === "win32",
-    // FlupCode's own database: 2.x would migrate 1.x's `opencode.db` one way (V2-61).
-    env: openCodeV2Env({ password }),
+  // Kept alive like the one `flupcode serve` starts (HE-03), with its own log and pid file.
+  const child = superviseChild({
+    name: "remote-engine",
+    command,
+    args: ["serve", "--hostname", url.hostname, "--port", url.port || "4096"],
+    options: {
+      shell: process.platform === "win32",
+      // FlupCode's own database: 2.x would migrate 1.x's `opencode.db` one way (V2-61).
+      env: openCodeV2Env({ password }),
+    },
+    dir: flupcodeDataDir(),
+    ready: async () => (await runningEngine(engine, signIn)).kind === "v2",
   })
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const started = await runningEngine(engine, signIn)
-    if (started.kind === "v2") {
-      noteV2(started.version)
-      return { child, credentials: signIn }
-    }
-    await Bun.sleep(500)
-  }
-  child.kill()
-  fail(`opencode serve did not become ready at ${engine}`)
+  const state = await child.start()
+  if (state.phase !== "running")
+    fail(`opencode serve did not become ready at ${engine}: ${state.failure?.message ?? ""}\nLog: ${state.log}`)
+  const started = await runningEngine(engine, signIn)
+  noteV2(started.kind === "v2" ? started.version : OPENCODE_V2_VERSION)
+  return { child, credentials: signIn }
 }
 
 /** OpenCode 2 runs FlupCode's 2.x plugins; it is said once, so the engine in use is never a guess. */
@@ -286,15 +301,28 @@ async function runEngineCommand(subcommand: string | undefined, options: { engin
 }
 
 /**
- * `flupcode serve` (2.1): OpenCode 2 for the web app, with nothing to type in. 2.x always asks for a
- * password and a page cannot send one, so the engine runs on a private port and a proxy at the port
- * the web app asks signs in for it, serving only FlupCode's web app among browser pages.
+ * `flupcode serve` (2.1, HE-01): OpenCode 2 and FlupCode's harness for the web app, with nothing to
+ * type in but a pairing code. 2.x always asks for a password and a page cannot send one, so the
+ * engine runs on a private port and a proxy at the port the web app asks signs in for it, serving only
+ * FlupCode's web app among browser pages. The harness (runs, routines, artifacts) listens on the
+ * loopback beside it and answers a hosted tab only once that tab paired with a code this prints.
  */
-async function runServe(port: number) {
+async function runServe(port: number, harnessPort: number) {
   const address = `http://127.0.0.1:${port}`
   if ((await runningEngine(address, engineCredentials())).kind !== "none" || (await openCodeV2Locked(address)))
     fail(`an engine already answers at ${address}; stop it, or pass --port`)
-  const engine = await supervisedOpenCodeV2()
+  const harnessUrl = `http://127.0.0.1:${harnessPort}`
+  if (await harnessHealthy(harnessUrl))
+    fail(`a harness already answers at ${harnessUrl} (the desktop app?); quit it, or pass --harness-port`)
+  const password = randomBytes(24).toString("hex")
+  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } })
+  const enginePort = probe.port
+  probe.stop(true)
+  const engineUrl = `http://127.0.0.1:${enginePort}`
+  // First, as the desktop does: the engine's plugins read the plugin token the harness writes when
+  // it starts, and an engine reads its plugins once.
+  const harness = await supervisedHarness({ engineUrl, password, port: harnessPort })
+  const engine = await supervisedOpenCodeV2({ password, port: enginePort, harnessUrl })
   // The desktop app, opened while this runs, uses this engine rather than starting one: its window is
   // served too.
   const proxy = await startEngineProxy({
@@ -302,8 +330,8 @@ async function runServe(port: number) {
     engine: engine.url,
     authorization: engine.authorization,
     origins: ["oc://renderer"],
-  }).catch((cause: unknown) => {
-    engine.stop()
+  }).catch(async (cause: unknown) => {
+    await Promise.all([engine.stop(), harness?.stop()])
     return fail(`could not listen on ${address}: ${cause instanceof Error ? cause.message : String(cause)}`)
   })
   const info = (await (
@@ -314,11 +342,13 @@ async function runServe(port: number) {
   console.log(
     `${bold("OpenCode")} ${info.version ?? OPENCODE_V2_VERSION} ${dim("for FlupCode's web app at")} ${proxy.url}`,
   )
+  if (harness) console.log(`${bold("Harness")} ${dim("(runs, routines, artifacts) at")} ${harnessUrl}`)
   console.log(dim(`Open ${WEB_ORIGINS[0]} and connect to ${proxy.url}. Ctrl-C stops it.`))
-  console.log(dim(`The engine's log: ${engine.log}`))
+  if (harness) await printPairingCode(harnessUrl)
+  console.log(dim(`Logs: ${engine.log}${harness ? `, ${harness.log}` : ""}`))
   const stop = () => {
     void proxy.close().finally(async () => {
-      await engine.stop()
+      await Promise.all([engine.stop(), harness?.stop()])
       process.exit(0)
     })
   }
@@ -328,12 +358,76 @@ async function runServe(port: number) {
 }
 
 /**
+ * The harness `flupcode serve` keeps running (HE-01, HE-03), as the desktop starts it: the compiled
+ * `flupcode-harness` beside this binary (or `FLUPCODE_HARNESS_SERVER`, or a checkout's source), on the
+ * loopback, driving the engine with its password. Without one, `serve` still serves the engine and
+ * says what is missing.
+ */
+async function supervisedHarness(input: { engineUrl: string; password: string; port: number }) {
+  const extension = process.platform === "win32" ? ".exe" : ""
+  const binary = `flupcode-harness${extension}`
+  const os = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform as string]
+  const server = resolveHarnessServer({
+    // As released (`flupcode-harness-darwin-arm64`), or renamed like `flupcode` itself.
+    binaries: [binary, `flupcode-harness-${os}-${process.arch}${extension}`].map((name) => join(dirname(process.execPath), name)),
+    // From a checkout, Bun runs this file and the harness's source sits two folders up.
+    checkout: join(import.meta.dir, "..", "..", "harness-server"),
+    bun: process.execPath,
+  })
+  if (!server) {
+    console.log(
+      yellow(
+        `FlupCode's harness was not found (put ${binary} beside flupcode, or name it with FLUPCODE_HARNESS_SERVER): ` +
+          "the web app gets the engine, but no runs, routines or artifacts.",
+      ),
+    )
+    return undefined
+  }
+  const url = `http://127.0.0.1:${input.port}`
+  const dir = flupcodeDataDir()
+  await reapOrphan({ dir, name: "harness", probe: async (record) => typeof record.meta?.url === "string" && (await harnessHealthy(record.meta.url)) })
+  let announced = "starting"
+  const harness = superviseChild({
+    name: "harness",
+    command: server.command,
+    args: server.args,
+    options: {
+      ...(server.cwd ? { cwd: server.cwd } : {}),
+      env: harnessServerEnv({
+        // Never on another address: the harness is the agent's controls (HE-01).
+        env: { ...process.env, FLUPCODE_HARNESS_HOST: "127.0.0.1" },
+        engineUrl: input.engineUrl,
+        port: input.port,
+        authorization: btoa(`opencode:${input.password}`),
+      }),
+    },
+    dir,
+    ready: () => harnessHealthy(url),
+    meta: { url },
+    onChange: (state) => {
+      if (state.phase === announced) return
+      if (state.phase === "restarting") console.log(yellow(`The harness stopped (${state.failure?.message}), restarting…`))
+      if (state.phase === "running" && announced === "restarting") console.log(green("The harness is back."))
+      if (state.phase === "failed" && announced !== "starting")
+        console.log(red(`The harness stopped and could not be restarted: ${state.failure?.message}`))
+      announced = state.phase
+    },
+  })
+  const state = await harness.start()
+  if (state.phase !== "running")
+    fail(
+      `FlupCode's harness ${state.failure?.message ?? "did not start"}\n${(state.failure?.lastLines ?? []).join("\n")}\nLog: ${state.log}`,
+    )
+  return { log: state.log, stop: () => harness.stop() }
+}
+
+/**
  * The engine `flupcode serve` keeps running (HE-03): restarted on the same private port and password
  * when it stops, so the proxy in front of it keeps working, and its output kept in
  * `$XDG_DATA_HOME/flupcode/logs/engine.log`. One an earlier `serve` left behind when it was killed is
- * stopped first: nobody has its password any more.
+ * stopped first: nobody has its password any more. None of the harness's secrets reach it.
  */
-async function supervisedOpenCodeV2() {
+async function supervisedOpenCodeV2(input: { password: string; port: number; harnessUrl: string }) {
   const binary = await resolveOpenCodeV2()
   await installEnginePlugins()
   const dir = flupcodeDataDir()
@@ -342,18 +436,14 @@ async function supervisedOpenCodeV2() {
     name: "engine",
     probe: async (record) => typeof record.meta?.url === "string" && (await openCodeV2Locked(record.meta.url)),
   })
-  const password = randomBytes(24).toString("hex")
-  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } })
-  const port = probe.port
-  probe.stop(true)
-  const url = `http://127.0.0.1:${port}`
-  const authorization = `Basic ${btoa(`opencode:${password}`)}`
+  const url = `http://127.0.0.1:${input.port}`
+  const authorization = `Basic ${btoa(`opencode:${input.password}`)}`
   let announced = "running"
   const engine = superviseChild({
     name: "engine",
     command: binary,
-    args: ["serve", "--hostname", "127.0.0.1", "--port", String(port)],
-    options: { env: openCodeV2Env({ password }) },
+    args: ["serve", "--hostname", "127.0.0.1", "--port", String(input.port)],
+    options: { env: openCodeV2Env({ password: input.password, env: engineEnvBesideHarness(process.env, input.harnessUrl) }) },
     dir,
     ready: async () => (await detectEngine(url, fetch, { headers: { authorization } })).kind === "v2",
     meta: { url },
@@ -375,9 +465,46 @@ async function supervisedOpenCodeV2() {
   return { url, authorization, log: state.log, stop: () => engine.stop() }
 }
 
-/** Whether the engine `flupcode serve` recorded is still a live process (not that it answers). */
-async function servedEngineAlive(dir: string) {
-  const file = join(dir, "engine.pid")
+/**
+ * The UI's token the harness compares, as the harness reads it: the environment, then the file in
+ * FlupCode's config folder. `flupcode` is the person at the terminal, so it may use it to ask for a
+ * pairing code; a page never can.
+ */
+function uiToken() {
+  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN?.trim()
+  if (fromEnv) return fromEnv
+  const file = join(configDir(), "browser-token")
+  return existsSync(file) ? readFileSync(file, "utf8").trim() || undefined : undefined
+}
+
+/** Asks the harness at `url` for one of its pairing routes, as the person at the terminal. */
+async function askHarness(url: string, path: string, method: string) {
+  const token = uiToken()
+  if (!token) fail(`no harness token in ${configDir()}; is flupcode serve (or the desktop app) running?`)
+  const response = await fetch(`${url}${path}`, { method, headers: { authorization: `Bearer ${token}` } }).catch(() =>
+    fail(`no harness answers at ${url}; start it with flupcode serve`),
+  )
+  if (response.status === 404) fail(`the harness at ${url} cannot pair web app tabs; update it`)
+  if (!response.ok) fail(`the harness at ${url} refused (${response.status}); it uses another token`)
+  return ((await response.json()) as { data: Record<string, unknown> }).data
+}
+
+/** A one-time code for the web app, and where to type it (HE-01). */
+async function printPairingCode(url: string) {
+  const data = (await askHarness(url, "/harness/pair/codes", "POST")) as { code: string; expiresAt: number }
+  const minutes = Math.round((data.expiresAt - Date.now()) / 60_000)
+  console.log(`\n${bold("Pairing code")} ${bold(green(data.code))} ${dim(`(works once, expires in ${minutes} min)`)}`)
+  console.log(
+    dim(
+      `Type it in FlupCode's web app (${WEB_ORIGINS[0]}) under Runs. If Chrome asks to let the site reach devices on your local network, allow it: that is this computer.`,
+    ),
+  )
+  console.log(dim("flupcode pair prints a new one.\n"))
+}
+
+/** Whether the child `flupcode serve` recorded is still a live process (not that it answers). */
+async function servedChildAlive(dir: string, name: string) {
+  const file = join(dir, `${name}.pid`)
   if (!existsSync(file)) return false
   const record = (await Bun.file(file)
     .json()
@@ -389,7 +516,6 @@ async function servedEngineAlive(dir: string) {
 /** `flupcode diagnostics`: what `flupcode serve` knows about itself, for a bug report, secrets removed. */
 async function printDiagnostics() {
   const dir = flupcodeDataDir()
-  const log = join(dir, "logs", "engine.log")
   const tokens = configDir()
   console.log(
     diagnosticsBundle({
@@ -400,10 +526,17 @@ async function printDiagnostics() {
         OS: `${process.platform} ${process.arch}`,
         Bun: Bun.version,
       },
-      ports: { "flupcode serve (default)": "http://127.0.0.1:4096" },
-      children: existsSync(log)
-        ? [{ name: "engine", phase: (await servedEngineAlive(dir)) ? "running" : "stopped", restarts: 0, log }]
-        : [],
+      ports: { "flupcode serve (default)": "http://127.0.0.1:4096", "harness (default)": "http://127.0.0.1:4097" },
+      children: await Promise.all(
+        ["engine", "harness"]
+          .filter((name) => existsSync(join(dir, "logs", `${name}.log`)))
+          .map(async (name) => ({
+            name,
+            phase: (await servedChildAlive(dir, name)) ? "running" : "stopped",
+            restarts: 0,
+            log: join(dir, "logs", `${name}.log`),
+          })),
+      ),
       configs: ["opencode.json", "opencode.jsonc"].map((file) => ({ label: "OpenCode", file: join(engineConfigDir(), file) })),
       env: process.env,
       secrets: [
@@ -422,12 +555,12 @@ async function printDiagnostics() {
  * Linux; each restarts it when it stops, and waits while something else (the desktop app) holds the
  * port. `FLUPCODE_SERVICE_MANAGER=none` writes the file without loading it.
  */
-async function serveService(action: "install" | "uninstall", port: number) {
+async function serveService(action: "install" | "uninstall", port: number, harnessPort: number) {
   const home = process.env.HOME ?? homedir()
   const load = process.env.FLUPCODE_SERVICE_MANAGER !== "none"
   // The compiled binary is itself; from a checkout, Bun runs this file.
   const program = Bun.main.startsWith("/$bunfs") ? [process.execPath] : [process.execPath, Bun.main]
-  const args = [...program, "serve", "--port", String(port)]
+  const args = [...program, "serve", "--port", String(port), "--harness-port", String(harnessPort)]
   if (process.platform === "darwin") {
     const file = join(home, "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`)
     const domain = `gui/${process.getuid?.() ?? 0}`
@@ -442,7 +575,7 @@ async function serveService(action: "install" | "uninstall", port: number) {
       const loaded = spawnSync("launchctl", ["bootstrap", domain, file], { encoding: "utf8" })
       if (loaded.status !== 0) fail(`launchctl could not load ${file}: ${loaded.stderr.trim()}`)
     }
-    return installed(file, port)
+    return installed(file, port, harnessPort)
   }
   if (process.platform === "linux") {
     const file = join(
@@ -464,7 +597,7 @@ async function serveService(action: "install" | "uninstall", port: number) {
       const enabled = spawnSync("systemctl", ["--user", "enable", "--now", SERVICE_UNIT], { encoding: "utf8" })
       if (enabled.status !== 0) fail(`systemctl could not start ${SERVICE_UNIT}: ${enabled.stderr.trim()}`)
     }
-    return installed(file, port)
+    return installed(file, port, harnessPort)
   }
   fail("flupcode serve --install supports macOS and Linux; on Windows, run flupcode serve from a startup task")
 }
@@ -472,10 +605,14 @@ async function serveService(action: "install" | "uninstall", port: number) {
 const SERVICE_LABEL = "com.flupcode.serve"
 const SERVICE_UNIT = "flupcode-serve"
 
-function installed(file: string, port: number) {
+function installed(file: string, port: number, harnessPort: number) {
   console.log(green(`Installed ${file}`))
-  console.log(dim(`FlupCode's web app finds OpenCode 2 at http://127.0.0.1:${port} whenever you are logged in.`))
-  console.log(dim("flupcode serve --uninstall removes it."))
+  console.log(
+    dim(
+      `FlupCode's web app finds OpenCode 2 at http://127.0.0.1:${port} and the harness at http://127.0.0.1:${harnessPort} whenever you are logged in.`,
+    ),
+  )
+  console.log(dim("flupcode pair prints the code that pairs a web app tab. flupcode serve --uninstall removes it."))
 }
 
 const xml = (value: string) =>
@@ -517,7 +654,7 @@ function systemdUnit(args: string[]) {
     /[\s"\\]/.test(arg) ? `"${arg.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"` : arg,
   )
   return `[Unit]
-Description=OpenCode 2 for FlupCode's web app (flupcode serve)
+Description=OpenCode 2 and FlupCode's harness for the web app (flupcode serve)
 
 [Service]
 ExecStart=${quoted.join(" ")}
@@ -582,7 +719,7 @@ async function runHost(options: { engine: string; relay?: string; app: string; s
   if (other) fail(`flupcode remote is already running (pid ${other})`)
   const engine = await ensureEngine(options.engine, engineCredentials(), options.serve)
   const credentials = engine.credentials
-  const engineProcess: ChildProcess | undefined = engine.child
+  const engineProcess = engine.child
 
   mkdirSync(configDir(), { recursive: true, mode: 0o700 })
   writeFileSync(lockFile(), String(process.pid))
@@ -620,9 +757,8 @@ async function runHost(options: { engine: string; relay?: string; app: string; s
   const shutdown = () => {
     closing = true
     host.stop()
-    engineProcess?.kill()
     rmSync(lockFile(), { force: true })
-    process.exit(0)
+    void (engineProcess?.stop() ?? Promise.resolve()).finally(() => process.exit(0))
   }
   process.on("SIGINT", shutdown)
   process.on("SIGTERM", shutdown)
@@ -676,6 +812,7 @@ const args = parseArgs({
     uninstall: { type: "boolean" },
     from: { type: "string" },
     port: { type: "string" },
+    "harness-port": { type: "string" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },
@@ -691,16 +828,29 @@ if (command === "diagnostics") {
   await printDiagnostics()
   process.exit(0)
 }
-if (args.values.help || (command !== "remote" && command !== "engine" && command !== "serve")) {
+if (args.values.help || (command !== "remote" && command !== "engine" && command !== "serve" && command !== "pair")) {
   console.log(HELP)
   process.exit(args.values.help || !command ? 0 : 1)
 }
 
+const harnessPort = Number(args.values["harness-port"] ?? 4097)
 if (command === "serve" && (args.values.install || args.values.uninstall)) {
-  await serveService(args.values.install ? "install" : "uninstall", Number(args.values.port ?? 4096))
+  await serveService(args.values.install ? "install" : "uninstall", Number(args.values.port ?? 4096), harnessPort)
   process.exit(0)
 }
-if (command === "serve") await runServe(Number(args.values.port ?? 4096))
+if (command === "serve") await runServe(Number(args.values.port ?? 4096), harnessPort)
+
+if (command === "pair") {
+  const url = `http://127.0.0.1:${harnessPort}`
+  if (subcommand === "revoke") {
+    const data = await askHarness(url, "/harness/pair/tabs", "DELETE")
+    console.log(`Unpaired ${String(data.revoked)} tab(s). Each one needs a new code.`)
+    process.exit(0)
+  }
+  if (subcommand) fail(`unknown command "pair ${subcommand}"; see flupcode --help`)
+  await printPairingCode(url)
+  process.exit(0)
+}
 
 if (command === "engine") {
   await runEngineCommand(subcommand, {

@@ -67,6 +67,7 @@ import { createProposalReview } from "./adaptive/learning/review"
 import { createUsagePricing } from "./usage-pricing"
 import { createUsageReconciler } from "./usage-reconciler"
 import { createAuditor } from "./verdict"
+import { createPairing, type Pairing } from "./pairing"
 
 export type HarnessServerOptions = {
   port?: number
@@ -89,6 +90,8 @@ export type HarnessServerOptions = {
   /** The engine plugins' bearer (TI-10); resolved from the file when omitted. */
   pluginToken?: string
   pluginTokenFile?: string
+  /** Browser tabs paired with a one-time code (HE-01); only on a loopback host with a UI token. */
+  pairing?: Pairing
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
@@ -416,6 +419,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(pluginToken ? { pluginToken } : {}),
+      // A paired tab is a UI caller, so pairing exists only where the UI's token does, on the loopback.
+      ...(options.pairing && browserToken && isLoopbackHostname(hostname) ? { pairing: options.pairing } : {}),
       ...(actions ? { actions } : {}),
       ...(actions
         ? {
@@ -639,6 +644,7 @@ if (import.meta.main) {
     ...(pluginToken ? { pluginToken } : {}),
     ...(vaultKey ? { vaultKey } : {}),
     ...(adaptiveToken ? { adaptiveToken } : {}),
+    pairing: createPairing(),
   })
   console.log(`FlupCode harness server listening on ${app.server.url}`)
   // Playwright swallows SIGTERM, so without this the browser outlives the server that owns it.

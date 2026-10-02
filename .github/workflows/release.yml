@@ -166,6 +166,18 @@ jobs:
               --outfile "cli/flupcode-$target$extension"
           done
 
+      # `flupcode serve` hosts the harness beside the engine (HE-01): the same compiled server the desktop
+      # ships, one per CLI binary, found beside `flupcode` as `flupcode-harness-<target>`.
+      - name: Compile harness servers for flupcode serve
+        run: |
+          targets="darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64"
+          bun packages/harness-server/script/build.ts $targets
+          for target in $targets; do
+            extension=""
+            if [ "$target" = "windows-x64" ]; then extension=".exe"; fi
+            cp "packages/harness-server/dist/$target/flupcode-harness$extension" "cli/flupcode-harness-$target$extension"
+          done
+
       - name: Publish CLI binaries
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -45,6 +45,16 @@ It does that only for FlupCode's own pages (app.flupcode.com and `localhost:4444
 was protecting. Then open [app.flupcode.com](https://app.flupcode.com). It connects to
 `http://localhost:4096`; change the address in **Settings → Server** if you passed `--port`.
 
+It also starts FlupCode's harness beside the engine, on `http://127.0.0.1:4097` (`--harness-port`
+changes it): runs, routines and artifacts, and routines fire with no window open. Put
+`flupcode-harness-<platform>` from the same release beside `flupcode`; without it `serve` says so and
+serves the engine only. The harness answers the web app only once the tab is **paired**: `flupcode
+serve` prints a one-time code (`XXXX-XXXX`, five minutes), and you type it under **Runs**. The tab
+keeps a short-lived token in memory and the harness a refresh cookie, so a reload stays paired.
+`flupcode pair` prints a new code while it runs, and `flupcode pair revoke` unpairs every tab. Chrome
+may ask to let the site access apps and devices on your local network first: allow it, that is how
+the page reaches this computer.
+
 To have it whenever you log in, with nothing to start, install it as a login service (a launchd
 agent on macOS, a systemd user unit on Linux):
 

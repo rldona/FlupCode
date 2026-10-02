@@ -3,8 +3,8 @@
  *
  * The desktop renderer answers to `oc://renderer`, and a development build is served from a loopback
  * port that changes, so any localhost port is allowed. A hosted page is not: `app.flupcode.com` is
- * not trusted by default, and the only way to add an origin is to name it exactly in
- * `FLUPCODE_HARNESS_CORS`.
+ * not trusted by default. It reads the harness only with a token it paired for (HE-01, `api.ts`
+ * decides per request); naming an origin exactly in `FLUPCODE_HARNESS_CORS` trusts it outright.
  */
 
 import { isIP } from "node:net"
@@ -31,6 +31,23 @@ export function allowedHarnessOrigin(origin: string | undefined, env: NodeJS.Pro
   if (origin === "oc://renderer") return true
   if (harnessCorsOrigins(env).includes(origin)) return true
   return isLoopbackOrigin(origin)
+}
+
+/** FlupCode's hosted web app. */
+export const HOSTED_ORIGIN = "https://app.flupcode.com"
+
+/**
+ * Whether `origin` is FlupCode's web app served from somewhere other than this machine: the hosted
+ * one, or one `FLUPCODE_WEB_ORIGINS` names (the same list the engine proxy serves, comma-separated
+ * and exact). Such a page gets nothing from the harness but pairing until it holds a paired token.
+ */
+export function hostedWebOrigin(origin: string | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (origin === undefined) return false
+  if (origin === HOSTED_ORIGIN) return true
+  return (env.FLUPCODE_WEB_ORIGINS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .includes(origin)
 }
 
 function isLoopbackOrigin(origin: string): boolean {
@@ -89,16 +106,25 @@ function addVary(headers: Headers, value: string): void {
  *
  * Whatever `access-control-allow-origin` the handler set is removed first, so the `*` the API used to
  * send can never leak past this point. An allowed origin gets its own value echoed, with
- * `Vary: Origin` so a cache does not serve one origin's answer to another.
+ * `Vary: Origin` so a cache does not serve one origin's answer to another. `grant.origin` lets one
+ * more origin read this answer (a paired hosted tab, HE-01), and `grant.credentials` lets it send and
+ * receive the pairing cookie.
  */
-export function applyHarnessCors(response: Response, request: Request, env: NodeJS.ProcessEnv = process.env): Response {
+export function applyHarnessCors(
+  response: Response,
+  request: Request,
+  grant: { origin?: boolean; credentials?: boolean } = {},
+  env: NodeJS.ProcessEnv = process.env,
+): Response {
   const origin = request.headers.get("origin") ?? undefined
   const headers = new Headers(response.headers)
   headers.delete("access-control-allow-origin")
+  headers.delete("access-control-allow-credentials")
   // Always varied, even when denied: a shared cache must not serve one origin's answer to another.
   addVary(headers, "Origin")
-  if (origin !== undefined && allowedHarnessOrigin(origin, env)) {
+  if (origin !== undefined && (grant.origin || allowedHarnessOrigin(origin, env))) {
     headers.set("access-control-allow-origin", origin)
+    if (grant.credentials) headers.set("access-control-allow-credentials", "true")
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
