@@ -1,10 +1,10 @@
 /**
  * The one decision point for every browser action (BU-01, audit §9.5).
  *
- * Whatever drives the browser — today the web-actions runner, later an attached engine browser
- * (BU-05) or an MCP preset (BU-02) — asks `decide` first, with the page's origin and the tier of what
- * it is about to do. The answer does not depend on the driver and is made here, in the server: the
- * plugin or the model only ever learns the outcome (P7).
+ * Whatever drives the browser — the web-actions runner, the engine's browser tools through the
+ * attach client (BU-05) or an MCP preset (BU-02) — asks `decide` first, with the page's origin and
+ * the tier of what it is about to do. The answer does not depend on the driver and is made here, in
+ * the server: the plugin or the model only ever learns the outcome (P7).
  *
  * Tiers, from least to most: `read` (look at the page: text, a screenshot), `navigate` (go to
  * another address on the site), `interact` (click and type) and `sensitive` (send a form, upload a
@@ -21,8 +21,8 @@
  * evidence artifact it left.
  *
  * Other drivers plug in by naming a tier: the engine's permission hook for an MCP browser (BU-02)
- * maps each tool name to one and asks `decide` with the session; the attach client (BU-05) does the
- * same per command. Neither has a route yet, because nothing calls one (P8).
+ * maps each tool name to one and asks `decide` with the session; the attach client (BU-05,
+ * `browser-attach.ts`) does the same for every command the engine sends it, before the driver acts.
  */
 
 import type { BrowserAllowRule, BrowserAuditEntry, BrowserGrant } from "./types"

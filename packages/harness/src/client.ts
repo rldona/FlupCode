@@ -538,6 +538,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      */
     agentBrowser: {
       session: (sessionID: string) => agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/session"),
+      /** Hands the agent a browser for this session (BU-05): the engine's browser tools then work there. */
+      attach: (sessionID: string) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/attach", { method: "POST" }),
       pause: (sessionID: string) =>
         agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/pause", { method: "POST" }),
       resume: (sessionID: string) =>

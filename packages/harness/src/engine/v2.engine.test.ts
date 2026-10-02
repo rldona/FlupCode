@@ -182,6 +182,38 @@ describe.skipIf(!run)("the OpenCode 2 adapter", () => {
     await domains.session.wait({ sessionID: session.id })
   })
 
+  // The engine offers its `browser.*` tools under the `browser` rule (BU-05). A mode's rules never
+  // offer them on their own: the rule harness-server wrote stays last, and without one it is a deny.
+  test("a permission mode keeps the browser rule last: deny by default, harness-server's when it wrote one", async () => {
+    const session = await domains.session.create({ location: { directory: engine.project } })
+    const rules = async () => {
+      const response = await fetch(`${engine.url}/api/session/${session.id}`, {
+        headers: { authorization: engine.authorization },
+      })
+      return ((await response.json()) as { data: { permissions: unknown[] } }).data.permissions
+    }
+    const bypass = [{ permission: "*", pattern: "*", action: "allow" as const }]
+    await domains.session.setPermission({ sessionID: session.id, permission: bypass })
+    expect(await rules()).toEqual([
+      { action: "*", resource: "*", effect: "allow" },
+      { action: "browser", resource: "*", effect: "deny" },
+    ])
+    // harness-server attached a browser and allowed the tools; the next mode keeps that.
+    await fetch(`${engine.url}/api/session/${session.id}`, {
+      method: "PATCH",
+      headers: { authorization: engine.authorization, "content-type": "application/json" },
+      body: JSON.stringify({ permissions: [...(await rules()).slice(0, 1), { action: "browser", resource: "*", effect: "allow" }] }),
+    })
+    await domains.session.setPermission({
+      sessionID: session.id,
+      permission: [{ permission: "*", pattern: "*", action: "ask" }],
+    })
+    expect(await rules()).toEqual([
+      { action: "*", resource: "*", effect: "ask" },
+      { action: "browser", resource: "*", effect: "allow" },
+    ])
+  })
+
   test("renames, forks and removes a session", async () => {
     const session = await domains.session.create({ location: { directory: engine.project } })
     await domains.session.rename({ sessionID: session.id, title: "Renamed" })

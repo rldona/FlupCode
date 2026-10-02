@@ -16,7 +16,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import type { Dirent } from "node:fs"
 import { dirname, join } from "node:path"
-import type { BrowserContext, Page } from "playwright-core"
+import type { BrowserContext, CDPSession, Page, Request } from "playwright-core"
 import { BrowserError } from "./browser-driver"
 import type {
   BrowserAction,
@@ -24,18 +24,28 @@ import type {
   BrowserDriver,
   BrowserOpenInput,
   BrowserSession,
+  BrowserTab,
+  BrowserTabs,
   BrowserViewport,
+  TabAction,
   WaitUntil,
 } from "./browser-driver"
 import type { EgressGuard } from "./browser-egress"
 import { NavigationBlockedError, createEgressGuard } from "./browser-egress"
 import { flupcodeConfigDir } from "./browser-token"
 import { redactSecrets } from "./redact"
+import { EDITABLE_ROLES, renderSnapshot, type AXNode, type SnapshotRef } from "./browser-snapshot"
 import type { SqliteRoutineRepository } from "./repository"
 
 const DEFAULT_IDLE_TIMEOUT_MS = 600_000
 /** How much page text a snapshot keeps, so a huge page cannot become an unbounded result. */
 const MAX_PAGE_TEXT = 200_000
+/** How much of an accessibility snapshot reaches the agent (BU-05); the engine takes up to 100,000. */
+const MAX_SNAPSHOT = 60_000
+/** A tab's navigation waits this long at most, well inside the engine's 60-second command window. */
+const TAB_NAVIGATION_TIMEOUT_MS = 30_000
+/** How long after a click or a key a navigation it started is waited for. */
+const NAVIGATION_START_MS = 500
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/
 /** Credential-shaped fields the browser always blacks out, whatever the profile declared. */
 const BASE_MASK = 'input[type="password"], [autocomplete^="cc-"]'
@@ -83,6 +93,8 @@ const RECIPE_ACTIONS: ReadonlySet<BrowserActionKind> = new Set([
 
 /** The driver plus the person's own controls of the Chromium it owns. */
 export type RecipeDriver = BrowserDriver & {
+  /** The agent's own browser tool works in this driver's tabs (BU-05). */
+  tabs: BrowserTabs
   /** Opens the persistent profile headed by default: a login a person needs to see and finish. */
   openLogin(input: BrowserOpenInput): Promise<BrowserSession>
   /** Deletes a project's persistent profile; refuses while a browser for it is still open. */
@@ -258,6 +270,10 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
     // The route guard only sees http(s): a WebSocket is a separate transport that could reach
     // loopback or RFC1918 without ever passing it, so in WA-1 every page's WebSockets are closed.
     await context.routeWebSocket("**/*", (ws) => ws.close())
+    // A page the site opens (a popup, a link to a new window) is a tab the agent can see (BU-05).
+    context.on("page", (page) => {
+      if (session.context === context && session.tabs.size > 0) tabOf(session, page)
+    })
   }
 
   /**
@@ -314,6 +330,9 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
       }
       session.context = context
       session.page = page
+      // The old context's pages are gone with it: the agent lists its tabs again (BU-05).
+      session.tabs.clear()
+      session.focusedTab = undefined
       session.view.headed = true
       // The headed page is not the one the panel measured, so the reported size must be the truth of
       // the new page, not the size the headless one had.
@@ -443,6 +462,9 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
       maskSelectors: new Set(),
       runID: input.runID,
       taskID: input.taskID,
+      sessionID: input.sessionID,
+      tabs: new Map(),
+      focusedTab: undefined,
     }
     await bindContext(session, context)
     sessions.set(id, session)
@@ -746,6 +768,7 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
       directory: dataDir,
       ...(session.runID ? { runID: session.runID } : {}),
       ...(session.taskID ? { taskID: session.taskID } : {}),
+      ...(session.sessionID ? { sessionID: session.sessionID } : {}),
     })
     // Only a stored frame changes what a viewer can see, so only here does the stream carry it; a
     // `store: false` poll is served and forgotten and must not announce an artifact nobody has.
@@ -757,7 +780,7 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
       url: view.url,
       title: view.title,
     })
-    return { bytes, artifactId: artifact.id }
+    return { bytes, artifactId: artifact.id, path: join(dataDir, relative) }
   }
 
   const screenshot = async (
@@ -769,7 +792,8 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
       // A polled frame with `store: false` is served and forgotten: writing a PNG per poll would grow
       // the disk without anybody ever asking for it back.
       if (options?.store === false) return { bytes: await session.page.screenshot(captureOptions(session)) }
-      return storeScreenshot(session, options?.label)
+      const stored = await storeScreenshot(session, options?.label)
+      return { bytes: stored.bytes, artifactId: stored.artifactId }
     })
   }
 
@@ -859,6 +883,217 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
     })
   }
 
+  /** A tab by the id the agent named, or `tab_unavailable` with what to do instead. */
+  const requireTab = (session: ActiveSession, id: string) => {
+    const tab = session.tabs.get(id)
+    if (!tab || tab.page.isClosed())
+      throw new BrowserError(
+        "tab_unavailable",
+        404,
+        "This tab is closed or is not one of this browser's tabs. Call browser.tabs.list({}) and use a tabID from it.",
+      )
+    // The tab acted on is the page the live view shows (BU-05).
+    session.page = tab.page
+    session.focusedTab = tab.id
+    return tab
+  }
+
+  /** What the agent is told about a tab, redacted like every view. */
+  const describeTab = async (session: ActiveSession, tab: TabState): Promise<BrowserTab> => {
+    const secrets = await collectSecrets(session)
+    const history = await cdpOf(session, tab)
+      .then((cdp) => cdp.send("Page.getNavigationHistory"))
+      .catch(() => undefined)
+    return {
+      id: tab.id,
+      url: redactSecrets(tab.page.url(), secrets),
+      title: redactSecrets(await tab.page.title().catch(() => ""), secrets),
+      loading: false,
+      canGoBack: !!history && history.currentIndex > 0,
+      canGoForward: !!history && history.currentIndex < history.entries.length - 1,
+      generation: tab.generation,
+    }
+  }
+
+  const cdpOf = (session: ActiveSession, tab: TabState) => {
+    tab.cdp ??= session.context.newCDPSession(tab.page)
+    return tab.cdp
+  }
+
+  const listTabs = async (session: ActiveSession) => ({
+    tabs: await Promise.all(
+      [...session.tabs.values()].filter((tab) => !tab.page.isClosed()).map((tab) => describeTab(session, tab)),
+    ),
+    focusedTabID: session.focusedTab ?? null,
+  })
+
+  /** Goes to `url` in a tab, behind the egress guard like a recipe's `goto`. */
+  const goTo = async (session: ActiveSession, page: Page, url: string) => {
+    clearAborted(session)
+    if (url !== "about:blank") await egress.assertNavigable(url)
+    try {
+      await page.goto(url, { waitUntil: "load", timeout: TAB_NAVIGATION_TIMEOUT_MS })
+    } catch (cause) {
+      const aborted = session.aborted
+      if (aborted) throw new NavigationBlockedError(aborted.reason, aborted.url)
+      throw new BrowserError("action_failed", 422, messageOf(cause))
+    }
+    const landed = page.url()
+    if (URL.canParse(landed) && landed !== "about:blank") await egress.assertNavigable(landed)
+  }
+
+  /** The node a ref names, or `stale_ref` when the tab's latest snapshot has no such ref. */
+  const refOf = (tab: TabState, ref: string) => {
+    const known = tab.refs.get(ref.replace(/^@/, ""))
+    if (!known)
+      throw new BrowserError(
+        "stale_ref",
+        409,
+        `${ref} is not a ref of this tab's latest snapshot: refs expire with the next snapshot and on navigation. Call browser.snapshot and use a ref from it.`,
+      )
+    return known
+  }
+
+  /** Where to click an element: the middle of its first box, scrolled into view. */
+  const pointOf = async (session: ActiveSession, tab: TabState, ref: string) => {
+    const cdp = await cdpOf(session, tab)
+    const node = refOf(tab, ref)
+    const quads = await cdp
+      .send("DOM.scrollIntoViewIfNeeded", { backendNodeId: node.backendNodeId })
+      .then(() => cdp.send("DOM.getContentQuads", { backendNodeId: node.backendNodeId }))
+      .catch(() => {
+        // The node left the document since the snapshot that named it.
+        throw new BrowserError("stale_ref", 409, `${ref} is no longer on the page. Call browser.snapshot again.`)
+      })
+    const quad = quads.quads[0]
+    if (!quad) throw new BrowserError("action_failed", 422, `${ref} has nothing visible to click`)
+    return {
+      x: (quad[0]! + quad[2]! + quad[4]! + quad[6]!) / 4,
+      y: (quad[1]! + quad[3]! + quad[5]! + quad[7]!) / 4,
+    }
+  }
+
+  /** One input in a tab, by CDP input events (Playwright's mouse and keyboard send them). */
+  const inTab = async (session: ActiveSession, tab: TabState, action: TabAction) => {
+    const page = tab.page
+    if (action.kind === "navigate") return goTo(session, page, action.url)
+    if (action.kind === "back" || action.kind === "forward" || action.kind === "reload") {
+      const options = { waitUntil: "load" as const, timeout: TAB_NAVIGATION_TIMEOUT_MS }
+      clearAborted(session)
+      await (action.kind === "back" ? page.goBack(options) : action.kind === "forward" ? page.goForward(options) : page.reload(options)).catch(
+        (cause) => {
+          const aborted = session.aborted
+          if (aborted) throw new NavigationBlockedError(aborted.reason, aborted.url)
+          throw new BrowserError("action_failed", 422, messageOf(cause))
+        },
+      )
+      return
+    }
+    if (action.kind === "click") {
+      const point = await pointOf(session, tab, action.ref)
+      await settled(page, () =>
+        page.mouse.click(point.x, point.y, { button: action.button ?? "left", clickCount: action.count ?? 1 }),
+      )
+      return
+    }
+    if (action.kind === "type") {
+      const node = refOf(tab, action.ref)
+      if (!EDITABLE_ROLES.has(node.role))
+        throw new BrowserError("not_editable", 422, `${action.ref} is a ${node.role}, not a field to type into`)
+      const cdp = await cdpOf(session, tab)
+      await cdp.send("DOM.focus", { backendNodeId: node.backendNodeId }).catch(() => {
+        throw new BrowserError("stale_ref", 409, `${action.ref} is no longer on the page. Call browser.snapshot again.`)
+      })
+      // Replaces what the field held, as the engine's `fill` promises.
+      await page.keyboard.press("ControlOrMeta+A")
+      if (action.text) await page.keyboard.insertText(action.text)
+      if (!action.text) await page.keyboard.press("Delete")
+      return
+    }
+    if (action.kind === "key") {
+      await settled(page, () =>
+        page.keyboard.press(action.key).catch((cause) => {
+          throw new BrowserError("action_failed", 422, messageOf(cause))
+        }),
+      )
+      return
+    }
+    await page.mouse.wheel(action.deltaX ?? 0, action.deltaY)
+  }
+
+  /** The live view follows the tab the agent works in: its address, its title, a status to refresh on. */
+  const shown = async <T>(session: ActiveSession, value: T) => {
+    await syncView(session)
+    emitStatus(session)
+    return value
+  }
+
+  const tabs: BrowserTabs = {
+    list: async (id) => listTabs(requireSession(id)),
+    open: async (id, url) => {
+      const session = requireSession(id)
+      return pageOp(session, async () => {
+        // The window's first page is the first tab, while nobody has used it.
+        const unused = session.tabs.size === 0 && session.page.url() === "about:blank" && !session.page.isClosed()
+        const page = unused ? session.page : await session.context.newPage()
+        const tab = tabOf(session, page)
+        requireTab(session, tab.id)
+        if (url) await goTo(session, page, url)
+        return shown(session, await describeTab(session, tab))
+      })
+    },
+    focus: async (id, tabID) => {
+      const session = requireSession(id)
+      return shown(session, await describeTab(session, requireTab(session, tabID)))
+    },
+    close: async (id, tabID) => {
+      const session = requireSession(id)
+      const tab = requireTab(session, tabID)
+      return pageOp(session, async () => {
+        session.tabs.delete(tab.id)
+        const next = [...session.tabs.values()].find((entry) => !entry.page.isClosed())
+        // The window keeps a page, so the live view always has one to show.
+        if (!next) await tab.page.goto("about:blank").catch(() => undefined)
+        if (next) await tab.page.close().catch(() => undefined)
+        session.page = next?.page ?? tab.page
+        session.focusedTab = next?.id
+        return shown(session, await listTabs(session))
+      })
+    },
+    snapshot: async (id, tabID, options) => {
+      const session = requireSession(id)
+      const tab = requireTab(session, tabID)
+      return pageOp(session, async () => {
+        const cdp = await cdpOf(session, tab)
+        const tree = (await cdp.send("Accessibility.getFullAXTree")) as { nodes: AXNode[] }
+        const secrets = await collectSecrets(session)
+        const rendered = renderSnapshot(tree.nodes, {
+          limit: MAX_SNAPSHOT,
+          redact: (text) => redactSecrets(text, secrets),
+          ...(options?.find ? { find: options.find } : {}),
+        })
+        tab.refs = rendered.refs
+        return { tab: await describeTab(session, tab), content: rendered.content, truncated: rendered.truncated }
+      })
+    },
+    act: async (id, tabID, action) => {
+      const session = requireSession(id)
+      const tab = requireTab(session, tabID)
+      return pageOp(session, async () => {
+        await inTab(session, tab, action)
+        return shown(session, await describeTab(session, tab))
+      })
+    },
+    screenshot: async (id, tabID) => {
+      const session = requireSession(id)
+      const tab = requireTab(session, tabID)
+      return pageOp(session, async () => {
+        const stored = await storeScreenshot(session)
+        return { tab: await describeTab(session, tab), artifactId: stored.artifactId, path: stored.path, bytes: stored.bytes.byteLength }
+      })
+    },
+  }
+
   const act = (id: string, action: BrowserAction) => {
     if (action.kind === "navigate") return navigate(id, action.url, action.waitUntil)
     if (action.kind === "waitFor") return waitFor(id, action.selector, action.timeoutMs, action.state)
@@ -893,6 +1128,7 @@ export function createRecipeDriver(options: RecipeDriverOptions): RecipeDriver {
     snapshot,
     screenshot,
     capture,
+    tabs,
     stop,
   }
 }
@@ -927,6 +1163,38 @@ type ActiveSession = {
   /** The run and task this browser works for (WA-7), so its screenshots are filed under them. */
   runID?: string
   taskID?: string
+  /** The engine session the agent's own tool browses for (BU-05). */
+  sessionID?: string
+  /** The agent's tabs (BU-05), by the id the engine knows them by. Empty until it opens one. */
+  tabs: Map<string, TabState>
+  focusedTab: string | undefined
+}
+
+/** One tab of the agent's tool: its page, and the refs of its latest snapshot. */
+type TabState = {
+  id: string
+  page: Page
+  generation: number
+  refs: Map<string, SnapshotRef>
+  cdp: Promise<CDPSession> | undefined
+}
+
+/** The tab a page is, registered on first sight: its refs go stale when its document changes. */
+function tabOf(session: ActiveSession, page: Page): TabState {
+  const known = [...session.tabs.values()].find((tab) => tab.page === page)
+  if (known) return known
+  const tab: TabState = { id: `tab_${randomUUID()}`, page, generation: 0, refs: new Map(), cdp: undefined }
+  session.tabs.set(tab.id, tab)
+  page.on("framenavigated", (frame) => {
+    if (frame !== page.mainFrame()) return
+    tab.generation += 1
+    tab.refs.clear()
+  })
+  page.on("close", () => {
+    session.tabs.delete(tab.id)
+    if (session.focusedTab === tab.id) session.focusedTab = undefined
+  })
+  return tab
 }
 
 /**
@@ -1054,6 +1322,33 @@ const profileName = (project: string) => createHash("sha256").update(project).di
 /** Clearing through a call, so TypeScript does not narrow `aborted` to `undefined` for the rest of the body. */
 const clearAborted = (session: ActiveSession): void => {
   session.aborted = undefined
+}
+
+/**
+ * An input, and the navigation it starts if it starts one: a click on a submit button or an Enter
+ * in a form is done when the next document has loaded. Whether it started one is told by a
+ * navigation request of the main frame shortly after the input; the wait for the new document is
+ * set up before the input, since it can commit at any moment after it.
+ */
+const settled = async (page: Page, input: () => Promise<void>) => {
+  const frame = page.mainFrame()
+  const committed = page
+    .waitForEvent("framenavigated", { predicate: (entry) => entry === frame, timeout: TAB_NAVIGATION_TIMEOUT_MS })
+    .catch(() => undefined)
+  const requested = Promise.withResolvers<boolean>()
+  const onRequest = (request: Request) => {
+    if (request.isNavigationRequest() && request.frame() === frame) requested.resolve(true)
+  }
+  page.on("request", onRequest)
+  try {
+    await input()
+    const started = await Promise.race([requested.promise, Bun.sleep(NAVIGATION_START_MS).then(() => false)])
+    if (!started) return
+    await committed
+    await page.waitForLoadState("load", { timeout: TAB_NAVIGATION_TIMEOUT_MS }).catch(() => undefined)
+  } finally {
+    page.off("request", onRequest)
+  }
 }
 
 const timeoutOptions = (timeoutMs: number | undefined) => (timeoutMs === undefined ? {} : { timeout: timeoutMs })

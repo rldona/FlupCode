@@ -53,7 +53,6 @@ export type PendingRequest =
   | { kind: "permission"; id: string; sessionID: string; action: string; resources: string[] }
   | { kind: "form"; id: string; sessionID: string; title: string }
 
-
 /** A session-level permission rule, in the shape the legacy runtime reads them. */
 export type PermissionRule = { permission: string; pattern: string; action: "allow" | "ask" | "deny" }
 
@@ -456,6 +455,25 @@ export class Engine {
   }
 
   /** Switches a session's agent: 2.x keeps it as session state. */
+  /** One method of the engine's browser attach protocol (BU-05, ADR-0028). */
+  async browserCall(
+    method: string,
+    input: Record<string, unknown>,
+    options?: { directory?: string; signal?: AbortSignal },
+  ) {
+    return (await this.v2()).browserCall(method, input, options)
+  }
+
+  /** The attach protocol's `control` events, until `signal` ends. */
+  async *browserControl(signal: AbortSignal) {
+    yield* (await this.v2()).browserControl(signal)
+  }
+
+  /** Offers the session the engine's `browser.*` tools, or takes them away (BU-05). */
+  async setBrowserRule(sessionID: string, effect: "allow" | "deny") {
+    return (await this.v2()).setBrowserRule(sessionID, effect)
+  }
+
   async switchAgent(sessionID: string, agent: string) {
     await (await this.v2()).switchAgent(sessionID, agent)
   }
@@ -486,7 +504,11 @@ export class Engine {
    * the conversation's context. The prompt is the diff and the instruction to answer with the message
    * alone, and the session is a throwaway with no folder history behind it.
    */
-  async commitMessage(input: { directory?: string; diff: string; onSession?: (sessionID: string) => void }): Promise<string> {
+  async commitMessage(input: {
+    directory?: string
+    diff: string
+    onSession?: (sessionID: string) => void
+  }): Promise<string> {
     const session = await this.createSession({
       ...(input.directory ? { directory: input.directory } : {}),
       title: "Commit message",

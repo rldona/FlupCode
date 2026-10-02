@@ -1,4 +1,4 @@
-import { OpenCode, type SessionInfo, type SessionMessageInfo } from "@opencode/client"
+import { OpenCode, type JsonValue, type SessionInfo, type SessionMessageInfo } from "@opencode/client"
 import { basename } from "node:path"
 import { pathToFileURL } from "node:url"
 import { detailOf, type Activity, type PendingRequest, type PermissionRule, type TranscriptMessage } from "./engine"
@@ -227,7 +227,12 @@ export class V2Engine {
   async refuseRequest(request: PendingRequest, message: string) {
     if (request.kind === "permission")
       return call(
-        this.client.permission.reply({ sessionID: request.sessionID, requestID: request.id, decision: "reject", message }),
+        this.client.permission.reply({
+          sessionID: request.sessionID,
+          requestID: request.id,
+          decision: "reject",
+          message,
+        }),
       )
     await call(this.client.session.form.cancel({ sessionID: request.sessionID, formID: request.id }))
   }
@@ -352,6 +357,51 @@ export class V2Engine {
   async readQuota(integrationID: string) {
     const answer = await call(this.client.rpc.call({ rpcID: "flupcode.quota", method: "read", input: { integrationID } }))
     return answer.output as QuotaRead
+  }
+
+  /**
+   * One method of the engine's browser attach protocol (BU-05, ADR-0028), `experimental.browser`,
+   * in the folder the session belongs to: the engine's plugin answers only for its own location.
+   * `attach` is held open for as long as the client stays attached; `signal` ends it.
+   */
+  async browserCall(
+    method: string,
+    input: Record<string, unknown>,
+    options: { directory?: string; signal?: AbortSignal } = {},
+  ) {
+    const answer = await call(
+      this.client.rpc.call(
+        {
+          rpcID: "experimental.browser",
+          method,
+          input: input as JsonValue,
+          ...(options.directory ? { location: { directory: options.directory } } : {}),
+        },
+        options.signal ? { signal: options.signal } : undefined,
+      ),
+    )
+    return answer.output as unknown
+  }
+
+  /** The attach protocol's `control` events, as the engine emits them, until `signal` ends. */
+  async *browserControl(signal: AbortSignal) {
+    for await (const event of this.client.event.subscribe({ signal }))
+      if (event.type === "rpc.experimental.browser.control") yield event.data as Record<string, unknown>
+  }
+
+  /**
+   * Whether the session is offered the engine's `browser.*` tools: the last rule wins, so this one
+   * goes after whatever the session's permission mode wrote, and replaces an earlier one (BU-05).
+   */
+  async setBrowserRule(sessionID: string, effect: "allow" | "deny") {
+    const session = await call(this.client.session.get({ sessionID }))
+    const kept = (session.permissions ?? []).filter((rule) => rule.action !== "browser")
+    await call(
+      this.client.session.update({
+        sessionID,
+        permissions: [...kept, { action: "browser", resource: "*", effect }],
+      }),
+    )
   }
 
   /** The session a subagent's chain starts from: itself when it has no parent. */

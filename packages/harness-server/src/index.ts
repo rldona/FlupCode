@@ -50,6 +50,7 @@ import { createSmallLlmModel } from "./adaptive/providers/small-llm"
 import { createActionApprover } from "./action-approval"
 import { createBrowserPolicy } from "./browser-policy"
 import { createBrowserMcpGate } from "./browser-mcp"
+import { createBrowserAttach } from "./browser-attach"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
 import { parseModelKey } from "./policy"
@@ -416,6 +417,16 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         now: Date.now(),
       }),
   })
+  // The agent's own browser (BU-05): the client of the engine's attach protocol, on the recipe
+  // runner's browser and under the same policy, for the sessions a person hands a browser to.
+  const browserAttach = browser
+    ? createBrowserAttach({
+        engine: new Engine(engineURL),
+        driver: browser,
+        policy: browserPolicy,
+        ask: (request) => new Engine(engineURL).askChoice(request),
+      })
+    : undefined
   // What the server can tell of a ledger row's money (UL-05), shared by the ingest and the reconciler.
   const usagePricing = createUsagePricing({ engine: scheduler.engine, repository })
   // The connected providers' quotas (UL-07), read on the server and kept as samples.
@@ -428,6 +439,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       usagePricing,
       quotas,
       ...(browser ? { browser } : {}),
+      ...(browserAttach ? { browserAttach } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(pluginToken ? { pluginToken } : {}),
       ...(remoteToken ? { remoteToken } : {}),
@@ -544,6 +556,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       labeler.stop()
       episodes.stop()
       scheduler.stop()
+      await browserAttach?.stop().catch(() => undefined)
       await browser?.stop().catch(() => undefined)
       repository.close()
       server.stop()
