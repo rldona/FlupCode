@@ -53,18 +53,11 @@ describe.skipIf(!run)("the rest of the OpenCode 2 adapter", () => {
     expect((await domains.paths()).directory).toBe(engine.project)
   })
 
-  test("the event stream is /api/event, and the 1.x folder stream waits quietly for its signal", async () => {
+  test("the event stream is /api/event", async () => {
     const controller = new AbortController()
     const events = domains.event.subscribe({ signal: controller.signal })[Symbol.asyncIterator]()
     expect((await events.next()).value?.type).toBe("server.connected")
     controller.abort()
-
-    const folder = new AbortController()
-    const quiet = domains.event.subscribeDirectory(engine.project, { signal: folder.signal })[Symbol.asyncIterator]()
-    const next = quiet.next()
-    expect(await Promise.race([next.then(() => "ended"), Bun.sleep(200).then(() => "waiting")])).toBe("waiting")
-    folder.abort()
-    expect((await next).done).toBe(true)
   })
 
   test("agents, commands and skills are listed in the app's shape", async () => {

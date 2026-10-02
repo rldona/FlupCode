@@ -59,6 +59,16 @@ describe.skipIf(!run)("config on the OpenCode 2 adapter", () => {
     expect((await domains.config()).compaction).toEqual({ auto: false, reserved: 1000 })
   })
 
+  // The advanced editor (TI-12) shows each file as it is written, not the two merged.
+  test("each scope's file is read on its own, for the advanced editor", async () => {
+    await domains.updateGlobalConfig({ small_model: "stub/global" })
+    await domains.updateConfig({ instructions: ["FOLDER.md"] })
+    expect(await domains.configFile("global")).toMatchObject({ small_model: "stub/global" })
+    const folder = await domains.configFile("project")
+    expect(folder).toMatchObject({ instructions: ["FOLDER.md"] })
+    expect(folder).not.toHaveProperty("small_model")
+  })
+
   test("an MCP server is saved, connects on reload, and is gone once removed", async () => {
     await domains.mcp.add({
       server: "saved",

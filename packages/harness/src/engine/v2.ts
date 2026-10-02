@@ -296,19 +296,6 @@ export function createV2Domains(
     },
   }
 
-  /**
-   * The 1.x legacy runner's own registry. 2.x has one runtime, so there is nothing here: the lists
-   * read empty and answering one fails, which is what sends the app to `session.permission` and
-   * `session.question`, where every 2.x request lives.
-   */
-  const blocked: EngineClient["blocked"] = {
-    questions: async () => [],
-    permissions: async () => [],
-    answerQuestion: async () => unsupported("the legacy question registry"),
-    rejectQuestion: async () => unsupported("the legacy question registry"),
-    answerPermission: async () => unsupported("the legacy permission registry"),
-  }
-
   const permission: EngineClient["permission"] = {
     pending: async (input) => {
       const directory = input?.location?.directory
@@ -345,10 +332,13 @@ export function createV2Domains(
     await store.patch(scope, patch, folder)
     await call(client.location.reload(at(folder)))
   }
-  const config: Pick<EngineClient, "config" | "globalConfig" | "updateConfig" | "updateGlobalConfig" | "reloadConfig"> =
-    {
+  const config: Pick<
+    EngineClient,
+    "config" | "globalConfig" | "configFile" | "updateConfig" | "updateGlobalConfig" | "reloadConfig"
+  > = {
       config: async () => (await merged()) as Awaited<ReturnType<EngineClient["config"]>>,
       globalConfig: async () => (await configFile("global")) as Awaited<ReturnType<EngineClient["globalConfig"]>>,
+      configFile: (scope) => configFile(scope),
       updateConfig: (patch) => save("project", patch),
       updateGlobalConfig: (patch) => save("global", patch),
       reloadConfig: async (input) => {
@@ -359,9 +349,8 @@ export function createV2Domains(
   /**
    * Models, providers and integrations (V2-25). 2.x has only the `/api` ones, so the 1.x directory the
    * providers panel reads is rebuilt from them (`toProviderDirectory`). 2.x keeps a key only as an
-   * integration credential: a custom provider in the config gets an integration of its own, and the
-   * app already stores a key through `integration.connectKey` right after `auth.set`, so `auth` has
-   * nothing left to do. A key in the config is used as it is, so there is nothing to link either.
+   * integration credential, stored through `integration.connectKey`; a provider signs in through its
+   * integration too.
    */
   const model: EngineClient["model"] = {
     list: async (input) => ({
@@ -385,18 +374,8 @@ export function createV2Domains(
       ])
       return toProviderDirectory({ integrations: integrations.data, providers: providers.data, models: models.data })
     },
-    // 1.x's own provider sign-in; every 2.x provider signs in through its integration instead.
-    auth: async () => ({}),
-    oauth: {
-      authorize: async () => unsupported("the 1.x provider sign-in"),
-      callback: async () => unsupported("the 1.x provider sign-in"),
-    },
-    linkConfiguredKeys: async () => 0,
-    unlinked: async () => [],
   }
   const auth: EngineClient["auth"] = {
-    set: async () => nothing(),
-    remove: async () => nothing(),
     reload: async () => {
       await call(client.location.reload())
       return nothing()
@@ -477,9 +456,8 @@ export function createV2Domains(
 
   /**
    * The rest of `EngineClient` (V2-11 groundwork). Most of it is the same `/api` route under its 2.x
-   * name. What 2.x no longer has reads as the app's empty state: the tool id list and the Console org. 1.x's per-folder event stream is gone too;
-   * every event, transcript included, is on `/api/event` (V2-21), so the folder stream waits quietly
-   * for its signal instead of answering HTML and being retried.
+   * name. What 2.x no longer has reads as the app's empty state: the tool id list and the Console org.
+   * Every event, transcript included, is on `/api/event` (V2-21).
    */
   const rest: Pick<
     EngineClient,
@@ -510,7 +488,6 @@ export function createV2Domains(
     event: {
       subscribe: (options?: { signal?: AbortSignal; idleTimeout?: number }) =>
         subscribeEvents(baseUrl, options?.signal, "/api/event", options?.idleTimeout),
-      subscribeDirectory: (_directory: string, options?: { signal?: AbortSignal }) => quietUntil(options?.signal),
     },
     /** 2.x names only the folder it serves and its temp folder; the rest of 1.x's `/path` is gone. */
     paths: async () => {
@@ -783,7 +760,16 @@ export function createV2Domains(
       })),
   }
 
-  return { session, message, blocked, permission, mcp, model, provider, auth, integration, ...config, ...rest }
+  return { session, message, permission, mcp, model, provider, auth, integration, ...config, ...rest }
+}
+
+/**
+ * The address the app knocks on to tell a stopped engine from one the browser blocked (`no-cors`,
+ * Local Network Access): any answer counts, so it is the route the engine serves its web page on,
+ * which needs no body and answers before the engine is signed in to.
+ */
+export function reachabilityUrl(baseUrl: string) {
+  return `${baseUrl.replace(/\/$/, "")}/global/health`
 }
 
 /** Reads and patches one scope of the engine's config files, in the 1.x shape (V2-24). */
@@ -811,12 +797,6 @@ function deepMerge(base: Record<string, unknown>, over: Record<string, unknown>)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-/** A stream that never yields and ends when `signal` aborts. */
-async function* quietUntil(signal?: AbortSignal): AsyncGenerator<{ type?: string }> {
-  if (!signal || signal.aborted) return
-  await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }))
 }
 
 /** How often a sign-in in progress is asked about. */

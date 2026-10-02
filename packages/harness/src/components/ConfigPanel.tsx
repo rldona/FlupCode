@@ -1,35 +1,43 @@
 import { createEffect, createSignal, type Component, Show } from "solid-js"
+import type { EngineClient } from "../client"
 import { t } from "../i18n"
 import { toast } from "../toast"
-import { engineFetch } from "../transport"
+import { failureDetail } from "./PanelBoundary"
 
 type ConfigPanelProps = {
   open: boolean
-  serverUrl: string
+  client: EngineClient
+  /** The app's own copies of the config are read again once a save lands. */
+  onSaved: () => void
   onClose: () => void
   onBack?: () => void
 }
 
+/**
+ * The engine's config file as JSON (TI-12). OpenCode 2 neither serves nor writes the file in the
+ * shape it loads, so it is read and patched through the adapter, which goes to the harness server
+ * (`/harness/engine-config`) and asks the engine to reload, the same path the settings panels take.
+ */
 export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
   const [text, setText] = createSignal("")
   const [loading, setLoading] = createSignal(false)
-  // The advanced editor writes to the directory's own file by default, like it always did; the
+  // A file that could not be read is said, not shown as an empty `{}` a save would write back.
+  const [failure, setFailure] = createSignal<string>()
+  // The advanced editor writes to the engine folder's own file by default, like it always did; the
   // global one is shared by every directory, so it is an explicit choice.
   const [scope, setScope] = createSignal<"project" | "global">("project")
 
-  const base = () => props.serverUrl.replace(/\/$/, "")
-  const path = () => (scope() === "global" ? "/global/config" : "/config")
-
   const load = async (target: "project" | "global") => {
     setLoading(true)
-    try {
-      const response = await engineFetch(`${base()}${target === "global" ? "/global/config" : "/config"}`)
-      setText(JSON.stringify(await response.json(), null, 2))
-    } catch {
-      setText("{}")
-    } finally {
-      setLoading(false)
-    }
+    setFailure(undefined)
+    await props.client
+      .configFile(target)
+      .then((config) => setText(JSON.stringify(config, null, 2)))
+      .catch((cause) => {
+        setText("")
+        setFailure(cause instanceof Error ? failureDetail(cause) : String(cause))
+      })
+    setLoading(false)
   }
 
   // Reload whenever the scope changes, not only when the panel opens: the textarea must never keep
@@ -39,23 +47,18 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
   })
 
   const save = async () => {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(text())
-    } catch {
+    const parsed = parseObject(text())
+    if (!parsed) {
       toast(t("Invalid JSON"), "error")
       return
     }
-    try {
-      const response = await engineFetch(`${base()}${path()}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed),
-      })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    } catch (cause) {
-      toast(cause instanceof Error ? cause.message : String(cause), "error")
-    }
+    await (scope() === "global" ? props.client.updateGlobalConfig(parsed) : props.client.updateConfig(parsed)).then(
+      () => {
+        toast(t("Config saved"), "success")
+        props.onSaved()
+      },
+      (cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"),
+    )
   }
 
   return (
@@ -81,6 +84,7 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
               ×
             </button>
           </div>
+          <Show when={failure()}>{(message) => <p class="fc-modal-error">{message()}</p>}</Show>
           <textarea
             class="fc-config-editor"
             spellcheck={false}
@@ -104,7 +108,12 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
             <button class="fc-button" type="button" disabled={loading()} onClick={() => void load(scope())}>
               {t("Reload")}
             </button>
-            <button class="fc-button fc-button-primary" type="button" disabled={loading()} onClick={save}>
+            <button
+              class="fc-button fc-button-primary"
+              type="button"
+              disabled={loading() || !!failure()}
+              onClick={() => void save()}
+            >
               {t("Save")}
             </button>
           </div>
@@ -112,4 +121,16 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
       </div>
     </Show>
   )
+}
+
+/** The editor's text as the object a patch needs, or nothing when it is not one. */
+function parseObject(text: string) {
+  try {
+    const value: unknown = JSON.parse(text)
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined
+  } catch {
+    return undefined
+  }
 }
