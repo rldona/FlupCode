@@ -1,6 +1,7 @@
 # ADR-0023: Failure/loop guardrails — deterministic detection, advisory intervention and raise-only tool risk
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-02 (PI-03): the `toolRisk` kind and its raise-only algebra
+  (§5) were removed because nothing read the score. The loop detection and the `failure` decision stand.
 - **Date:** 2026-09-29
 - **Related:** ADR-0016 (harness boundary), ADR-0017 (Jev egress and governance), ADR-0019 (learned
   skill lifecycle), ADR-0021 (skill relevance acting), ADR-0022 (loopback auth, retention, rollback),
