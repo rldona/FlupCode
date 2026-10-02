@@ -2573,6 +2573,25 @@ export class SqliteRoutineRepository implements RoutineRepository {
     })()
   }
 
+  /**
+   * Settled rows that never started back to queued (RP-04): a task stopped or skipped before it ran
+   * has no output, cost or session to lose, so it waits again as itself rather than as an attempt it
+   * never made. Its old verdict goes with its old status, because the run's verdict is read from it.
+   */
+  requeueTasks(taskIDs: string[]) {
+    this.db.transaction(() => {
+      for (const id of taskIDs)
+        this.db
+          .query(
+            `UPDATE tasks SET status = 'queued', finished_at = NULL, error = NULL,
+               verdict = NULL, verdict_reason = NULL, verdict_source = NULL
+             WHERE id = ?1 AND started_at IS NULL AND status IN ('failed', 'stopped', 'skipped')`,
+          )
+          .run(id)
+    })()
+    for (const id of taskIDs) this.publishTask(id)
+  }
+
   // ---- tasks ----------------------------------------------------------------------------------
 
   addTasks(runID: string, inputs: TaskInput[]) {

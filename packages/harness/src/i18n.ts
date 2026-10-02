@@ -1188,6 +1188,13 @@ const ES: Record<string, string> = {
   "Checkpoint restored": "Punto de control restaurado",
   "Could not work out what would change": "No se pudo calcular qué cambiaría",
 
+  // Resuming a run (RP-04)
+  "Resume from here": "Reanudar desde aquí",
+  "Runs: {names}": "Se ejecuta: {names}",
+  "The folder goes back to the checkpoint after {task}.": "La carpeta vuelve al punto de retorno tras {task}.",
+  "No checkpoint before this work: the folder stays as it is.":
+    "No hay punto de retorno antes de este trabajo: la carpeta se queda como está.",
+
   // Why CI failed
   Why: "Por qué",
   "On GitHub": "En GitHub",

@@ -29,6 +29,7 @@ import type {
   GitCommit,
   PullRequest,
   RestorePlan,
+  ResumePlan,
   Routine,
   RoutineInput,
   RoutineRun,
@@ -409,9 +410,21 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         harnessRequest<Run[]>(baseUrl, "/harness/best-of-n", { method: "POST", body: JSON.stringify(input) }),
       /** A run with the tasks it is made of; the list leaves them out. */
       get: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
-      /** Pick up a run that ended with work still queued (HF-5). */
-      resume: (id: string) =>
-        harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+      /**
+       * Pick up a run that failed, was stopped or lost its process (HF-5, RP-04): from a task, or from
+       * where it broke. Only what had not succeeded runs, after the folder is put back.
+       */
+      resume: (id: string, input: { fromTask?: string } = {}) =>
+        harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/resume`, {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      /** What resuming would do, before it does it: what runs, and what restoring the folder writes and deletes. */
+      resumePlan: (id: string, fromTask?: string) =>
+        harnessAuthorizedJson<ResumePlan>(
+          baseUrl,
+          `/harness/runs/${encodeURIComponent(id)}/resume${fromTask ? `?fromTask=${encodeURIComponent(fromTask)}` : ""}`,
+        ),
       tasks: (id: string) => harnessAuthorizedJson<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
       /** What its running tasks are doing right now. Polled while somebody watches, never stored. */
       activity: (id: string) =>
@@ -592,7 +605,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           baseUrl,
           directory ? `/harness/workflows?directory=${encodeURIComponent(directory)}` : "/harness/workflows",
         ),
-      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean; policy?: unknown; until?: string; fromCheckpoint?: string }) =>
+      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean; policy?: unknown; until?: string }) =>
         harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
           method: "POST",
           body: JSON.stringify(input),

@@ -540,6 +540,12 @@ export type Checkpoint = {
 export type RestorePlan = { write: string[]; remove: string[] }
 
 /**
+ * What resuming a run would do (RP-04): the tasks that run, in order, and the checkpoint the folder
+ * goes back to with what that writes and deletes. No checkpoint means the folder is left as it is.
+ */
+export type ResumePlan = { tasks: Task[]; checkpoint?: Checkpoint; plan?: RestorePlan }
+
+/**
  * The usage ledger read back (UL-05), as `/harness/usage/summary`, `/sessions/:id` and `/runs/:id`
  * answer. Mirrors `harness-server/src/usage.ts`.
  */

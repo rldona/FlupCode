@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
-import type { Artifact, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageBucket } from "../types"
+import type { Artifact, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageBucket } from "../types"
 import { tokenCount } from "../cost"
 import { formatTokens } from "../metrics"
 import { CostFigure } from "./CostFigure"
@@ -9,6 +9,7 @@ import { duration } from "./UsagePanel"
 import { StateBadge } from "./StateBadge"
 import { elapsed } from "./RunGraph"
 import { taskState } from "../run-state"
+import { ResumeConfirm } from "./ResumeConfirm"
 
 type RunTaskDetailProps = {
   run: Run
@@ -29,6 +30,10 @@ type RunTaskDetailProps = {
   onRetry: (taskID: string, model?: { providerID: string; id: string; variant?: string }) => void
   onSteer: (taskID: string, text: string) => void
   onCancel: (taskID: string) => void
+  /** What resuming the run from this task would do (RP-04), asked before it is done. */
+  onResumePlan: (taskID: string) => Promise<ResumePlan>
+  /** Resumes the run from this task: it and what follows run again, after the folder is put back. */
+  onResume: (taskID: string) => void
   onOpenChanges: (directory?: string) => void
   onClose: () => void
 }
@@ -53,6 +58,14 @@ const modelKey = (model: Task["model"]) => (model ? `${model.providerID}/${model
 export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
   const [steer, setSteer] = createSignal("")
   const [retryKey, setRetryKey] = createSignal(modelKey(props.task.model))
+  const [resuming, setResuming] = createSignal(false)
+  // Where a run that ended can pick up (RP-04): a task that failed or was stopped, and the newest
+  // attempt of it — an older one has already been done again.
+  const resumable = () =>
+    (props.task.status === "failed" || props.task.status === "stopped") &&
+    props.run.status !== "running" &&
+    props.run.status !== "awaiting" &&
+    !(props.run.tasks ?? []).some((task) => task.retryOf === props.task.id)
 
   const facts = () => {
     const task = props.task
@@ -143,6 +156,16 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
             {t("Cancel")}
           </button>
         </Show>
+        <Show when={resumable()}>
+          <button
+            class="fc-button"
+            type="button"
+            disabled={!props.serverAvailable || resuming()}
+            onClick={() => setResuming(true)}
+          >
+            {t("Resume from here")}
+          </button>
+        </Show>
         <button class="fc-button" type="button" disabled={!props.serverAvailable} onClick={retry}>
           {t("Retry")}
         </button>
@@ -159,6 +182,18 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
           </select>
         </Show>
       </div>
+
+      <Show when={resuming() && resumable()}>
+        <ResumeConfirm
+          load={() => props.onResumePlan(props.task.id)}
+          busy={!props.serverAvailable}
+          onCancel={() => setResuming(false)}
+          onResume={() => {
+            props.onResume(props.task.id)
+            setResuming(false)
+          }}
+        />
+      </Show>
 
       <Show when={props.task.sessionID}>
         <div class="fc-run-detail-steer">

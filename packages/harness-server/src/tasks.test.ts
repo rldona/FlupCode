@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
-import { TaskRunner } from "./runner"
+import { TaskRunner, resumePoint } from "./runner"
+import { handleUsageRead } from "./usage"
 import { RoutineScheduler } from "./scheduler"
 import { ActionRunError, createActionRunner } from "./action-runner"
 import { unavailableActionCredentialResolver } from "./action-credentials"
@@ -1895,5 +1896,264 @@ describe("a task's verdict", () => {
     // A failed check ends the run before anything behind it; `ship` never starts.
     const failing = await gated("exit 1")
     expect(failing.find((task) => task.name === "ship")!.status).not.toBe("success")
+  })
+})
+
+// RP-04: a run that failed, was stopped or lost its process picks up where it broke, or from a task
+// somebody chose, and runs only what had not succeeded. The folder goes back to how it looked before
+// that task first ran, so the run behaves as if it had never stopped.
+describe("resuming a run from a task", () => {
+  const steps = ["one", "two", "three", "four"]
+  const prompt = (name: string) => `Do ${name}`
+
+  /**
+   * A git folder and an engine whose tasks each write a file named after them. The task named in
+   * `failing` writes its file and then fails, once; `hanging` never comes back, as a lost process.
+   */
+  const stack = (options: { failing?: string; hanging?: string } = {}) => {
+    const repository = open()
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "flupcode-run-resume-")))
+    scratch.push(directory)
+    Bun.spawnSync(["git", "init", "-q"], { cwd: directory })
+    const prompts: string[] = []
+    const failing = new Set(options.failing ? [options.failing] : [])
+    // What each task saw on disk when it started: the half-done work of a failed attempt must be gone.
+    const seen: Record<string, string[]> = {}
+    const name = (text: string) => steps.find((step) => text.endsWith(prompt(step)))!
+    const sessions = new Map<string, string>()
+    const engine = {
+      createSession: async () => ({ id: `ses_${sessions.size + prompts.length}_${crypto.randomUUID().slice(0, 6)}` }),
+      prompt: async (input: { sessionID: string; text: string }) => {
+        const step = name(input.text)
+        prompts.push(step)
+        sessions.set(input.sessionID, step)
+        seen[step] = steps.filter((other) => existsSync(join(directory, `${other}.txt`)))
+        writeFileSync(join(directory, `${step}.txt`), `${step} attempt ${prompts.filter((entry) => entry === step).length}`)
+      },
+      waitForIdle: async (sessionID: string) => {
+        if (sessions.get(sessionID) === options.hanging) await new Promise(() => undefined)
+      },
+      lastAnswer: async (sessionID: string) => {
+        const step = sessions.get(sessionID)!
+        if (failing.delete(step)) return { text: "", error: `${step} broke`, tokens: 5, cost: 0.5 }
+        return { text: `${step} done`, tokens: 10, cost: 0.01 }
+      },
+      interrupt: async () => undefined,
+    }
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    Object.assign(scheduler, { engine })
+    const start = () => scheduler.runTasks({ directory, tasks: steps.map((step) => ({ name: step, prompt: prompt(step) })) })
+    return { repository, directory, scheduler, engine, prompts, seen, start }
+  }
+
+  const statuses = (repository: SqliteRoutineRepository, runID: string) =>
+    repository.listTasks(runID).map((task) => `${task.name}:${task.status}${task.attempt > 1 ? `#${task.attempt}` : ""}`)
+
+  test("a 4-task run that failed at task 3 runs tasks 3 and 4 only, and keeps what 1 and 2 did", async () => {
+    const { repository, directory, scheduler, prompts, seen, start } = stack({ failing: "three" })
+    const run = await start()
+    await settledAt(repository, run.id, "failed")
+    expect(statuses(repository, run.id)).toEqual(["one:success", "two:success", "three:failed", "four:queued"])
+    const before = repository.listTasks(run.id)
+    // Every task's session spent something on the ledger, attributed to it (UL-04).
+    repository.recordUsage({
+      events: before.flatMap((task) =>
+        task.sessionID
+          ? [
+              {
+                id: `${task.sessionID}:step`,
+                kind: "step" as const,
+                sessionID: task.sessionID,
+                providerID: "anthropic",
+                modelID: "sonnet",
+                tokens: { input: 10, output: 1, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+                costUSD: 0.01,
+                costBasis: "engine-list-price" as const,
+                billing: "metered" as const,
+                startedAt: 1000,
+                endedAt: 2000,
+              },
+            ]
+          : [],
+      ),
+      tools: [],
+    })
+    const points = repository.listCheckpoints({ runID: run.id })
+    expect(points.map((point) => point.title)).toEqual(["two", "one"])
+    prompts.length = 0
+
+    const plan = await scheduler.resumePlan(run.id)
+    expect(plan?.tasks.map((task) => task.name)).toEqual(["three", "four"])
+    expect(plan?.checkpoint?.title).toBe("two")
+    // The failed attempt's file is not in the point the folder goes back to.
+    expect(plan?.plan).toEqual({ write: [], remove: ["three.txt"] })
+
+    await scheduler.resume(run.id)
+    await settledAt(repository, run.id, "success")
+
+    expect(prompts).toEqual(["three", "four"])
+    expect(seen.three).toEqual(["one", "two"])
+    expect(statuses(repository, run.id)).toEqual([
+      "one:success",
+      "two:success",
+      "three:failed",
+      "four:success",
+      "three:success#2",
+    ])
+    // Succeeded tasks are the same rows, with the same output, cost and session.
+    const after = repository.listTasks(run.id)
+    for (const task of before.slice(0, 2)) expect(after.find((entry) => entry.id === task.id)).toEqual(task)
+    // The failed attempt keeps what it said and cost; the new one is an attempt of its own.
+    expect(after[2]).toMatchObject({ status: "failed", error: "three broke", cost: 0.5 })
+    expect(after[4]).toMatchObject({ retryOf: after[2]!.id, attempt: 2, output: "three done" })
+    // Their checkpoints stay, and the resumed tasks add their own.
+    expect(repository.listCheckpoints({ runID: run.id }).map((point) => point.title)).toEqual([
+      "four",
+      "three",
+      "two",
+      "one",
+    ])
+    // Where the folder was before the restore is a checkpoint like any restore's (it was dropped).
+    expect(repository.listCheckpoints({ directory }).filter((point) => !point.runID).map((point) => point.title)).toEqual([
+      'Before resuming from "two"',
+    ])
+    // The ledger rows of the tasks that ran before stay theirs.
+    const report = (
+      await handleUsageRead(
+        new Request(`http://127.0.0.1/harness/usage/runs/${run.id}`),
+        ["harness", "usage", "runs", run.id],
+        repository,
+      )!.json()
+    ).data
+    for (const task of before.filter((entry) => entry.sessionID))
+      expect(report.byTask.find((group: { key: string }) => group.key === task.id)?.events).toBe(1)
+    // RP-06: the run's verdict is read from the newest attempt, not from the failure it replaced.
+    expect(repository.getRun(run.id)?.verdict?.value).not.toBe("failed")
+    repository.close()
+  })
+
+  for (const [index, failing] of steps.entries()) {
+    test(`resuming from task ${index + 1} runs it and what follows, from the folder as it was before it`, async () => {
+      const { repository, scheduler, prompts, seen, start } = stack({ failing })
+      const run = await start()
+      await settledAt(repository, run.id, "failed")
+      const broken = repository.listTasks(run.id).find((task) => task.name === failing)!
+      prompts.length = 0
+
+      const plan = await scheduler.resumePlan(run.id, broken.id)
+      // Before the first task nothing was recorded, so there is nothing to go back to.
+      expect(plan?.checkpoint?.title).toBe(index === 0 ? undefined : steps[index - 1])
+      await scheduler.resume(run.id, { fromTask: broken.id })
+      await settledAt(repository, run.id, "success")
+
+      expect(prompts).toEqual(steps.slice(index))
+      if (index > 0) expect(seen[failing]).toEqual(steps.slice(0, index))
+      expect(repository.listTasks(run.id).filter((task) => task.status === "success").map((task) => task.name).sort()).toEqual(
+        [...steps].sort(),
+      )
+      repository.close()
+    })
+  }
+
+  test("after a restart, the task that was in flight runs again from the folder before it, and the rest follows", async () => {
+    const first = stack({ hanging: "three" })
+    const run = await first.start()
+    const deadline = Date.now() + 10_000
+    while (!first.repository.listTasks(run.id).some((task) => task.name === "three" && task.status === "running"))
+      if (Date.now() < deadline) await Bun.sleep(10)
+      else throw new Error("three never started")
+    // The process dies here. A new one starts on the same database.
+    first.repository.recoverRunning(Date.now())
+    expect(statuses(first.repository, run.id)).toEqual(["one:success", "two:success", "three:queued", "four:queued"])
+    const scheduler = new RoutineScheduler({ repository: first.repository, engineURL: "http://127.0.0.1:1" })
+    const prompts: string[] = []
+    Object.assign(scheduler, {
+      engine: {
+        ...first.engine,
+        prompt: async (input: { sessionID: string; text: string }) => {
+          prompts.push(input.text)
+          await first.engine.prompt(input)
+        },
+        waitForIdle: async () => undefined,
+      },
+    })
+
+    expect((await scheduler.resumePlan(run.id))?.checkpoint?.title).toBe("two")
+    await scheduler.resume(run.id)
+    await settledAt(first.repository, run.id, "success")
+
+    expect(prompts.map((text) => text.split(" ").at(-1))).toEqual(["three", "four"])
+    expect(first.seen.three).toEqual(["one", "two"])
+    expect(statuses(first.repository, run.id)).toEqual(["one:success", "two:success", "three:success", "four:success"])
+    first.repository.close()
+  })
+
+  test("a stopped run resumes the task it stopped in as a new attempt, and the ones it never reached as themselves", async () => {
+    const { repository, scheduler, prompts, start } = stack({ hanging: "three" })
+    const run = await start()
+    while (!repository.listTasks(run.id).some((task) => task.name === "three" && task.status === "running")) await Bun.sleep(10)
+    // The hanging turn is never interrupted by this engine, so the run is let go as a restart would.
+    repository.finishTask(repository.listTasks(run.id)[2]!.id, "stopped", { error: "The run was stopped" })
+    repository.finishTask(repository.listTasks(run.id)[3]!.id, "stopped", { error: "The run was stopped" })
+    repository.finishRun(run.id, "stopped")
+    prompts.length = 0
+    Object.assign(scheduler, { engine: { ...(scheduler as unknown as { engine: object }).engine, waitForIdle: async () => undefined } })
+
+    await scheduler.resume(run.id)
+    await settledAt(repository, run.id, "success")
+
+    expect(prompts).toEqual(["three", "four"])
+    expect(statuses(repository, run.id)).toEqual(["one:success", "two:success", "three:stopped", "four:success", "three:success#2"])
+    // Requeued as itself, it lost what the stop wrote on it.
+    expect(repository.listTasks(run.id)[3]).toMatchObject({ attempt: 1, output: "four done" })
+    repository.close()
+  })
+
+  test("a resumed task clears the verdict it was given, so the run reads the new one (RP-06)", async () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000)
+    const [work, gated] = repository.addTasks(run.id, [
+      { name: "work", prompt: "x" },
+      { name: "after", prompt: "y", require: "verified" },
+    ])
+    repository.startTask(work!.id, 1100)
+    repository.finishTask(work!.id, "failed", { error: "no" }, 1200)
+    repository.setTaskVerdict(work!.id, { value: "failed", reason: "no", source: "rule" })
+    repository.finishTask(gated!.id, "skipped", { error: "Not run: work was not verified" }, 1300)
+    repository.setTaskVerdict(gated!.id, { value: "failed", reason: "stale", source: "rule" })
+    repository.finishRun(run.id, "failed", "no", 1400)
+    expect(repository.getRun(run.id)?.verdict?.value).toBe("failed")
+
+    const point = resumePoint(repository.getRun(run.id)!, repository.listTasks(run.id), [])
+    expect(point.again.map((task) => task.name)).toEqual(["work", "after"])
+    repository.requeueTasks([gated!.id])
+    repository.addTasks(run.id, [{ name: "work", prompt: "x", attempt: 2, retryOf: work!.id }])
+
+    expect(repository.getTask(gated!.id)).toMatchObject({ status: "queued" })
+    expect(repository.getTask(gated!.id)?.verdict).toBeUndefined()
+    expect(repository.getTask(gated!.id)?.error).toBeUndefined()
+    expect(repository.getRun(run.id)?.verdict).toBeUndefined()
+    repository.close()
+  })
+
+  test("only a task that did not succeed, and the newest attempt of it, can be resumed from", () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000)
+    const [done, failed] = repository.addTasks(run.id, [
+      { name: "done", prompt: "x" },
+      { name: "failed", prompt: "y" },
+    ])
+    const [retried] = repository.addTasks(run.id, [{ name: "failed", prompt: "y", attempt: 2, retryOf: failed!.id }])
+    repository.finishTask(done!.id, "success", {}, 1100)
+    repository.finishTask(failed!.id, "failed", {}, 1200)
+    repository.finishTask(retried!.id, "failed", {}, 1300)
+    const tasks = repository.listTasks(run.id)
+    const resumeFrom = (id: string) => () => resumePoint(run, tasks, [], id)
+
+    expect(resumeFrom(done!.id)).toThrow(/failed, was stopped or was skipped/)
+    expect(resumeFrom(failed!.id)).toThrow(/newer attempt/)
+    expect(resumeFrom("nope")).toThrow(/not part of the run/)
+    expect(resumePoint(run, tasks, [], retried!.id).again.map((task) => task.id)).toEqual([retried!.id])
+    repository.close()
   })
 })
