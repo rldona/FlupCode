@@ -305,10 +305,10 @@ describe("the sweep", () => {
 
   test("leaves kinds with no real outcome alone", () => {
     const { repository, clock, labeler } = setup()
-    decide(repository, { kind: "toolRisk", id: "toolRisk:ses_x:bash:d", sessionID: "ses_x", answer: { risk: "ALLOW" }, baselineAnswer: { risk: "ALLOW" } }, T0)
+    decide(repository, { kind: "skillReflection", id: "skillReflection:ses_x:d", sessionID: "ses_x", answer: { reusable: false, intent: "add" }, baselineAnswer: { reusable: false, intent: "add" } }, T0)
     clock.now = T0 + LABEL_MAX_AGE_MS * 2
     expect(labeler.sweep()).toBe(0)
-    expect(labelOf(repository, "toolRisk:ses_x:bash:d")).toBeUndefined()
+    expect(labelOf(repository, "skillReflection:ses_x:d")).toBeUndefined()
   })
 })
 

@@ -41,9 +41,6 @@ export const DECISION_KIND_TITLES: Record<string, string> = {
   completion: "Is the task done",
   skillRelevance: "Which skills fit",
   contextItem: "What context to keep",
-  modelRoute: "Which model to use",
-  agentRoute: "Which agent to use",
-  toolRisk: "How risky a tool call is",
   failure: "Why a step failed",
   skillReflection: "What to learn from a session",
 }

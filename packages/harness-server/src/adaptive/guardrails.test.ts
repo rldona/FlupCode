@@ -2,7 +2,7 @@
  * The guardrail service (FH-060–063, ADR-0023).
  *
  * The service is the policy point: off touches no ring and writes nothing; off-legacy is inert; below
- * the thresholds only accumulates; a detected loop runs the failure and toolRisk decisions hot and
+ * the thresholds only accumulates; a detected loop runs the failure decision hot and
  * `shadow: false`, returns an advisory verdict, and caches the decision so a persistent loop does not
  * re-spend or rewrite.
  */
@@ -114,7 +114,7 @@ describe("the guardrail service gate", () => {
 })
 
 describe("a detected loop", () => {
-  test("intervenes, writes one shadow:false failure row and a raise-only risk", async () => {
+  test("intervenes and writes one shadow:false failure row", async () => {
     const { repository, guardrails } = stack()
     await observe(guardrails, call("bash", "a"))
     await observe(guardrails, call("bash", "a"))
@@ -129,9 +129,11 @@ describe("a detected loop", () => {
       decisionID: "failure:ses_1:bash:a",
       source: "baseline",
       degraded: false,
-      risk: { risk: "ALLOW", raiseOnly: true },
     })
+    expect(result).not.toHaveProperty("risk")
     const rows = repository.listDecisions()
+    // The failure row alone: no `toolRisk` companion is asked or written any more (PI-03).
+    expect(rows.map((row) => row.kind)).toEqual(["failure"])
     const failure = rows.find((row) => row.kind === "failure")
     expect(failure).toMatchObject({ id: "failure:ses_1:bash:a", shadow: false, kind: "failure" })
     expect(failure?.policy.repeatedCalls).toBe(3)
@@ -171,8 +173,8 @@ describe("a detected loop", () => {
     await observe(guardrails, call("bash", "a"))
     await observe(guardrails, call("bash", "a"))
     await observe(guardrails, call("bash", "a"))
-    // The failure row and its toolRisk companion, written once by the detecting observation.
-    expect(repository.listDecisions()).toHaveLength(2)
+    // The failure row, written once by the detecting observation.
+    expect(repository.listDecisions()).toHaveLength(1)
     const written = repository.listDecisions().find((row) => row.kind === "failure")!
 
     clock = NOW + 10
@@ -265,7 +267,7 @@ describe("the read-only status projection", () => {
     repository.close()
   })
 
-  test("a loop projects its counts, tool, id, cached risk and the last observation", async () => {
+  test("a loop projects its counts, tool, id and the last observation", async () => {
     const { repository, guardrails } = stack()
     await observe(guardrails, call("bash", "a"))
     await observe(guardrails, call("bash", "a"))
@@ -276,7 +278,6 @@ describe("the read-only status projection", () => {
       repeatedErrors: 0,
       tool: "bash",
       decisionID: "failure:ses_1:bash:a",
-      risk: "ALLOW",
       at: NOW,
     })
     repository.close()

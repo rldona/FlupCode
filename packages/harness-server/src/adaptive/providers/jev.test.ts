@@ -327,7 +327,7 @@ describe("Jev model encoding", () => {
       model: { id: "jev", version: "jev-1.13.0" },
     })
     expect(model).toMatchObject({ id: "jev", locality: "remote" })
-    expect(model.supports).toHaveLength(8)
+    expect(model.supports).toHaveLength(5)
   })
 
   test("a score outside the legend is clamped onto it", async () => {
@@ -335,7 +335,7 @@ describe("Jev model encoding", () => {
       (
         await createJevModel({
           client: clientWith({ risk: { type: "score", score: value, legend: [], probabilities: {} } }),
-        }).predict({ kind: "toolRisk", text: "{}" }, [questions[2]!], options)
+        }).predict({ kind: "failure", text: "{}" }, [questions[2]!], options)
       ).answers.risk?.choice
     expect(await score(-3)).toBe("low")
     expect(await score(9)).toBe("high")
@@ -414,28 +414,6 @@ describe("Jev round trip: wire answer to typed answer", () => {
     })
     // The weakest item sets the confidence the service then gates on.
     expect(reading?.confidence).toBe(0.7)
-  })
-
-  test("a score answer is capped at the learned ceiling, raise-only", async () => {
-    const score = async (value: number) =>
-      (
-        await roundTrip(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), {
-          risk: {
-            type: "score",
-            score: value,
-            legend: ["ALLOW", "CONFIRM", "REVIEW", "DENY"],
-            probabilities: { DENY: 0.8 },
-            confidence: 0.8,
-          },
-        })
-      ).reading
-
-    // DENY and REVIEW are capped to CONFIRM: a learned policy can never exceed the ceiling (FH-063).
-    expect((await score(3))?.answer).toEqual({ risk: "CONFIRM" })
-    expect((await score(3))?.confidence).toBe(0.8)
-    expect((await score(2))?.answer).toEqual({ risk: "CONFIRM" })
-    // A low score is not lifted by the cap.
-    expect((await score(0))?.answer).toEqual({ risk: "ALLOW" })
   })
 
   test("an answer of the wrong type reads as nothing, and no question to ask is malformed", async () => {

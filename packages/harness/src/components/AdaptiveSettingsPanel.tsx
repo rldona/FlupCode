@@ -569,9 +569,6 @@ export const KIND_LABELS: Record<string, string> = {
   skillRelevance: "Which skills fit",
   contextItem: "Which context to keep",
   skillReflection: "Whether a session is worth learning from",
-  modelRoute: "Which model to use",
-  agentRoute: "Which agent to use",
-  toolRisk: "How risky a tool call is",
   failure: "Why a step failed",
 }
 

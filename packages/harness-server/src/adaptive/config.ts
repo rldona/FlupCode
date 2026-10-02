@@ -520,9 +520,6 @@ function resolveDecisionPolicies(
       keepThreshold: context.keepThreshold,
       dropThreshold: context.dropThreshold,
     },
-    modelRoute: policyFrom(DEFAULT_DECISION_POLICY, decisions.modelRoute),
-    agentRoute: policyFrom(DEFAULT_DECISION_POLICY, decisions.agentRoute),
-    toolRisk: policyFrom(DEFAULT_DECISION_POLICY, decisions.toolRisk),
     // The failure thresholds are the guardrails slice, so the detector and its decision policy agree.
     failure: {
       ...policyFrom(DEFAULT_DECISION_POLICY, decisions.failure),
@@ -822,9 +819,6 @@ function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
     completion: kinds.completion === true,
     skillRelevance: kinds.skillRelevance === true,
     contextItem: kinds.contextItem === true,
-    modelRoute: kinds.modelRoute === true,
-    agentRoute: kinds.agentRoute === true,
-    toolRisk: kinds.toolRisk === true,
     failure: kinds.failure === true,
     skillReflection: kinds.skillReflection === true,
   }

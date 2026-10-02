@@ -1157,7 +1157,6 @@ const loopStatus = () => ({
   repeatedErrors: 0,
   tool: "bash",
   decisionID: "failure:ses_ad:bash:a",
-  risk: "ALLOW",
   at: now,
 })
 

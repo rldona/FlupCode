@@ -57,9 +57,6 @@ const SAMPLES: { [Q in DecisionKind]: DecisionRequest<Q> } = {
     objective: "fix the failing test",
     items: [{ id: "item-1", kind: "file", tokens: 120, referenced: true, anchors: 0, archived: false }],
   }),
-  modelRoute: request("modelRoute", { role: "build", taskName: "task-1", declared: "HIGH" }),
-  agentRoute: request("agentRoute", { objective: "fix the failing test", signals: ["red-check"] }),
-  toolRisk: request("toolRisk", { tool: "bash", argsDigest: "abc123" }),
   failure: request("failure", { repeatedCalls: 0, repeatedErrors: 0, stepsUsed: 1 }),
   skillReflection: request("skillReflection", {
     episodeID: "episode:1",
@@ -77,9 +74,9 @@ const store: GovernorStore = {
 }
 
 describe("Phase 2 evaluation (offline, recorded)", () => {
-  test("deterministic coverage: 8/8 kinds answer with Jev off", () => {
+  test("deterministic coverage: 5/5 kinds answer with Jev off", () => {
     const answered = decisionKinds().filter((kind) => deterministicBaseline(SAMPLES[kind]).answer !== undefined)
-    expect(answered).toHaveLength(8)
+    expect(answered).toHaveLength(5)
   })
 
   test("parsing: 3/3 Jev answer types land on their question id", async () => {
@@ -119,7 +116,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
     expect(wireQuestions(questions).map((question) => question.id)).toEqual(["w0", "w1", "w2"])
   })
 
-  test("fallback equality: 8/8 answers equal the deterministic baseline byte for byte", async () => {
+  test("fallback equality: 5/5 answers equal the deterministic baseline byte for byte", async () => {
     // A model that is down, asked for every kind through the registry: the service degrades each
     // decision to its baseline, whatever the kind.
     const down = createRetryingModel({
@@ -154,7 +151,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
       expect(result).toMatchObject({ degraded: true, degradedReason: "network" })
       if (JSON.stringify(result.answer) === JSON.stringify(deterministicBaseline(SAMPLES[kind]).answer)) equal += 1
     }
-    expect(equal).toBe(8)
+    expect(equal).toBe(5)
     repository.close()
   })
 

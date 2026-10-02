@@ -1085,7 +1085,7 @@ export type DecisionLabel = {
 
 /**
  * The live advisory of the failure/loop guardrails (FH-062). Mirrors `harness-server`'s own type:
- * opaque — a reason, the counts, the tool, the deterministic decision id, the cached risk and when.
+ * opaque — a reason, the counts, the tool, the deterministic decision id and when.
  */
 export type GuardrailStatus = {
   reason: "loop" | "error"
@@ -1093,7 +1093,6 @@ export type GuardrailStatus = {
   repeatedErrors: number
   tool?: string
   decisionID: string
-  risk?: "ALLOW" | "CONFIRM" | "REVIEW" | "DENY"
   at: number
 }
 

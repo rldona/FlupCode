@@ -3,8 +3,9 @@
  *
  * It owns the per-session rings of opaque observations and the one policy point behind the advisory
  * verdict: with the feature off or off-legacy it returns `continue` before touching a ring and writes
- * nothing; below the thresholds it only accumulates; on a detected loop it runs the `failure` and
- * `toolRisk` decisions hot and `shadow: false` and returns an advisory result. It never pauses a turn.
+ * nothing; below the thresholds it only accumulates; on a detected loop it runs the `failure` decision
+ * hot and `shadow: false` and returns an advisory result. It never pauses a turn. (A `toolRisk` score
+ * was asked beside it until PI-03 removed it: nothing read it.)
  *
  * The state is in memory and bounded: a ring per session (window and count) and a deterministic
  * decision cache, so a loop that persists neither re-spends Jev nor rewrites its audit row. A restart
@@ -13,13 +14,11 @@
 
 import { armFor } from "./holdout"
 import type { AdaptiveConfig } from "./config"
-import type { DecisionRequest, DecisionSource, FailureAnswer, ToolRisk } from "./decision"
+import type { DecisionRequest, DecisionSource, FailureAnswer } from "./decision"
 import type { DecisionService } from "./decision-service"
 import { decisionID } from "./decision-record"
 import { appendObservation, detectLoop, failureState } from "./guardrails-detector"
 import type { LoopObservation, RingEntry } from "./guardrails-detector"
-import { elevateRisk } from "./risk"
-import type { RiskLevel } from "./risk"
 import type { RuntimeCapabilities } from "./runtime"
 
 export type GuardrailReason =
@@ -40,13 +39,12 @@ export type GuardrailResult = {
   decisionID?: string
   source?: DecisionSource
   degraded?: boolean
-  risk?: { risk: ToolRisk; raiseOnly: true }
   latencyMs: number
 }
 
 /**
  * The live advisory a browser reads (FH-062, ADR-0023 §2). It is opaque: a reason, the counts, the
- * tool name and the deterministic `decisionID`, plus the cached `risk`. It carries no argument, no
+ * tool name and the deterministic `decisionID`. It carries no argument, no
  * message and no tool output, and it is derived from the same ring the detector writes.
  */
 export type GuardrailStatus = {
@@ -55,7 +53,6 @@ export type GuardrailStatus = {
   repeatedErrors: number
   tool?: string
   decisionID: string
-  risk?: ToolRisk
   at: number
 }
 
@@ -155,21 +152,6 @@ export function createGuardrailService(deps: {
     }
     const failure = await deps.service.predict(failureRequest, "hot", false)
 
-    // The native floor is unknown until a permission seam exists, so the learned score starts from
-    // `ALLOW`; `elevateRisk` still caps it and never lets a learned score reach `DENY` (ADR-0023 §5).
-    const native: RiskLevel = "ALLOW"
-    const toolRiskRequest: DecisionRequest<"toolRisk"> = {
-      kind: "toolRisk",
-      state: { tool: signal.tool ?? "tool", argsDigest: signal.argsDigest ?? digest },
-      policy: { ...config.decisions.toolRisk, timeoutMs: config.guardrails.timeoutMs },
-      scopeID,
-      sessionID: input.sessionID,
-      projectID: input.projectID,
-      arm,
-    }
-    const toolRisk = await deps.service.predict(toolRiskRequest, "hot", false)
-    const risk = elevateRisk(native, toolRisk.answer.risk)
-
     if (paused) {
       return {
         verdict: "continue",
@@ -191,7 +173,6 @@ export function createGuardrailService(deps: {
       decisionID: id,
       source: failure.source,
       degraded: failure.degraded,
-      risk: { risk, raiseOnly: true },
       latencyMs: now() - startedAt,
     }
     remember(decisions, id, { at: now(), result }, config.guardrails.maxSessions)
@@ -199,7 +180,7 @@ export function createGuardrailService(deps: {
   }
 
   // The read-only projection of the same ring (FH-062, ADR-0023 §6): the same gate, the same window
-  // and the same thresholds, the deterministic id and the cached risk. It never mutates the ring or
+  // and the same thresholds, and the deterministic id. It never mutates the ring or
   // writes a row, so when the streak breaks or the window drops the entries it projects nothing.
   const status = (sessionID: string): GuardrailStatus | null => {
     const config = deps.config()
@@ -218,16 +199,12 @@ export function createGuardrailService(deps: {
     const errorsCrossed = signal.repeatedErrors >= config.guardrails.repeatedErrors
     if (!callsCrossed && !errorsCrossed) return null
     const digest = signal.argsDigest ?? signal.errorDigest ?? "none"
-    const id = decisionID("failure", `${sessionID}:${signal.tool ?? "tool"}:${digest}`)
-    const cached = decisions.get(id)
-    const risk = cached && current - cached.at < config.guardrails.windowMs ? cached.result.risk?.risk : undefined
     return {
       reason: callsCrossed ? "loop" : "error",
       repeatedCalls: signal.repeatedCalls,
       repeatedErrors: signal.repeatedErrors,
       ...(signal.tool !== undefined ? { tool: signal.tool } : {}),
-      decisionID: id,
-      ...(risk !== undefined ? { risk } : {}),
+      decisionID: decisionID("failure", `${sessionID}:${signal.tool ?? "tool"}:${digest}`),
       at: fresh[fresh.length - 1]?.at ?? current,
     }
   }
