@@ -33,9 +33,19 @@ export const PanelFailure: Component<{ title: string; error: Error; onRetry: () 
 ) => (
   <div class="fc-panel-error" classList={{ "fc-panel-error-inline": props.inline }} role="alert">
     <span class="fc-panel-error-title">{props.title}</span>
-    <span class="fc-panel-error-detail">{errorDetail(props.error.message)}</span>
+    <span class="fc-panel-error-detail">{failureDetail(props.error)}</span>
     <button class="fc-button" type="button" onClick={props.onRetry}>
       {t("Try again")}
     </button>
   </div>
 )
+
+/**
+ * What a failed read says to the reader. A harness `403 invalid_token` is not a server that is down
+ * but a page without the loopback token, so it is named as such (TI-14).
+ */
+export function failureDetail(error: Error) {
+  if ("code" in error && error.code === "invalid_token")
+    return t("The harness server refused this page: it needs the desktop app or a paired device.")
+  return errorDetail(error.message)
+}

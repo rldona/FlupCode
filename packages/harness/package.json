@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "tsgo --noEmit && bun test src",
-    "test": "bun test src",
+    "test": "bun test --conditions browser src",
     "test:e2e": "playwright test",
     "test:e2e:engine": "playwright test --config playwright.engine.config.ts",
     "typecheck": "tsgo --noEmit"

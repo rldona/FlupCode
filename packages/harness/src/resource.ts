@@ -10,8 +10,14 @@ import {
   type ResourceSource,
 } from "solid-js"
 
-/** A resource that keeps its last value through a failed fetch, plus the failure that did it. */
-export type StaleResource<T> = Resource<T> & { failure: Accessor<Error | undefined> }
+/**
+ * A resource that keeps its last value through a failed fetch, plus the failure that did it.
+ *
+ * Solid's `error` is left out on purpose: these fetches never reject, so it is always undefined, and
+ * reading it is how a 500 used to look like an empty answer (TI-14). `failure()` is the one to read.
+ */
+export type StaleResource<T> = Accessor<T> &
+  Pick<Resource<T>, "loading" | "latest" | "state"> & { failure: Accessor<Error | undefined> }
 
 /**
  * `createResource` whose fetches never reject. Reading an errored resource throws, which aborts the

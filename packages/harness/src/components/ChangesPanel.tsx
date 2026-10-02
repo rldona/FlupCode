@@ -3,6 +3,7 @@ import { t } from "../i18n"
 import { parseHunks } from "../patch"
 import { CheckpointList } from "./CheckpointList"
 import { FileDiff, type FileChange } from "./FileDiff"
+import { PanelFailure } from "./PanelBoundary"
 import type { Checkpoint, Finding, RestorePlan } from "../types"
 
 export type DiffMode = "git" | "branch"
@@ -15,7 +16,11 @@ type ChangesPanelProps = {
   defaultBranch?: string
   changes: FileChange[]
   loading: boolean
-  error?: string
+  /** Why the last read of the diff failed; the diff it had before stays on screen. */
+  failure?: Error
+  /** The harness refused this page its token, so committing and checkpoints are missing here. */
+  refusal?: Error
+  onRetryHarness: () => void
   mode: DiffMode
   /** Whether the harness server — the only part of FlupCode that can run git — is answering. */
   canCommit: boolean
@@ -214,7 +219,26 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
           </Show>
         </div>
 
-        <Show when={props.error}>{(error) => <div class="fc-routines-notice">{error()}</div>}</Show>
+        <Show when={!props.loading && props.failure}>
+          {(failure) => (
+            <PanelFailure
+              inline
+              title={t("{name} could not be read", { name: t("The changes") })}
+              error={failure()}
+              onRetry={props.onRefresh}
+            />
+          )}
+        </Show>
+        <Show when={props.refusal}>
+          {(refusal) => (
+            <PanelFailure
+              inline
+              title={t("Commits and checkpoints are not available here")}
+              error={refusal()}
+              onRetry={props.onRetryHarness}
+            />
+          )}
+        </Show>
 
         {/*
           Checkpoints sit above the diff on purpose. The diff says what changed; this says how to
@@ -238,7 +262,10 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
           <Show
             when={props.changes.length > 0}
             fallback={
-              <div class="fc-runs-empty">{props.loading ? t("Reading…") : t("Nothing has changed here.")}</div>
+              // A failed read is not an empty folder: the failure above says what happened instead.
+              <Show when={props.loading || !props.failure}>
+                <div class="fc-runs-empty">{props.loading ? t("Reading…") : t("Nothing has changed here.")}</div>
+              </Show>
             }
           >
             <Show when={committable()}>

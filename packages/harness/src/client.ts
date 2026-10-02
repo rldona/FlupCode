@@ -148,8 +148,10 @@ async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestIn
     ...init,
     headers: harnessHeaders(init),
   })
-  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
-  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  const body = (await response.json().catch(() => undefined)) as
+    | { data?: T; error?: string; code?: string }
+    | undefined
+  if (!response.ok) throw new HarnessError(response.status, body)
   return body?.data as T
 }
 
@@ -170,13 +172,30 @@ async function harnessRequestEnvelope<T>(
     headers: harnessHeaders(init),
   })
   const body = (await response.json().catch(() => undefined)) as
-    | { data?: T; error?: string; warnings?: unknown }
+    | { data?: T; error?: string; code?: string; warnings?: unknown }
     | undefined
-  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  if (!response.ok) throw new HarnessError(response.status, body)
   const warnings = Array.isArray(body?.warnings)
     ? body.warnings.filter((entry): entry is string => typeof entry === "string")
     : []
   return { data: body?.data as T, warnings }
+}
+
+/**
+ * A harness route that answered with an error, keeping its status and closed `code`. A `403
+ * invalid_token` means this page has no loopback token to send, which reads very differently from a
+ * server that failed (TI-14).
+ */
+export class HarnessError extends Error {
+  readonly code?: string
+  constructor(
+    readonly status: number,
+    body?: { error?: string; code?: string },
+  ) {
+    super(body?.error ?? `Harness request failed (${status})`)
+    this.name = "HarnessError"
+    this.code = body?.code
+  }
 }
 
 /** The JSON content type and, when the desktop handed one over, the loopback bearer. */
@@ -209,8 +228,10 @@ async function harnessAuthorizedRequest(baseUrl: string, path: string, init?: Re
 /** The same call, unwrapped the way the harness answers every JSON route. */
 async function harnessAuthorizedJson<T>(baseUrl: string, path: string, init?: RequestInit) {
   const response = await harnessAuthorizedRequest(baseUrl, path, init)
-  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
-  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  const body = (await response.json().catch(() => undefined)) as
+    | { data?: T; error?: string; code?: string }
+    | undefined
+  if (!response.ok) throw new HarnessError(response.status, body)
   return body?.data as T
 }
 
@@ -331,8 +352,10 @@ async function agentBrowserRequest<T>(baseUrl: string, sessionID: string, path: 
       ...init?.headers,
     },
   })
-  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
-  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  const body = (await response.json().catch(() => undefined)) as
+    | { data?: T; error?: string; code?: string }
+    | undefined
+  if (!response.ok) throw new HarnessError(response.status, body)
   return body?.data as T
 }
 

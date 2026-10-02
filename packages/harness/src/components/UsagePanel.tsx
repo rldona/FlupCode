@@ -1,13 +1,16 @@
 import { For, Show, createMemo, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
 import { formatTokens, money } from "../metrics"
+import { PanelFailure } from "./PanelBoundary"
 import type { Spend, UsageReport } from "../types"
 
 type UsagePanelProps = {
   open: boolean
   report: UsageReport | undefined
   loading: boolean
-  error?: string
+  /** Why the last read failed; the report it had before stays on screen. */
+  failure?: Error
+  onRetry: () => void
   /** How far back it is looking, in days; undefined is everything there is. */
   days: number | undefined
   onDays: (days: number | undefined) => void
@@ -126,15 +129,27 @@ export const UsagePanel: Component<UsagePanelProps> = (props) => {
           </Show>
         </div>
 
-        <Show when={!props.serverAvailable}>
+        <Show when={!props.serverAvailable && !props.failure}>
           <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
         </Show>
-        <Show when={props.error}>{(error) => <div class="fc-routines-notice">{error()}</div>}</Show>
+        <Show when={!props.loading && props.failure}>
+          {(failure) => (
+            <PanelFailure
+              inline
+              title={t("{name} could not be read", { name: t("The cost report") })}
+              error={failure()}
+              onRetry={props.onRetry}
+            />
+          )}
+        </Show>
 
         <Show
           when={totals() && totals()!.tasks > 0}
           fallback={
-            <div class="fc-runs-empty">{props.loading ? t("Reading…") : t("Nothing has run in this window.")}</div>
+            // A failed read is not an empty window: the failure above says what happened instead.
+            <Show when={props.loading || !props.failure}>
+              <div class="fc-runs-empty">{props.loading ? t("Reading…") : t("Nothing has run in this window.")}</div>
+            </Show>
           }
         >
           <div class="fc-usage">
