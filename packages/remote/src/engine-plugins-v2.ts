@@ -315,15 +315,59 @@ export default {
 export const ARTIFACT_WRITE_PLUGIN_V2 = {
   file: "flupcode-artifact-write.js",
   source: `// Installed by FlupCode for OpenCode 2. Lets the agent keep a generated document where the Artifacts
-// screen indexes it: .flupcode/artifacts inside the project. Regenerated when FlupCode starts the
-// engine; edits here are overwritten.
-import { mkdir, writeFile } from "node:fs/promises"
+// screen indexes it: .flupcode/artifacts inside the project, and tells the harness which session and
+// message wrote it, so the document is indexed at once and opens where it came from (RP-03).
+// Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
+
+const INDEX_TIMEOUT_MS = 5000
 
 // A path a model writes must not escape the folder.
 function fileName(value) {
   const base = path.basename(String(value || "document.md")).replace(/[^A-Za-z0-9._-]/g, "-")
   return base && base !== "." && base !== ".." ? base : "document.md"
+}
+
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+// The plugins' own bearer (TI-10). Read at each write rather than at load: on a first start the
+// harness may write it after the engine has loaded its plugins.
+async function readToken() {
+  const fromEnv = process.env.FLUPCODE_PLUGIN_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "plugin-token"), "utf8").catch(() => undefined)
+  const token = text === undefined ? "" : text.trim()
+  return token === "" ? undefined : token
+}
+
+// Which file, session and message: the run and the task are the harness's to work out. A harness
+// that is not there costs the write nothing; its list still finds the file when somebody looks.
+async function report(write) {
+  const base = harnessBaseURL()
+  const token = base === undefined ? undefined : await readToken()
+  if (!base || !token) return
+  await fetch(base + "/harness/artifacts/index", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify(write),
+    signal: AbortSignal.timeout(INDEX_TIMEOUT_MS),
+  }).catch(() => {})
 }
 
 export default {
@@ -335,7 +379,7 @@ export default {
       editor.add({
         name: "artifact_write",
         description:
-          "Keep a document you produced (a page, a report, an image note) so the reader finds it under Artifacts. Writes it to .flupcode/artifacts in the project and returns its path.",
+          "Keep a document you produced (a page, a report, an image note) so the reader finds it under Artifacts. Writes it to .flupcode/artifacts in the project and returns its path. Writing the same file name again keeps a new version of that document.",
         input: {
           type: "object",
           properties: {
@@ -347,12 +391,20 @@ export default {
         },
         // Called by name, like the built-in tools, rather than from Code Mode's script.
         options: { codemode: false },
-        execute: async (input) => {
+        execute: async (input, context) => {
           if (!directory) return { content: "This session has no project folder to keep a document in." }
           const name = fileName(input && input.filename)
           const folder = path.join(directory, ".flupcode", "artifacts")
           await mkdir(folder, { recursive: true })
           await writeFile(path.join(folder, name), String((input && input.content) || ""), "utf8")
+          await report({
+            kind: "document",
+            directory,
+            path: path.join(".flupcode", "artifacts", name),
+            title: String((input && input.title) || ""),
+            sessionID: context && context.sessionID,
+            messageID: context && context.messageID,
+          })
           return { content: "Kept " + name + " in .flupcode/artifacts. It appears under Artifacts for this project." }
         },
       })

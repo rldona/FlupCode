@@ -12,11 +12,13 @@
  * too large to hold) is kept as a path, and the raw route serves it.
  *
  * The agent can also declare one directly with the `artifact_write` tool, which writes the document
- * into the same folder — so there is one place documents live and one pass that finds them.
+ * into the same folder — so there is one place documents live and one pass that finds them. That
+ * tool also reports the write as it happens (RP-03), so the document is indexed at once and says
+ * which session and message wrote it; the run and task are the server's to work out from the session.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import { basename, extname, join, relative } from "node:path"
+import { basename, extname, join, relative, sep } from "node:path"
 import { confinedPath } from "./project-roots"
 import { artifactHash, type ArtifactRepository } from "./repository"
 import type { Artifact } from "./types"
@@ -95,36 +97,43 @@ function walk(root: string, at: string, out: LocalDocument[]) {
       continue
     }
     if (!entry.isFile()) continue
-    const type = documentType(entry.name)
-    if (!type) continue
-    let size: number
-    let modified: number
+    const document = readDocument(root, full)
+    if (document) out.push(document)
+  }
+}
+
+/** One file as a document, or nothing when it is not a kind of document or cannot be read. */
+function readDocument(root: string, full: string): LocalDocument | undefined {
+  const type = documentType(full)
+  if (!type) return undefined
+  let size: number
+  let modified: number
+  try {
+    const stat = statSync(full)
+    if (!stat.isFile()) return undefined
+    size = stat.size
+    modified = stat.mtimeMs
+  } catch {
+    return undefined
+  }
+  const path = join(DOCUMENTS_DIRECTORY, relative(root, full))
+  let content: string | undefined
+  if (type.text && size <= MAX_INLINE) {
     try {
-      const stat = statSync(full)
-      size = stat.size
-      modified = stat.mtimeMs
+      const buffer = readFileSync(full)
+      // A NUL byte in the first chunk is the cheap, standard way to tell binary from text.
+      if (!buffer.subarray(0, 8000).includes(0)) content = buffer.toString("utf8")
     } catch {
-      continue
+      return undefined
     }
-    const path = join(DOCUMENTS_DIRECTORY, relative(root, full))
-    let content: string | undefined
-    if (type.text && size <= MAX_INLINE) {
-      try {
-        const buffer = readFileSync(full)
-        // A NUL byte in the first chunk is the cheap, standard way to tell binary from text.
-        if (!buffer.subarray(0, 8000).includes(0)) content = buffer.toString("utf8")
-      } catch {
-        continue
-      }
-    }
-    out.push({
-      path,
-      title: titleOf(content, type.mime, path),
-      mime: type.mime,
-      ...(content !== undefined ? { content } : {}),
-      // Text hashes its words; anything else hashes what can change without the words changing.
-      hash: content !== undefined ? artifactHash(content) : artifactHash(`${size}:${modified}`),
-    })
+  }
+  return {
+    path,
+    title: titleOf(content, type.mime, path),
+    mime: type.mime,
+    ...(content !== undefined ? { content } : {}),
+    // Text hashes its words; anything else hashes what can change without the words changing.
+    hash: content !== undefined ? artifactHash(content) : artifactHash(`${size}:${modified}`),
   }
 }
 
@@ -140,34 +149,66 @@ export function discoverDocuments(directory: string): LocalDocument[] {
 }
 
 /**
- * Indexes the documents of a folder that are not indexed yet, and returns the ones it added.
+ * Indexes the documents of a folder whose current state is not indexed yet, and returns the ones it
+ * added.
  *
- * Deduplicated by path **and** identity: reading the same document twice adds nothing, but one that
- * was rewritten is kept as a new snapshot rather than silently leaving the old one on screen.
+ * Each file is one document (RP-03): reading it again unchanged adds nothing, and one that was
+ * rewritten since its newest version is kept as the next version, not as an unrelated row.
  */
 export function registerDocuments(repository: ArtifactRepository, directory: string): Artifact[] {
-  const known = new Set(
-    repository
-      .listArtifacts({ directory, kind: "document" })
-      .filter((artifact) => artifact.path && artifact.hash)
-      .map((artifact) => `${artifact.path}\0${artifact.hash}`),
-  )
-  const added: Artifact[] = []
-  for (const document of discoverDocuments(directory)) {
-    if (known.has(`${document.path}\0${document.hash}`)) continue
-    added.push(
-      repository.addArtifact({
-        kind: "document",
-        title: document.title,
-        producer: "agent",
-        mime: document.mime,
-        path: document.path,
-        directory,
-        ...(document.content !== undefined
-          ? { content: document.content }
-          : { hash: document.hash }),
-      }),
-    )
-  }
-  return added
+  return discoverDocuments(directory).flatMap((document) => {
+    const kept = repository.keepVersion({
+      kind: "document",
+      title: document.title,
+      producer: "agent",
+      mime: document.mime,
+      path: document.path,
+      directory,
+      hash: document.hash,
+      ...(document.content !== undefined ? { content: document.content } : {}),
+    })
+    return kept.added ? [kept.artifact] : []
+  })
+}
+
+/** What the engine's plugin reports when its `artifact_write` tool keeps a document (RP-03). */
+export type DocumentWrite = {
+  directory: string
+  path: string
+  title?: string
+  sessionID: string
+  messageID?: string
+}
+
+/**
+ * Indexes the one document a session just wrote, with what wrote it. The file is read here, from the
+ * project's documents folder only: the caller names a file, never its contents, so a report cannot
+ * index text that is not on disk or a file outside that folder. The run and task come from the
+ * session's attribution, never from the caller (P7). Undefined when there is no such document.
+ */
+export function indexDocument(
+  repository: ArtifactRepository,
+  write: DocumentWrite,
+  attribution: { runID?: string; taskID?: string } | undefined,
+) {
+  const root = confinedPath(write.directory, DOCUMENTS_DIRECTORY)
+  const full = confinedPath(write.directory, write.path)
+  if (!root || !full || !full.startsWith(root + sep)) return undefined
+  const document = readDocument(root, full)
+  if (!document) return undefined
+  return repository.keepVersion({
+    kind: "document",
+    // The title the agent gave wins over one read from the file, as the tool's description promises.
+    title: write.title?.trim() || document.title,
+    producer: "agent",
+    mime: document.mime,
+    path: document.path,
+    directory: write.directory,
+    hash: document.hash,
+    sessionID: write.sessionID,
+    ...(write.messageID ? { messageID: write.messageID } : {}),
+    ...(attribution?.runID ? { runID: attribution.runID } : {}),
+    ...(attribution?.taskID ? { taskID: attribution.taskID } : {}),
+    ...(document.content !== undefined ? { content: document.content } : {}),
+  })
 }

@@ -474,6 +474,8 @@ export type ArtifactInput = {
   runID?: string
   taskID?: string
   sessionID?: string
+  /** The message whose turn wrote it (RP-03), when the engine's plugin said so at write time. */
+  messageID?: string
   /** Kept in front of the rest, and never swept, however old it gets (H-14). */
   pinned?: boolean
   /**
@@ -487,6 +489,15 @@ export type Artifact = ArtifactInput & {
   id: string
   mime: string
   createdAt: number
+  /**
+   * The document this row is a version of (RP-03): the id of its first version. Rows kept for the
+   * same folder and path share it; anything without a path is its own, at version 1.
+   */
+  logicalID: string
+  /** Which version of its document this row is, from 1. */
+  version: number
+  /** How many versions its document has, on a list; absent on a single read. */
+  versions?: number
   /** What the content was before it was cut, in characters. Absent when nothing was cut. */
   bytes?: number
   truncated?: boolean
@@ -669,7 +680,7 @@ export type RunRepository = {
   addArtifact(input: ArtifactInput, now?: number): Artifact
   listArtifacts(filter?: { directory?: string; runID?: string; kind?: ArtifactKind }, limit?: number): Artifact[]
   getArtifact(id: string): Artifact | undefined
-  removeArtifact(id: string): boolean
+  removeArtifact(id: string, options?: { document?: boolean }): boolean
   /** Keep one in front of the rest, or let it fall back into the list (H-14). */
   setArtifactPinned(id: string, pinned: boolean): Artifact | undefined
   /** Set when it may be forgotten; `undefined` means never (H-14). */

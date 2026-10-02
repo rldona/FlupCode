@@ -472,6 +472,26 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         const search = query.toString()
         return harnessAuthorizedJson<Artifact[]>(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
       },
+      /**
+       * One page of a folder's documents, one row each (RP-03), and where the next page starts. No
+       * `next` means this was the last page.
+       */
+      page: async (filter: { directory?: string; offset?: number } = {}) => {
+        const query = new URLSearchParams()
+        if (filter.directory) query.set("directory", filter.directory)
+        if (filter.offset) query.set("offset", String(filter.offset))
+        const search = query.toString()
+        const response = await harnessAuthorizedRequest(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
+        const body = (await response.json().catch(() => undefined)) as
+          | { data?: Artifact[]; next?: number; error?: string; code?: string }
+          | undefined
+        if (!response.ok) throw new HarnessError(response.status, body)
+        return { data: body?.data, next: typeof body?.next === "number" ? body.next : undefined }
+      },
+      get: (id: string) => harnessAuthorizedJson<Artifact>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`),
+      /** Every version of the document an artifact belongs to, newest first, without their text (RP-03). */
+      versions: (id: string) =>
+        harnessAuthorizedJson<Artifact[]>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}/versions`),
       /** Keep one in front, or say when it may be forgotten (H-14). `expiresAt` null clears it. */
       update: (id: string, input: { pinned?: boolean; expiresAt?: number | null }) =>
         harnessAuthorizedJson<Artifact>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, {
@@ -488,8 +508,11 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         if (!response.ok) throw new Error(`Harness request failed (${response.status})`)
         return URL.createObjectURL(await response.blob())
       },
+      /** Forgets a document: every version of it (RP-03). */
       remove: (id: string) =>
-        harnessAuthorizedJson<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+        harnessAuthorizedJson<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}?document=1`, {
+          method: "DELETE",
+        }),
     },
     /**
      * The live view and its takeover (WA-6). Every call carries the session the window belongs to;

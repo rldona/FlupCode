@@ -122,7 +122,7 @@ export const artifactHash = (content: string) =>
   Bun.hash(content.length > ARTIFACT_LIMIT ? content.slice(0, ARTIFACT_LIMIT) : content).toString(16)
 
 /** The slice of the repository that indexing plans needs, so it takes no more than that (H-14). */
-export type ArtifactRepository = Pick<SqliteRoutineRepository, "addArtifact" | "listArtifacts">
+export type ArtifactRepository = Pick<SqliteRoutineRepository, "addArtifact" | "listArtifacts" | "keepVersion">
 
 /**
  * Runs are their own table, keyed by what asked for them rather than owned by a routine, and there
@@ -678,6 +678,12 @@ type ArtifactRow = {
   pinned: number | null
   expires_at: number | null
   created_at: number
+  /** Migration 11 (RP-03); absent on a database that has not reached it yet. */
+  logical_id?: string | null
+  version?: number | null
+  message_id?: string | null
+  /** Only on a list, which counts each document's versions. */
+  versions?: number
 }
 
 type CheckpointRow = {
@@ -905,6 +911,10 @@ const decodeArtifact = (row: ArtifactRow): Artifact => ({
   mime: row.mime,
   producer: row.producer as Artifact["producer"],
   createdAt: row.created_at,
+  logicalID: row.logical_id ?? row.id,
+  version: row.version ?? 1,
+  ...(row.versions !== undefined ? { versions: row.versions } : {}),
+  ...(row.message_id ? { messageID: row.message_id } : {}),
   ...(row.content !== null ? { content: row.content } : {}),
   ...(row.path !== null ? { path: row.path } : {}),
   ...(row.directory !== null ? { directory: row.directory } : {}),
@@ -1513,7 +1523,45 @@ export class SqliteRoutineRepository implements RoutineRepository {
             this.addBrowserGrant({ origin, tier: "navigate", scope: "always" })
         },
       },
+      {
+        // Artifact lineage and versions (RP-03): which message wrote an artifact, and which document
+        // a row is a version of. Every row stays; nothing is merged or deleted.
+        version: 11,
+        name: "artifact-versions",
+        rewrites: true,
+        up: () => this.migrateArtifactVersions(),
+      },
     ]
+  }
+
+  /**
+   * The copies a rewritten document left behind become the versions of one document, once (RP-03).
+   *
+   * Copies are told apart by kind, folder and path, oldest first: before this, every rewrite of a
+   * file the agent kept was indexed as an unrelated row, and those rows are its history. The title is
+   * not a key: a rewrite may retitle a document, and the rows with no path (a run's report, a task's
+   * handoff) share titles across runs that have nothing to do with each other. A document that any
+   * copy kept pinned is pinned as a whole, so the expiry sweep cannot take a version of it; an expiry
+   * is left on the row that had it, and none is added.
+   */
+  private migrateArtifactVersions() {
+    this.addColumn("artifacts", "logical_id", "TEXT")
+    this.addColumn("artifacts", "version", "INTEGER")
+    this.addColumn("artifacts", "message_id", "TEXT")
+    this.db.exec(`
+      UPDATE artifacts SET logical_id = id, version = 1;
+      WITH copies AS (
+        SELECT id, FIRST_VALUE(id) OVER copy AS first, ROW_NUMBER() OVER copy AS position
+        FROM artifacts
+        WHERE path IS NOT NULL AND path <> '' AND directory IS NOT NULL
+        WINDOW copy AS (PARTITION BY kind, directory, path ORDER BY created_at, id)
+      )
+      UPDATE artifacts SET logical_id = copies.first, version = copies.position FROM copies WHERE copies.id = artifacts.id;
+      UPDATE artifacts SET pinned = 1
+        WHERE COALESCE(pinned, 0) = 0 AND logical_id IN (SELECT logical_id FROM artifacts WHERE pinned = 1);
+      CREATE INDEX IF NOT EXISTS artifacts_logical ON artifacts(logical_id, version DESC);
+      CREATE INDEX IF NOT EXISTS artifacts_document ON artifacts(directory, path, kind, version DESC);
+    `)
   }
 
   /** The bare origins the web-action approver remembered before BU-01, if its file is there. */
@@ -2098,17 +2146,28 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   // ---- artifacts ------------------------------------------------------------------------------
 
+  /**
+   * Keeps an artifact. One kept for a folder and path that already has one of the same kind is the
+   * next version of that document (RP-03): it shares its `logicalID`, and its pin and expiry, since
+   * those were set on the document. Anything else starts a document of its own at version 1.
+   */
   addArtifact(input: ArtifactInput, now = Date.now()) {
     const full = input.content ?? ""
     const truncated = full.length > ARTIFACT_LIMIT
     // Cut rather than refused: a report that is too long is still worth most of its first page, and
     // saying how much was cut is more use than storing nothing.
     const content = input.content === undefined ? undefined : truncated ? full.slice(0, ARTIFACT_LIMIT) : full
+    const id = crypto.randomUUID()
+    const latest = this.latestVersion(input)
     const artifact: Artifact = {
-      id: crypto.randomUUID(),
+      id,
+      ...(latest?.pinned ? { pinned: true } : {}),
+      ...(latest?.expiresAt !== undefined ? { expiresAt: latest.expiresAt } : {}),
       ...input,
       mime: input.mime ?? "text/markdown",
       createdAt: now,
+      logicalID: latest?.logicalID ?? id,
+      version: (latest?.version ?? 0) + 1,
       ...(content !== undefined ? { content } : {}),
       ...(truncated ? { bytes: full.length, truncated: true } : {}),
       // An explicit identity wins: a tool-dropped artifact is recognised by its own id, not by words
@@ -2119,8 +2178,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
       .query(
         `INSERT INTO artifacts
            (id, directory, run_id, task_id, session_id, kind, title, mime, content, path, bytes, truncated, hash,
-            producer, pinned, expires_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+            producer, pinned, expires_at, created_at, logical_id, version, message_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`,
       )
       .run(
         artifact.id,
@@ -2140,12 +2199,57 @@ export class SqliteRoutineRepository implements RoutineRepository {
         artifact.pinned ? 1 : null,
         artifact.expiresAt ?? null,
         artifact.createdAt,
+        artifact.logicalID,
+        artifact.version,
+        artifact.messageID ?? null,
       )
     this.append({ type: "artifact.created", artifact })
     return artifact
   }
 
-  listArtifacts(filter: { directory?: string; runID?: string; kind?: ArtifactKind; q?: string } = {}, limit = 100) {
+  /**
+   * Keeps a file's current state as its document's newest version, unless that is what the newest
+   * version already holds (RP-03). Then nothing is added; what wrote it is filled in on that version
+   * where it said nothing, so a file indexed by the lazy pass before its writer reported it still
+   * opens its run and message. Returns the version that holds the file now.
+   */
+  keepVersion(input: ArtifactInput & { path: string; directory: string; hash: string }) {
+    const latest = this.latestVersion(input)
+    if (!latest || latest.hash !== input.hash) return { artifact: this.addArtifact(input), added: true }
+    const lineage = [
+      ["run_id", input.runID],
+      ["task_id", input.taskID],
+      ["session_id", input.sessionID],
+      ["message_id", input.messageID],
+    ] as const
+    const missing = lineage.filter((entry) => entry[1] !== undefined)
+    if (missing.length === 0 || latest.sessionID) return { artifact: latest, added: false }
+    for (const [column, value] of missing)
+      this.db.query(`UPDATE artifacts SET ${column} = COALESCE(${column}, ?1) WHERE id = ?2`).run(value ?? null, latest.id)
+    const artifact = this.getArtifact(latest.id)!
+    this.append({ type: "artifact.changed", artifact })
+    return { artifact, added: false }
+  }
+
+  /** The newest version of the document a folder and path name, if one is kept. */
+  private latestVersion(input: Pick<ArtifactInput, "kind" | "directory" | "path">) {
+    if (!input.directory || !input.path) return undefined
+    const row = this.db
+      .query(
+        "SELECT * FROM artifacts WHERE directory = ?1 AND path = ?2 AND kind = ?3 ORDER BY version DESC, created_at DESC LIMIT 1",
+      )
+      .get(input.directory, input.path, input.kind) as ArtifactRow | null
+    return row ? decodeArtifact(row) : undefined
+  }
+
+  /**
+   * One row per document (RP-03): of the versions that match the filter, the newest, with how many
+   * versions the document has in all. Pinned documents first, then the newest, a page at a time.
+   */
+  listArtifacts(
+    filter: { directory?: string; runID?: string; kind?: ArtifactKind; q?: string; offset?: number } = {},
+    limit = 100,
+  ) {
     const where: string[] = []
     const values: unknown[] = []
     if (filter.directory) {
@@ -2167,13 +2271,30 @@ export class SqliteRoutineRepository implements RoutineRepository {
       values.push(needle, needle)
       where.push(`(title LIKE ?${values.length - 1} ESCAPE '\\' OR content LIKE ?${values.length} ESCAPE '\\')`)
     }
-    values.push(limit)
+    values.push(limit, Math.max(0, Math.floor(filter.offset ?? 0)))
     const rows = this.db
       .query(
-        `SELECT * FROM artifacts ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-         ORDER BY COALESCE(pinned, 0) DESC, created_at DESC LIMIT ?${values.length}`,
+        `WITH matched AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY logical_id ORDER BY version DESC, created_at DESC) AS newest
+           FROM artifacts ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         )
+         SELECT matched.*, (SELECT COUNT(*) FROM artifacts every WHERE every.logical_id = matched.logical_id) AS versions
+         FROM matched WHERE newest = 1
+         ORDER BY COALESCE(pinned, 0) DESC, created_at DESC, id
+         LIMIT ?${values.length - 1} OFFSET ?${values.length}`,
       )
       .all(...(values as never[])) as ArtifactRow[]
+    return rows.map(decodeArtifact)
+  }
+
+  /** Every version of the document an artifact belongs to, newest first (RP-03). */
+  listArtifactVersions(id: string) {
+    const rows = this.db
+      .query(
+        `SELECT * FROM artifacts WHERE logical_id = (SELECT logical_id FROM artifacts WHERE id = ?1)
+         ORDER BY version DESC, created_at DESC`,
+      )
+      .all(id) as ArtifactRow[]
     return rows.map(decodeArtifact)
   }
 
@@ -2182,17 +2303,21 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return row ? decodeArtifact(row) : undefined
   }
 
+  /** Pinning keeps a document in front, every version of it: a pin was never about one version. */
   setArtifactPinned(id: string, pinned: boolean) {
-    const changed = this.db.query("UPDATE artifacts SET pinned = ?1 WHERE id = ?2").run(pinned ? 1 : null, id).changes
+    const changed = this.db
+      .query("UPDATE artifacts SET pinned = ?1 WHERE logical_id = (SELECT logical_id FROM artifacts WHERE id = ?2)")
+      .run(pinned ? 1 : null, id).changes
     if (!changed) return undefined
     const artifact = this.getArtifact(id)
     if (artifact) this.append({ type: "artifact.changed", artifact })
     return artifact
   }
 
+  /** A retention is the document's too, so the sweep never leaves it with a hole in its history. */
   setArtifactRetention(id: string, expiresAt: number | undefined) {
     const changed = this.db
-      .query("UPDATE artifacts SET expires_at = ?1 WHERE id = ?2")
+      .query("UPDATE artifacts SET expires_at = ?1 WHERE logical_id = (SELECT logical_id FROM artifacts WHERE id = ?2)")
       .run(expiresAt ?? null, id).changes
     if (!changed) return undefined
     const artifact = this.getArtifact(id)
@@ -2203,10 +2328,14 @@ export class SqliteRoutineRepository implements RoutineRepository {
   /**
    * Forget what was told to expire (H-14). Never a pinned one: it was explicitly kept, and a sweep
    * that ignores that is worse than no sweep. Nothing is removed by a default — only a stated date.
+   * A version of a pinned document is the document's, so it is not swept either (RP-03).
    */
   removeExpiredArtifacts(now = Date.now()) {
     const removed = this.db
-      .query("DELETE FROM artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?1 AND COALESCE(pinned, 0) = 0")
+      .query(
+        `DELETE FROM artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?1 AND COALESCE(pinned, 0) = 0
+           AND logical_id NOT IN (SELECT logical_id FROM artifacts WHERE pinned = 1)`,
+      )
       .run(now).changes
     return removed
   }
@@ -2362,8 +2491,14 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return this.db.query("DELETE FROM findings WHERE run_id = ?1").run(filter.runID).changes
   }
 
-  removeArtifact(id: string) {
-    return this.db.query("DELETE FROM artifacts WHERE id = ?1").run(id).changes > 0
+  /** Forget one version, or with `document` every version of the document it belongs to (RP-03). */
+  removeArtifact(id: string, options: { document?: boolean } = {}) {
+    if (!options.document) return this.db.query("DELETE FROM artifacts WHERE id = ?1").run(id).changes > 0
+    return (
+      this.db
+        .query("DELETE FROM artifacts WHERE logical_id = (SELECT logical_id FROM artifacts WHERE id = ?1)")
+        .run(id).changes > 0
+    )
   }
 
   // ---- what a reader keeps about a session (H-18) ---------------------------------------------

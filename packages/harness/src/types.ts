@@ -47,6 +47,14 @@ export type Artifact = {
   pinned?: boolean
   /** When it may be forgotten. Absent means never. */
   expiresAt?: number
+  /** The message whose turn wrote it (RP-03), when the engine's plugin said so. */
+  messageID?: string
+  /** The document this row is a version of (RP-03); absent from a server older than that. */
+  logicalID?: string
+  /** Which version of its document this is, from 1. */
+  version?: number
+  /** How many versions its document has, on a list. */
+  versions?: number
 }
 
 /** A process written down, as the app reads it. Mirrors `harness-server`'s own type (H-21). */

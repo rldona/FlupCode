@@ -79,9 +79,12 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/checkpoints/:id/plan` | which files restoring would write, and which it would delete |
 | `POST /harness/checkpoints/:id/restore` | do it, after recording the present as a checkpoint of its own |
 | `DELETE /harness/checkpoints/:id` | forget one |
-| `GET /harness/artifacts` | filtered by `directory`, `runID`, `kind` |
+| `GET /harness/artifacts` | one row per document (its newest version matching the filter, with `versions`), filtered by `directory`, `runID`, `kind`, `q`; a page at a time (`limit`, `offset`), `next` says where the following page starts |
 | `POST /harness/artifacts` | keep one by hand |
-| `GET /harness/artifacts/:id`, `DELETE /harness/artifacts/:id` | read or forget one |
+| `POST /harness/artifacts/index` | a document `artifact_write` just kept: `{ sessionID, messageID, directory, path, title }`; the server reads the file from `.flupcode/artifacts` and takes the run and task from the session's attribution; plugin token only |
+| `GET /harness/artifacts/:id` | read one version |
+| `GET /harness/artifacts/:id/versions` | every version of its document, newest first, without their text |
+| `DELETE /harness/artifacts/:id` | forget one version; `?document=1` forgets every version of the document |
 | `GET`/`POST /harness/routines`, `…/:id` (`GET`/`PATCH`/`DELETE`) | the routines |
 | `PATCH /harness/routines/:id/enabled` | pause or resume one |
 | `POST /harness/routines/:id/runs` | run one now; **409** if it is already running |
@@ -103,8 +106,8 @@ Access (WA-9, AH-A05):
   `FLUPCODE_BROWSER_TOKEN`). The engine's plugins hold a second, narrower token,
   `<configDir>/plugin-token` (or `FLUPCODE_PLUGIN_TOKEN`): it opens the action catalogue, approval
   and run (not the editor's validate, dry run or preview), a run's evidence screenshots and
-  `/harness/plan-exit`, and the usage ledger's ingest, which only it may write, and nothing else
-  (TI-10, UL-01). Processes the server starts get neither token, nor
+  `/harness/plan-exit`, the usage ledger's ingest and the artifacts index, which only it may write,
+  and nothing else (TI-10, UL-01, RP-03). Processes the server starts get neither token, nor
   the engine's credentials or the vault key. When a token exists — the entrypoint always creates one unless the write
   fails — **every other `/harness` route asks for it too**: runs, best-of-n, task retry/cancel,
   workflows, routines, git, checkpoints, artifacts, the event stream, and the reads that carry

@@ -2,8 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { createHarnessHandler } from "./api"
 import { registerDocuments } from "./documents"
 import { ARTIFACT_LIMIT, artifactHash, SqliteRoutineRepository } from "./repository"
+import { RoutineScheduler } from "./scheduler"
+import type { Artifact } from "./types"
 
 const open = () => new SqliteRoutineRepository(":memory:")
 
@@ -213,5 +216,50 @@ describe("documents indexed before the path convention was fixed", () => {
     registerDocuments(after, project)
     expect(after.listArtifacts({ directory: project, kind: "document" })).toHaveLength(1)
     after.close()
+  })
+})
+
+describe("the artifacts routes, by document (RP-03)", () => {
+  const serve = () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    const handler = createHarnessHandler(repository, scheduler, { token: "ui-token", pluginToken: "plugin-token" })
+    const call = async <T>(path: string, method = "GET") => {
+      const response = await handler(
+        new Request(`http://127.0.0.1:4097${path}`, { method, headers: { authorization: "Bearer ui-token" } }),
+      )
+      return { status: response.status, body: (await response.json()) as { data: T; next?: number } }
+    }
+    return { repository, call }
+  }
+
+  test("the list pages, and says where the next page starts", async () => {
+    const { repository, call } = serve()
+    for (let index = 0; index < 150; index++)
+      repository.addArtifact({ kind: "report", title: `r${index}`, producer: "harness", content: "x" }, 1_000 + index)
+    const first = await call<Artifact[]>("/harness/artifacts")
+    expect(first.body.data).toHaveLength(100)
+    expect(first.body.next).toBe(100)
+    const second = await call<Artifact[]>(`/harness/artifacts?offset=${first.body.next}`)
+    expect(second.body.data).toHaveLength(50)
+    expect(second.body.next).toBeUndefined()
+    expect((await call<Artifact[]>("/harness/artifacts?limit=10")).body.next).toBe(10)
+    repository.close()
+  })
+
+  test("a document's versions come newest first and without their text; deleting the document takes them all", async () => {
+    const { repository, call } = serve()
+    const document = { kind: "document" as const, title: "Report", producer: "agent" as const, directory: "/work/demo", path: ".flupcode/artifacts/report.md" }
+    const first = repository.addArtifact({ ...document, content: "one" }, 1_000)
+    repository.addArtifact({ ...document, content: "two" }, 2_000)
+    const versions = await call<Artifact[]>(`/harness/artifacts/${first.id}/versions`)
+    expect(versions.body.data.map((version) => [version.version, version.content])).toEqual([
+      [2, undefined],
+      [1, undefined],
+    ])
+    expect((await call(`/harness/artifacts/missing/versions`)).status).toBe(404)
+    expect((await call(`/harness/artifacts/${first.id}?document=1`, "DELETE")).status).toBe(200)
+    expect(repository.listArtifactVersions(first.id)).toEqual([])
+    repository.close()
   })
 })
