@@ -3,7 +3,7 @@ import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task, TaskStatus, Artifact } from "./types"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
-import { externalCommand, runExternal } from "./external"
+import { externalCommand, fillCommand, runExternal } from "./external"
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { packFiles, packRefs, expandArtifactRefs } from "./packs"
@@ -971,7 +971,8 @@ export class TaskRunner {
         ...(task.agent ? { agent: task.agent } : {}),
         ...(task.model ? { model: task.model } : {}),
         // The command a step runs carries the step too, the same way its prompt does.
-        ...(task.command ? { command: task.command.replace(/\{\{\s*item\s*\}\}/g, item) } : {}),
+        // Quoted: the step is a model's text, and the command is shell (TI-06).
+        ...(task.command ? { command: fillCommand(task.command, { item }) } : {}),
         // A root: it exists because the plan is ready, and it runs alongside its siblings.
         dependsOn: [],
       })),

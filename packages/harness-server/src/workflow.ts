@@ -4,6 +4,7 @@ import { join } from "node:path"
 import type { TaskCondition, TaskInput } from "./types"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { PLAN_INSTRUCTION } from "./plan"
+import { fillCommand } from "./external"
 
 /**
  * The findings instruction, indented to sit inside a `prompt: |` block.
@@ -299,8 +300,9 @@ export function tasksFor(workflow: Workflow, inputs: Record<string, string>, unt
     name: task.id,
     prompt: task.prompt ? fill(task.prompt, filled) : "",
     kind: task.kind ?? "agent",
-    // An external command is filled like a prompt: `{{goal}}` is the same idea wherever it appears.
-    ...(task.command ? { command: fill(task.command, inputs) } : {}),
+    // An external command is filled from the same inputs as the prompt, defaults included, but each
+    // value goes in quoted: it is text, and the command is shell (TI-06).
+    ...(task.command ? { command: fillCommand(task.command, filled) } : {}),
     ...(task.agent ? { agent: task.agent } : {}),
     ...(task.retries !== undefined ? { retries: task.retries } : {}),
     ...(task.gate ? { gate: task.gate } : {}),
