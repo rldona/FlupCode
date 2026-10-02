@@ -12,6 +12,7 @@
  * consume them, and an empty table now would only be a guess.
  */
 
+import type { SessionAttribution } from "./usage-ledger"
 import type { Arm } from "./adaptive/holdout"
 import type {
   EpisodeFailure,
@@ -569,7 +570,10 @@ export type RunRepository = {
   listTasks(runID: string): Task[]
   getTask(taskID: string): Task | undefined
   startTask(taskID: string, now: number): Task | undefined
+  /** Also stamps the session with the task's run, attempt, routine and workflow (UL-04). */
   attachTaskSession(taskID: string, sessionID: string): void
+  /** Who a session works for (UL-04): a closing note's, a commit message's. */
+  attributeSession(sessionID: string, attribution: SessionAttribution, source?: "server" | "engine"): void
   /** The tree a task ran in (H-29). */
   attachTaskDirectory(taskID: string, directory: string): void
   finishTask(

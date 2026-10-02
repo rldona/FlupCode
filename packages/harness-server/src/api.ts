@@ -544,7 +544,7 @@ export const createHarnessHandler = (
     // the route takes their token and not the app's. Without a plugin token it is an ordinary 404.
     if (path[1] === "usage" && path[2] === "events" && path.length === 3 && request.method === "POST" && options.pluginToken) {
       if (!pluginCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleUsageIngest(request, repository)
+      return handleUsageIngest(request, repository, (sessionID) => scheduler.engine.describeSession(sessionID))
     }
     // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
     // needs the profile id and the shape the form wrote.
@@ -1766,6 +1766,7 @@ export const createHarnessHandler = (
         const message = await scheduler.engine.commitMessage({
           directory,
           diff: diff.length > 12_000 ? `${diff.slice(0, 12_000)}\n… (truncated)` : diff,
+          onSession: (sessionID) => repository.attributeSession(sessionID, { purpose: "commit-message", directory }),
         })
         return message ? json({ data: { message } }) : error("The engine did not answer with a message", 502)
       } catch (cause) {

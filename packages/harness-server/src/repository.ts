@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite"
 import type { UsageRow } from "./usage"
-import type { LedgerEvent, ToolEvent, UsageEvent, UsagePurpose } from "./usage-ledger"
+import { KIND_PURPOSE, repositoryRoot } from "./usage-ledger"
+import type { LedgerEvent, SessionAttribution, ToolEvent, UsageEvent, UsagePurpose } from "./usage-ledger"
 import { safeEvent } from "./stream"
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
 import { homedir } from "node:os"
@@ -1110,6 +1111,7 @@ const sourceKey = (source: RunSource) => (source.type === "routine" ? source.rou
 export class SqliteRoutineRepository implements RoutineRepository {
   readonly db: Database
   private readonly listeners = new Set<(entry: StoredEvent) => void>()
+  private since: number | undefined
 
   constructor(private readonly path = process.env.FLUPCODE_HARNESS_DB ?? defaultDatabasePath()) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true })
@@ -1183,7 +1185,14 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const current =
       (this.db.query("SELECT MAX(version) AS version FROM schema_version").get() as { version: number | null })
         .version ?? LEGACY_SCHEMA_VERSION
-    const pending = this.migrations().filter((migration) => migration.version > current)
+    // What has not run yet, rather than what is above the newest: versions are handed out in advance
+    // to tickets built in parallel, so a database can reach 7 before 6 exists and must still get 6.
+    const applied = new Set(
+      (this.db.query("SELECT version FROM schema_version").all() as Array<{ version: number }>).map((row) => row.version),
+    )
+    const pending = this.migrations().filter(
+      (migration) => migration.version > LEGACY_SCHEMA_VERSION && !applied.has(migration.version),
+    )
     if (pending.length === 0) return
     const backup =
       !fresh && this.path !== ":memory:" && pending.some((migration) => migration.rewrites)
@@ -1310,6 +1319,48 @@ export class SqliteRoutineRepository implements RoutineRepository {
             );
             CREATE INDEX IF NOT EXISTS tool_event_session ON tool_event(session_id, started_at);
           `),
+      },
+      {
+        // Who each session works for (UL-04, audit §8.4). The sessions of existing runs are known
+        // from their tasks and threads, so they are attributed now and any ledger row already taken
+        // for them is stamped. A closing note's or a commit message's session from before was never
+        // recorded anywhere, so it stays unattributed rather than guessed from its title.
+        version: 7,
+        name: "usage-attribution",
+        rewrites: true,
+        up: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS session_attribution (
+              session_id TEXT PRIMARY KEY,
+              parent_session_id TEXT,
+              source TEXT NOT NULL,
+              run_id TEXT,
+              task_id TEXT,
+              attempt INTEGER,
+              routine_id TEXT,
+              workflow_name TEXT,
+              workflow_hash TEXT,
+              purpose TEXT,
+              directory TEXT,
+              created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS session_attribution_parent ON session_attribution(parent_session_id);
+            CREATE INDEX IF NOT EXISTS usage_event_parent ON usage_event(parent_session_id);
+          `)
+          const sessions = this.db
+            .query(
+              `SELECT session_id AS sessionID, run_id AS runID, id AS taskID FROM tasks WHERE session_id IS NOT NULL
+               UNION ALL
+               SELECT session_id, id, NULL FROM runs WHERE session_id IS NOT NULL`,
+            )
+            .all() as Array<{ sessionID: string; runID: string; taskID: string | null }>
+          for (const session of sessions)
+            this.attributeSession(session.sessionID, {
+              runID: session.runID,
+              ...(session.taskID ? { taskID: session.taskID } : {}),
+              purpose: "run-task",
+            })
+        },
       },
     ]
   }
@@ -1781,6 +1832,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   attachSession(runID: string, sessionID: string) {
     this.db.query("UPDATE runs SET session_id = ?1 WHERE id = ?2").run(sessionID, runID)
+    this.attributeSession(sessionID, { runID, purpose: "run-task" })
     const run = this.getRun(runID)
     if (run) this.append({ type: "run.changed", run })
   }
@@ -2440,6 +2492,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   attachTaskSession(taskID: string, sessionID: string) {
     this.db.query("UPDATE tasks SET session_id = ?1 WHERE id = ?2").run(sessionID, taskID)
+    const task = this.getTask(taskID)
+    if (task) this.attributeSession(sessionID, { runID: task.runID, taskID, purpose: "run-task" })
     this.publishTask(taskID)
   }
 
@@ -2808,8 +2862,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
       `INSERT OR IGNORE INTO tool_event (id, session_id, message_id, tool, started_at, ms, error, bytes)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
     )
+    // Stamped before the write lock is taken: a folder seen for the first time asks git.
+    const events = batch.events.map((entry) => this.stamped(entry))
     return this.db.transaction(() => ({
-      events: batch.events.filter(
+      events: events.filter(
         (entry) =>
           event.run(
             entry.id,
@@ -2864,6 +2920,174 @@ export class SqliteRoutineRepository implements RoutineRepository {
           ).changes > 0,
       ).length,
     }))()
+  }
+
+  // ---- attribution (UL-04) ----------------------------------------------------------------------
+
+  /**
+   * Say who a session works for. The server's word (a run's task, a closing note, a commit message)
+   * replaces what was learnt from the engine; what the engine says only fills a session nobody
+   * stamped. Given a run, the rest — attempt, routine, workflow, folder — is read from the run.
+   *
+   * Rows the ledger already holds for the session and for its subagents are stamped too, column by
+   * column and only where empty: a fact that arrived before its attribution is not left orphaned,
+   * and nothing already stamped is changed. The facts themselves never are.
+   */
+  attributeSession(sessionID: string, attribution: SessionAttribution, source: "server" | "engine" = "server") {
+    const run = attribution.runID ? this.getRun(attribution.runID) : undefined
+    const task = attribution.taskID ? this.getTask(attribution.taskID) : undefined
+    const directory = attribution.directory ?? run?.directory
+    const values = [
+      sessionID,
+      attribution.parentSessionID ?? null,
+      source,
+      attribution.runID ?? null,
+      attribution.taskID ?? null,
+      attribution.attempt ?? task?.attempt ?? null,
+      attribution.routineID ?? (run?.source.type === "routine" ? run.source.routineID : null),
+      attribution.workflowName ?? run?.workflow?.name ?? null,
+      attribution.workflowHash ?? run?.workflow?.hash ?? null,
+      attribution.purpose ?? null,
+      directory ? repositoryRoot(directory) : null,
+      Date.now(),
+    ]
+    this.db.transaction(() => {
+      this.db
+        .query(
+          `INSERT INTO session_attribution (
+            session_id, parent_session_id, source, run_id, task_id, attempt, routine_id, workflow_name,
+            workflow_hash, purpose, directory, created_at
+          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+          ON CONFLICT(session_id) DO ${
+            source === "server"
+              ? `UPDATE SET parent_session_id = COALESCE(excluded.parent_session_id, parent_session_id),
+                  source = excluded.source, run_id = excluded.run_id, task_id = excluded.task_id,
+                  attempt = excluded.attempt, routine_id = excluded.routine_id,
+                  workflow_name = excluded.workflow_name, workflow_hash = excluded.workflow_hash,
+                  purpose = excluded.purpose, directory = COALESCE(excluded.directory, directory)`
+              : "NOTHING"
+          }`,
+        )
+        .run(...values)
+      this.stampStored(sessionID)
+    })()
+  }
+
+  knowsSession(sessionID: string) {
+    return this.db.query("SELECT 1 FROM session_attribution WHERE session_id = ?1").get(sessionID) !== null
+  }
+
+  /** When attribution started: the time the migration that added it ran on this database. */
+  attributionSince() {
+    this.since ??= (this.db.query("SELECT applied_at FROM schema_version WHERE version = 7").get() as { applied_at: number })
+      .applied_at
+    return this.since
+  }
+
+  /**
+   * Who a session works for, its own row first and then its ancestors', field by field: a subagent
+   * of a run's task is that run's, and a closing note keeps its own purpose though it shares a run.
+   */
+  sessionAttribution(sessionID: string): SessionAttribution | undefined {
+    const chain = this.db
+      .query(
+        `WITH RECURSIVE chain(session_id, depth) AS (
+           SELECT ?1, 0
+           UNION ALL
+           SELECT a.parent_session_id, chain.depth + 1 FROM session_attribution a
+             JOIN chain ON a.session_id = chain.session_id
+             WHERE a.parent_session_id IS NOT NULL AND chain.depth < 32
+         )
+         SELECT a.* FROM chain JOIN session_attribution a ON a.session_id = chain.session_id ORDER BY chain.depth`,
+      )
+      .all(sessionID) as AttributionRow[]
+    if (chain.length === 0) return undefined
+    const first = <K extends keyof AttributionRow>(key: K) => chain.find((row) => row[key] !== null)?.[key] ?? undefined
+    const merged = {
+      parentSessionID: chain[0]!.parent_session_id ?? undefined,
+      runID: first("run_id"),
+      taskID: first("task_id"),
+      attempt: first("attempt"),
+      routineID: first("routine_id"),
+      workflowName: first("workflow_name"),
+      workflowHash: first("workflow_hash"),
+      purpose: first("purpose"),
+      directory: first("directory"),
+    }
+    const known = Object.fromEntries(Object.entries(merged).filter((entry) => entry[1] !== undefined))
+    // A session the engine no longer knew is recorded so it is not asked about again, but says nothing.
+    return Object.keys(known).length > 0 ? (known as SessionAttribution) : undefined
+  }
+
+  /**
+   * A fact with the attribution of its session, or of the parent the event names when the session
+   * is not known yet. What the caller set itself wins; a title or a compaction keeps its own purpose.
+   */
+  private stamped(entry: LedgerEvent): LedgerEvent {
+    const known =
+      this.sessionAttribution(entry.sessionID) ??
+      (entry.parentSessionID ? this.sessionAttribution(entry.parentSessionID) : undefined)
+    const inherited = {
+      runID: known?.runID,
+      taskID: known?.taskID,
+      attempt: known?.attempt,
+      routineID: known?.routineID,
+      workflowName: known?.workflowName,
+      workflowHash: known?.workflowHash,
+    }
+    const purpose = entry.purpose ?? KIND_PURPOSE[entry.kind] ?? known?.purpose
+    const directory = known?.directory ?? (entry.directory ? repositoryRoot(entry.directory) : undefined)
+    return {
+      ...(Object.fromEntries(Object.entries(inherited).filter((field) => field[1] !== undefined)) as SessionAttribution),
+      ...entry,
+      ...(purpose ? { purpose } : {}),
+      ...(directory ? { directory } : {}),
+    }
+  }
+
+  /** Stamp the stored rows of a session and of every session under it, where they are still empty. */
+  private stampStored(sessionID: string) {
+    const sessions = this.db
+      .query(
+        `WITH RECURSIVE tree(session_id, depth) AS (
+           SELECT ?1, 0
+           UNION
+           SELECT a.session_id, tree.depth + 1 FROM session_attribution a
+             JOIN tree ON a.parent_session_id = tree.session_id WHERE tree.depth < 32
+           UNION
+           SELECT e.session_id, tree.depth + 1 FROM usage_event e
+             JOIN tree ON e.parent_session_id = tree.session_id WHERE tree.depth < 32
+         )
+         SELECT DISTINCT e.session_id AS sessionID, e.parent_session_id AS parentSessionID FROM usage_event e
+           JOIN tree ON e.session_id = tree.session_id`,
+      )
+      .all(sessionID) as Array<{ sessionID: string; parentSessionID: string | null }>
+    const update = this.db.query(
+      `UPDATE usage_event SET
+         run_id = COALESCE(run_id, ?3), task_id = COALESCE(task_id, ?4), attempt = COALESCE(attempt, ?5),
+         routine_id = COALESCE(routine_id, ?6), workflow_name = COALESCE(workflow_name, ?7),
+         workflow_hash = COALESCE(workflow_hash, ?8), purpose = COALESCE(purpose, ?9),
+         directory = COALESCE(?10, directory)
+       WHERE session_id = ?1 AND parent_session_id IS ?2`,
+    )
+    for (const session of sessions) {
+      const known =
+        this.sessionAttribution(session.sessionID) ??
+        (session.parentSessionID ? this.sessionAttribution(session.parentSessionID) : undefined)
+      if (!known) continue
+      update.run(
+        session.sessionID,
+        session.parentSessionID,
+        known.runID ?? null,
+        known.taskID ?? null,
+        known.attempt ?? null,
+        known.routineID ?? null,
+        known.workflowName ?? null,
+        known.workflowHash ?? null,
+        known.purpose ?? null,
+        known.directory ?? null,
+      )
+    }
   }
 
   /** A session's billable facts, in the order they were stored. */
@@ -3942,6 +4166,21 @@ type UsageEventRow = {
   workflow_hash: string | null
   purpose: UsagePurpose | null
   tags_json: string | null
+}
+
+type AttributionRow = {
+  session_id: string
+  parent_session_id: string | null
+  source: "server" | "engine"
+  run_id: string | null
+  task_id: string | null
+  attempt: number | null
+  routine_id: string | null
+  workflow_name: string | null
+  workflow_hash: string | null
+  purpose: UsagePurpose | null
+  directory: string | null
+  created_at: number
 }
 
 type ToolEventRow = {
