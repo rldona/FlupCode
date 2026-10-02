@@ -5,7 +5,7 @@ import type { AppStores } from "../../app-context"
 
 /**
  * What the app does once its stores exist: take up the remote connection, and follow the links it
- * was opened with — a pairing link, and the session a notification points at.
+ * was opened with — a pairing link, a dialog's link (UX-00), and the session a notification points at.
  */
 export function startShell(app: AppStores) {
   const pairFromLink = () => {
@@ -35,6 +35,7 @@ export function startShell(app: AppStores) {
 
   remote.resume()
   pairFromLink()
+  app.router.openLinkedDialog()
   window.addEventListener("hashchange", pairFromLink)
   onCleanup(() => window.removeEventListener("hashchange", pairFromLink))
   const launch = new URLSearchParams(window.location.search)

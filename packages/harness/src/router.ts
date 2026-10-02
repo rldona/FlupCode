@@ -12,9 +12,75 @@ import type { SettingsSection } from "./components/SettingsPanel"
 import type { AppStores } from "./app-context"
 
 /**
- * Where the app is (UX-00): the screen, written in the path (see screen.ts), and the dialogs that open
- * over whatever screen is showing.
+ * The app's routes (UX-00): the screens, written in the path (see screen.ts), and the dialogs that
+ * open over whatever screen is showing.
+ *
+ * A dialog is reached by a link as `?dialog=<name>`, Settings on a section as
+ * `?dialog=settings&section=<section>`. The link is read when the page loads and when the browser
+ * goes back or forward to it, and then taken out of the address, as the `?session=` launch link is:
+ * a dialog closes without a trace in the history, as it always has.
+ *
+ * The dialogs that act on something the reader picked (rename, tags, a confirmation, an external
+ * link, a model switch, a workflow's inputs) are not routes: without their target there is nothing
+ * for them to show.
  */
+export const DIALOGS = [
+  "settings",
+  "about",
+  "stashes",
+  "remote",
+  "skills",
+  "best-of-n",
+  "memory",
+  "config",
+  "config-files",
+  "palette",
+  "model",
+  "folder",
+] as const
+
+export type Dialog = (typeof DIALOGS)[number]
+
+const SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  "appearance",
+  "profile",
+  "model",
+  "providers",
+  "conversation",
+  "notifications",
+  "shortcuts",
+  "permissions",
+  "commands",
+  "agents",
+  "mcp",
+  "adaptive",
+  "server",
+  "advanced",
+]
+
+/** The dialog a link names, with the Settings section it opens on. Anything else names none. */
+export function dialogFromSearch(search: string): { dialog: Dialog; section?: SettingsSection } | undefined {
+  const params = new URLSearchParams(search)
+  const dialog = DIALOGS.find((name) => name === params.get("dialog"))
+  if (!dialog) return undefined
+  const section = SETTINGS_SECTIONS.find((name) => name === params.get("section"))
+  return dialog === "settings" && section ? { dialog, section } : { dialog }
+}
+
+/** Where a dialog lives: its link, beside the screen's own address. */
+export function searchForDialog(dialog: Dialog, section?: SettingsSection) {
+  return `?${new URLSearchParams({ dialog, ...(dialog === "settings" && section ? { section } : {}) })}`
+}
+
+/** The address without its dialog link, once the dialog it named is open. */
+export function searchWithoutDialog(search: string) {
+  const params = new URLSearchParams(search)
+  params.delete("dialog")
+  params.delete("section")
+  const rest = params.toString()
+  return rest ? `?${rest}` : ""
+}
+
 export function createRouter(app: AppStores) {
   // Which full screen is open, and where in the URL it lives, so a reload comes back to it and the
   // browser's Back leaves it. One signal rather than a flag per screen: only one can be open, and
@@ -82,6 +148,7 @@ export function createRouter(app: AppStores) {
       setScreen(screenFromPath(window.location.pathname))
       setCompareArgs(compareFromSearch(window.location.search))
       setDecisionFocus(decisionFromSearch(window.location.search))
+      openLinkedDialog()
     }
     window.addEventListener("popstate", follow)
     onCleanup(() => window.removeEventListener("popstate", follow))
@@ -120,6 +187,33 @@ export function createRouter(app: AppStores) {
   // Exporting (H-35): markdown with options, or the raw JSON. The dialog holds the choices; this
   // builds the file.
   const [exportOpen, setExportOpen] = createSignal(false)
+
+  /** Opens a dialog by its route name: from a link, a command or the palette. */
+  const openDialog = (dialog: Dialog, section?: SettingsSection) => {
+    if (dialog === "settings") return section ? openSettings(section) : setSettingsOpen(true)
+    if (dialog === "about") return setAboutOpen(true)
+    if (dialog === "stashes") return setStashOpen(true)
+    if (dialog === "remote") return setRemoteOpen(true)
+    if (dialog === "skills") return setSkillsOpen(true)
+    if (dialog === "best-of-n") return setBestOfNOpen(true)
+    if (dialog === "memory") return setMemoryOpen(true)
+    if (dialog === "config") return setConfigOpen(true)
+    if (dialog === "config-files") return setConfigFilesOpen(true)
+    if (dialog === "palette") return setPaletteOpen(true)
+    if (dialog === "model") return setModelPickerOpen(true)
+    setFolderOpen(true)
+  }
+  /** Opens the dialog the address names, and takes the link out of it. */
+  const openLinkedDialog = () => {
+    const linked = dialogFromSearch(window.location.search)
+    if (!linked) return
+    window.history.replaceState(
+      window.history.state,
+      "",
+      window.location.pathname + searchWithoutDialog(window.location.search) + window.location.hash,
+    )
+    openDialog(linked.dialog, linked.section)
+  }
 
   /** The external link the reader clicked, waiting to be confirmed and opened in their browser. */
   const [externalLink, setExternalLink] = createSignal<string>()
@@ -221,6 +315,8 @@ export function createRouter(app: AppStores) {
     setCompareArgs,
     decisionFocus,
     showDecision,
+    openDialog,
+    openLinkedDialog,
     settingsOpen,
     setSettingsOpen,
     settingsSection,

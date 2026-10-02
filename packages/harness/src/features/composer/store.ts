@@ -704,16 +704,7 @@ export function createComposer(app: AppStores) {
     newSession: () => app.sessions.newSession(),
     showScreen: app.router.showScreen,
     openSettings: app.router.openSettings,
-    open: (dialog) => {
-      if (dialog === "about") return app.router.setAboutOpen(true)
-      if (dialog === "settings") return app.router.setSettingsOpen(true)
-      if (dialog === "stashes") return app.router.setStashOpen(true)
-      if (dialog === "remote") return app.router.setRemoteOpen(true)
-      if (dialog === "skills") return app.router.setSkillsOpen(true)
-      if (dialog === "best-of-n") return app.router.setBestOfNOpen(true)
-      if (dialog === "memory") return app.router.setMemoryOpen(true)
-      app.router.setConfigOpen(true)
-    },
+    open: (dialog) => app.router.openDialog(dialog),
     send: (text) => sendText(text, attachments()),
     stash: (text) => stashPrompt(text, true),
     compact: app.sessions.compactSession,
