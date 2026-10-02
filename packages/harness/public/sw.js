@@ -1,8 +1,12 @@
 // Bump this whenever the caching strategy changes so old caches are dropped on activate.
-const CACHE = "flupcode-v2"
+const CACHE = "flupcode-v3"
 
 // The shell plus its hashed assets are precached on install. Parsing the built HTML keeps the
 // precache correct across deploys without a generated manifest.
+//
+// The screens and dialogs that load on demand (UX-00) are chunks the HTML does not name. A script
+// lists the chunks it may import (`"assets/…"`), so each script fetched here is read for more: a
+// screen first opened offline, or in a tab older than the latest deploy, is still in the cache.
 async function precache() {
   try {
     const response = await fetch("/", { cache: "reload" })
@@ -10,12 +14,23 @@ async function precache() {
     const cache = await caches.open(CACHE)
     await cache.put("/", response.clone())
     const html = await response.text()
-    const assets = [...html.matchAll(/(?:src|href)="(\/(?:assets\/[^"]+|boot\.js))"/g)].map((match) => match[1])
-    await Promise.all(
-      assets.map((asset) =>
-        fetch(asset).then((assetResponse) => (assetResponse.ok ? cache.put(asset, assetResponse) : undefined)),
-      ),
-    )
+    const seen = new Set([...html.matchAll(/(?:src|href)="(\/(?:assets\/[^"]+|boot\.js))"/g)].map((match) => match[1]))
+    const fetchAll = async (assets) => {
+      const found = await Promise.all(
+        assets.map(async (asset) => {
+          const assetResponse = await fetch(asset)
+          if (!assetResponse.ok) return []
+          await cache.put(asset, assetResponse.clone())
+          if (!asset.endsWith(".js")) return []
+          const script = await assetResponse.text()
+          return [...script.matchAll(/"(assets\/[^"]+\.(?:js|css))"/g)].map((match) => `/${match[1]}`)
+        }),
+      )
+      const next = [...new Set(found.flat())].filter((asset) => !seen.has(asset))
+      next.forEach((asset) => seen.add(asset))
+      if (next.length > 0) await fetchAll(next)
+    }
+    await fetchAll([...seen])
   } catch {
     // Offline installs still succeed; the next load fills the cache.
   }
