@@ -12,7 +12,8 @@
     "./engine-kind": "./src/engine-kind.ts",
     "./opencode-v2": "./src/opencode-v2.ts",
     "./engine-proxy": "./src/engine-proxy.ts",
-    "./v1-import": "./src/v1-import.ts"
+    "./v1-import": "./src/v1-import.ts",
+    "./secret-patterns": "./src/secret-patterns.ts"
   },
   "scripts": {
     "test": "bun test",

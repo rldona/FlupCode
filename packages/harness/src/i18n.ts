@@ -491,7 +491,9 @@ const ES: Record<string, string> = {
   candidate: "candidata",
   stale: "obsoleta",
   archived: "archivada",
-  "{count} candidates": "{count} candidatas",
+  "{count} candidates to review": "{count} candidatas por revisar",
+  "Candidates are not used in prompts until you approve them.":
+    "Las candidatas no se usan en los prompts hasta que las apruebes.",
   Tags: "Etiquetas",
   Notifications: "Notificaciones",
   "Enable notifications": "Activar notificaciones",

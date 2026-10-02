@@ -726,15 +726,16 @@ describe("OpenCode 2 web actions and delivery", () => {
 describe("OpenCode 2 memory", () => {
   type Handlers = Record<string, (input: unknown) => Promise<unknown>>
 
-  async function memory(events: unknown[] = [], answer = "[]") {
-    process.env.FLUPCODE_MEMORY_DB = path.join(await temp(), "memory.db")
+  // A second project on the same store passes `shared`, so both see one database.
+  async function memory(events: unknown[] = [], answer = "[]", project = "prj_1", shared = false) {
+    if (!shared) process.env.FLUPCODE_MEMORY_DB = path.join(await temp(), "memory.db")
     const plugin_ = await plugin("flupcode-memory.js")
     const recorded = context("/work/demo", events)
     let handlers: Handlers = {}
     let definition: { id: string; methods: Record<string, unknown> } | undefined
     const prompts: string[] = []
     Object.assign(recorded.ctx, {
-      location: { directory: "/work/demo", project: { id: "prj_1" } },
+      location: { directory: "/work/demo", project: { id: project } },
       rpc: {
         register: async (registered: typeof definition, given: Handlers) => {
           definition = registered
@@ -824,14 +825,98 @@ describe("OpenCode 2 memory", () => {
 
   test("the memory tool adds and lists as the agent", async () => {
     const subject = await memory()
-    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<{ content: string }> }> =
-      []
-    subject.recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    const added = tools(subject)
     expect(added.map((tool) => tool.name)).toEqual(["memory"])
     const context_ = { sessionID: "ses_1", agent: "build", id: "call_1" }
     await added[0]!.execute({ action: "add", title: "Port", content: "The dev server listens on 4444" }, context_)
     const listed = JSON.parse((await added[0]!.execute({ action: "list", query: "4444" }, context_)).content)
     expect(listed).toEqual([expect.objectContaining({ title: "Port", status: "candidate", scope: "project" })])
+  })
+
+  type Tool = { name: string; execute: (input: unknown, context: unknown) => Promise<{ content: string }> }
+  function tools(subject: Awaited<ReturnType<typeof memory>>) {
+    const added: Tool[] = []
+    subject.recorded.transforms.tool!({ add: (tool: Tool) => added.push(tool) } as never)
+    return added
+  }
+  async function inject(subject: Awaited<ReturnType<typeof memory>>, text: string) {
+    const request = {
+      sessionID: "ses_1",
+      agent: "build",
+      system: [{ type: "text", text: "You are an agent." }],
+      messages: [{ id: crypto.randomUUID(), role: "user", content: [{ type: "text", text }] }],
+    }
+    await subject.recorded.hooks.get("session.context")!(request as never)
+    return request.system.map((part) => part.text).join("\n")
+  }
+
+  test("a candidate is not injected until it is approved", async () => {
+    const subject = await memory()
+    const candidate = (await subject.rpc().create!({
+      title: "Hotfixes",
+      content: "Hotfixes are tagged from the amber branch",
+      status: "candidate",
+    })) as { id: string }
+    expect(await inject(subject, "where are hotfixes tagged from?")).not.toContain("amber branch")
+    await subject.rpc().update!({ id: candidate.id, status: "active" })
+    expect(await inject(subject, "where are hotfixes tagged from, again?")).toContain(
+      "Hotfixes are tagged from the amber branch",
+    )
+  })
+
+  test("the memory tool reads its own project and global, and cannot change another project's memories", async () => {
+    const mine = await memory()
+    const theirs = await memory([], "[]", "prj_2", true)
+    const foreign = (await theirs.rpc().create!({ title: "Theirs", content: "Their deploy key lives in vault" })) as {
+      id: string
+    }
+    await theirs.rpc().create!({ title: "Everyone", content: "Prefer small pull requests", scope: "global" })
+    await mine.rpc().create!({ title: "Mine", content: "Our deploy runs on Fridays" })
+    const tool = tools(mine)[0]!
+    const context_ = { sessionID: "ses_1", agent: "build", id: "call_1" }
+
+    const listed = JSON.parse((await tool.execute({ action: "list" }, context_)).content) as Array<{ title: string }>
+    expect(listed.map((item) => item.title).sort()).toEqual(["Everyone", "Mine"])
+    expect((await tool.execute({ action: "forget", id: foreign.id }, context_)).content).toBe(
+      "No memory with id " + foreign.id,
+    )
+    expect((await tool.execute({ action: "update", id: foreign.id, content: "Gone" }, context_)).content).toBe(
+      "No memory with id " + foreign.id,
+    )
+    expect(await theirs.rpc().get!({ id: foreign.id })).toMatchObject({ content: "Their deploy key lives in vault" })
+    // Global memories are read, not rewritten, by an agent.
+    const global = listed.find((item) => item.title === "Everyone") as unknown as { id: string }
+    expect((await tool.execute({ action: "forget", id: global.id }, context_)).content).toBe(
+      "No memory with id " + global.id,
+    )
+  })
+
+  test("a memory that looks like a credential is refused on every write path", async () => {
+    const subject = await memory()
+    const key = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    const tool = tools(subject)[0]!
+    const context_ = { sessionID: "ses_1", agent: "build", id: "call_1" }
+    expect(
+      (await tool.execute({ action: "add", title: "Token", content: "The CI token is " + key }, context_)).content,
+    ).toBe("Not kept: it looks like a credential (GitHub token). Store secrets in the vault, not in memory.")
+    // The engine hides a plugin's error message, so the app's screens get the reason as the answer.
+    expect(await subject.rpc().create!({ title: "Token", content: "The CI token is " + key })).toEqual({
+      refused: "it looks like a credential (GitHub token). Store secrets in the vault, not in memory.",
+    })
+    await subject.recorded.hooks.get("session.prompt")!({
+      sessionID: "ses_1",
+      messageID: "msg_u",
+      prompt: { text: "Remember that the CI token is " + key + "." },
+    } as never)
+    const kept = (await subject.rpc().create!({ title: "Fine", content: "The CI token lives in the vault" })) as {
+      id: string
+    }
+    expect(await subject.rpc().update!({ id: kept.id, content: "The CI token is " + key })).toMatchObject({
+      refused: expect.stringContaining("it looks like a credential"),
+    })
+    expect(((await subject.rpc().list!({})) as Array<{ content: string }>).map((item) => item.content)).toEqual([
+      "The CI token lives in the vault",
+    ])
   })
 
   test("after a run the model is asked for candidates from the session's recent turns", async () => {
