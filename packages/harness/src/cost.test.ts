@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { basisLabel, costText, known, lensMoney, lensOf, lensTotals, money, tokenCount } from "./cost"
+import { basisLabel, costText, favoriteModel, known, lensMoney, lensOf, lensTotals, money, tokenCount } from "./cost"
 import { setLocale } from "./i18n"
-import type { MoneyLine, UsageBucket } from "./types"
+import type { MoneyLine, UsageBucket, UsageGroup } from "./types"
 
 const tokens = (input: number) => ({ input, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 })
 const line = (over: Partial<MoneyLine>): MoneyLine => ({
@@ -109,4 +109,24 @@ describe("costText", () => {
 
 test("tokenCount counts the cache, as the ledger does", () => {
   expect(tokenCount({ input: 1, output: 2, reasoning: 3, cacheRead: 4, cacheWrite: 5 })).toBe(15)
+})
+
+describe("favoriteModel (UL-09)", () => {
+  const group = (key: string | null, usd: number, cacheRead: number): UsageGroup => ({
+    ...bucket([line({ usd })]),
+    tokens: { ...tokens(100), cacheRead },
+    key,
+    fields: {},
+  })
+
+  test("is the model with the most tokens, cache included, not the costliest", () => {
+    const costly = group("p/costly/default", 5, 0)
+    const busy = group("p/busy/default", 0.01, 1_000)
+    expect(favoriteModel([costly, busy])).toBe(busy)
+  })
+
+  test("never names the rows with no model, and is unknown with nothing", () => {
+    expect(favoriteModel([group(null, 1, 10_000)])).toBeUndefined()
+    expect(favoriteModel([])).toBeUndefined()
+  })
 })

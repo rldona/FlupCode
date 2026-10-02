@@ -14,7 +14,6 @@ import type { AgentFile, BrowserGrant, CommandFile, McpConfig, McpScope } from "
 import type { ConfiguredProvider, CustomProviderResult } from "../custom-provider"
 import { engineTargetVersion } from "../client"
 import { t, type Locale } from "../i18n"
-import { formatDateTime } from "../dates"
 import { effortLabel } from "../effort"
 import { KeyCapture } from "./KeyCapture"
 import { Toggle } from "./Toggle"
@@ -27,7 +26,6 @@ import { McpEditor } from "./McpManager"
 import { PermissionsPanel } from "./PermissionsPanel"
 import { BrowserGrants } from "./PermissionDock"
 import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
-import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
 import { AdaptiveSettingsPanel, type AdaptiveSettingsState, type ModelKeyChange } from "./AdaptiveSettingsPanel"
 
@@ -247,20 +245,6 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const section = () => props.section ?? "appearance"
   const setSection = (next: SettingsSection) => props.onSectionChange(next)
   // Resetting asks for a second click within a few seconds.
-  const [confirmReset, setConfirmReset] = createSignal(false)
-  let confirmTimer: ReturnType<typeof setTimeout> | undefined
-  onCleanup(() => clearTimeout(confirmTimer))
-  const reset = () => {
-    if (!confirmReset()) {
-      setConfirmReset(true)
-      clearTimeout(confirmTimer)
-      confirmTimer = setTimeout(() => setConfirmReset(false), 4000)
-      return
-    }
-    clearTimeout(confirmTimer)
-    setConfirmReset(false)
-    resetUsage()
-  }
   // Reloading drops the turns in flight, so it asks for a second click within a few seconds too.
   const [confirmReload, setConfirmReload] = createSignal(false)
   let reloadTimer: ReturnType<typeof setTimeout> | undefined
@@ -533,35 +517,6 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
                     </Show>
                   </Show>
-                </section>
-
-                <section class="fc-settings-section">
-                  <h3 class="fc-settings-title">{t("Usage")}</h3>
-                  <div class="fc-settings-row">
-                    <span class="fc-settings-usage">
-                      <span>{t("Summary counters")}</span>
-                      <span class="fc-settings-hint">
-                        {usageResetAt()
-                          ? t("Counting sessions since {date}", { date: formatDateTime(usageResetAt()) })
-                          : t("Counting every session")}
-                      </span>
-                    </span>
-                    <span class="fc-settings-actions">
-                      <Show when={usageResetAt()}>
-                        <button class="fc-button" type="button" onClick={restoreUsage}>
-                          {t("Count all again")}
-                        </button>
-                      </Show>
-                      <button
-                        class="fc-button"
-                        classList={{ "fc-button-danger": confirmReset() }}
-                        type="button"
-                        onClick={reset}
-                      >
-                        {confirmReset() ? t("Click again to reset") : t("Reset counters")}
-                      </button>
-                    </span>
-                  </div>
                 </section>
               </Show>
 

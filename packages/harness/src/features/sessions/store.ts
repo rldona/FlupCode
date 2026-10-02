@@ -12,8 +12,8 @@ import type {
 import { adaptiveSurfaces, createClient, createHarnessClient, isSessionGone } from "../../client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "../../storage"
 import { sessionAttention, worstAttention } from "../../attention"
-import { activityByDay, computeMetrics, filterByRange, type UsageRange } from "../../metrics"
-import { usageResetAt } from "../../usage-reset"
+import { activityDays } from "../../metrics"
+import { periodStart } from "../../cost"
 import { isSuggestionSession } from "../../reply-suggestion"
 import { sessionChatClass, type AppView, type ChatClass } from "../../chat"
 import { messageID } from "../../ids"
@@ -847,14 +847,42 @@ export function createSessions(app: AppStores) {
   window.addEventListener("popstate", onPopState)
   onCleanup(() => window.removeEventListener("popstate", onPopState))
 
-  const [range, setRange] = createSignal<UsageRange>("all")
-  // Sessions the dashboard counts: those created since the last reset from Settings.
-  const countedSessions = createMemo(() =>
-    (sessionList() ?? []).filter((session) => session.time.created >= usageResetAt()),
+  // The home card (UL-09). What the period spent, in tokens and money and by model, is the usage
+  // ledger's, read the way the Cost screen reads it, so the two agree; the sessions, days and streak
+  // are the engine's own stats. Read while the home is on screen, and again when a session starts or
+  // a turn ends. `range` is a number of days, or all of them.
+  const [range, setRange] = createSignal<number>()
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  // A string, so a list that changed without adding a session or ending a turn reads nothing again.
+  const homeKey = () => {
+    if (!app.connection.ready() || selected() || app.settings.mobileRemote() || chatView()) return undefined
+    return `${sessionList()?.length ?? 0}:${activeSessions().length}`
+  }
+  const periodFrom = (days: number) => (days ? periodStart(days, Date.now()) : undefined)
+  const [homeUsage] = createResource(
+    () => {
+      const key = homeKey()
+      if (!key || !app.runs.routinesServerAvailable()) return undefined
+      return [app.connection.harnessServerUrl(), range() ?? 0, key].join("\n")
+    },
+    (key) => {
+      const [harness = "", days = "0"] = key.split("\n")
+      return createHarnessClient(harness).usageSummary({ groupBy: "model", from: periodFrom(Number(days)) })
+    },
   )
-  const filteredSessions = createMemo(() => filterByRange(countedSessions(), range()))
-  const metrics = createMemo(() => computeMetrics(filteredSessions()))
-  const activity = createMemo(() => activityByDay(countedSessions(), 365))
+  const [homeStats] = createResource(
+    () => homeKey() && [app.connection.serverUrl(), range() ?? 0, homeKey()].join("\n"),
+    (key) => {
+      const [engine = "", days = "0"] = key.split("\n")
+      return createClient(engine).session.stats({ from: periodFrom(Number(days)), timezone })
+    },
+  )
+  // The heatmap is always the last year, whatever the period.
+  const [yearStats] = createResource(
+    () => homeKey() && [app.connection.serverUrl(), homeKey()].join("\n"),
+    (key) => createClient(key.split("\n")[0] ?? "").session.stats({ from: periodStart(365, Date.now()), timezone }),
+  )
+  const activity = createMemo(() => activityDays(yearStats()?.activity ?? [], 365, Date.now()))
 
   const canGoBack = () => historyIndex() > 0
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
@@ -1344,7 +1372,8 @@ export function createSessions(app: AppStores) {
     liveUsage,
     messages,
     messagesLoading,
-    metrics,
+    homeStats,
+    homeUsage,
     mobileComposing,
     mobileScreen,
     modelLocation,

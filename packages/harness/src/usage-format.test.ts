@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { dayKeys, duration, periodStart, share } from "./components/UsagePanel"
+import { dayKeys, duration } from "./components/UsagePanel"
+import { periodStart, share } from "./cost"
 
 describe("duration", () => {
   test("reads as a person would say it", () => {

@@ -137,24 +137,6 @@ test("settings change the app and chat text size and remember them", async ({ pa
   expect(await applied()).toEqual({ zoom: "1.1", chat: "1.25" })
 })
 
-test("settings reset the summary counters and can count everything again", async ({ page }) => {
-  await page.goto("/")
-  await page.locator(".fc-profile-button").click()
-  await page.locator(".fc-menu").getByText("Settings", { exact: true }).click()
-  const dialog = page.getByRole("dialog", { name: "Customize" })
-  await dialog.getByRole("tab", { name: "Conversation" }).click()
-  await expect(dialog.getByText("Counting every session")).toBeVisible()
-  const reset = dialog.getByRole("button", { name: "Reset counters" })
-  await reset.click()
-  // The first click only asks for confirmation.
-  expect(await page.evaluate(() => localStorage.getItem("flupcode.usageResetAt"))).toBeNull()
-  await dialog.getByRole("button", { name: "Click again to reset" }).click()
-  await expect(dialog.getByText(/Counting sessions since/)).toBeVisible()
-  expect(Number(await page.evaluate(() => localStorage.getItem("flupcode.usageResetAt")))).toBeGreaterThan(0)
-  await dialog.getByRole("button", { name: "Count all again" }).click()
-  await expect(dialog.getByText("Counting every session")).toBeVisible()
-})
-
 test("arrow keys walk through sent prompts and return to the draft", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.promptHistory", JSON.stringify(["first prompt", "second\nprompt"]))

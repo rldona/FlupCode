@@ -29,7 +29,7 @@ export const ActivityHeatmap: Component<ActivityHeatmapProps> = (props) => {
             <span
               class="fc-heat-cell"
               data-level={cell ? level(cell.count) : 0}
-              title={cell ? t("{count} sessions", { count: cell.count }) : ""}
+              title={cell ? t("{n} model calls", { n: cell.count }) : ""}
             />
           )}
         </For>

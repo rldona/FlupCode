@@ -83,7 +83,8 @@ export function SessionColumn() {
             <HomeCanvas
               displayName={app.settings.displayName()}
               range={app.sessions.range()}
-              metrics={app.sessions.metrics()}
+              usage={app.sessions.homeUsage()}
+              stats={app.sessions.homeStats()}
               activity={app.sessions.activity()}
               activeSessions={app.sessions.activeSessions()}
               onOpenSession={app.sessions.selectSession}
