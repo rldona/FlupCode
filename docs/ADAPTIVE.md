@@ -66,6 +66,39 @@ The boundary — what lives in `harness-server`, what attaches through the engin
 contained core extension is allowed — is fixed by
 [ADR-0016](adr/0016-adaptive-harness-boundary.md).
 
+### What has a consumer (PI-03)
+
+The layer keeps what something uses (principle P8). Each decision kind has a production caller:
+
+| Kind | Caller |
+| --- | --- |
+| `completion` | the episode shadow, and the run auditor that can lower a task's verdict (RP-06) |
+| `skillRelevance` | the relevance line added to a turn (`relevance.enabled`), and the shadow |
+| `contextItem` | the context manager's plans (`context.enabled`, applied to run prompts with `context.apply`) |
+| `failure` | the loop guardrails behind the "Possible loop" banner (`guardrails.enabled`) |
+| `skillReflection` | learning (`learning.enabled`), with a person approving every proposal |
+
+`modelRoute` and `agentRoute` had no caller and `toolRisk` was asked and never read: they were
+removed, and a routing decision comes back with its consumer (PI-04). Audit rows written before read
+back as an `unknown` kind with the stored name; config keys that name them still load and resolve to
+nothing. The offline evaluation tools (the reflection eval, the heuristics dry run, the promotion
+criteria and the live evaluation) live in `packages/adaptive-eval`, a dev-only package the server never
+imports (`server-graph.test.ts` walks the server's imports to check it).
+
+What stays off by default, and why it stays:
+
+| Capability | Default | What it does when on | Decision |
+| --- | --- | --- | --- |
+| Skill suggestion (`relevance.enabled`) | off | adds the matching skills' names to the turn | keep: it acts, and acting waits for the promotion criteria (ADR-0025) |
+| Loop warnings (`guardrails.enabled`) | off | shows the "Possible loop" banner | keep: advisory by design (ADR-0023), never stops a turn |
+| Tool output trim (`toolTrim.enabled`) | off | trims old tool outputs in the engine | keep: it acts, measured by replay |
+| Per-step selection (`selection.enabled`) | off, no control in the panel | replaces old large outputs (ADR-0024) | keep for one more cycle: it has no consumer outside replay, so it goes if its replay evidence does not arrive |
+| Learning (`learning.enabled`) | off | proposes skills for a person to approve | keep |
+
+Nothing leaves the machine that names it: the egress guard sends a remote model a digest of the
+project (`project:<16 hex>`) in place of its path, and keeps the path itself for the local consent
+check.
+
 ## Context
 
 Phase 3a models context as **selection over summarization**: the harness chooses what enters a
@@ -668,20 +701,19 @@ decisions or dismiss the banner.
   "unsupported"`.
 - **The notice is the audit.** No new table: a detected loop writes one `adaptive_decision` row with
   `kind: "failure"`, `shadow: 0`, a deterministic id (`failure:${sessionID}:${keyDigest}`) and the
-  `failure` and `toolRisk` decisions. A persistent loop is cached within the window, so it does not
+  `failure` decision. A persistent loop is cached within the window, so it does not
   re-spend Jev or rewrite the row; the audit is `/harness/adaptive/decisions` and `explain`.
 - **The advisory banner (FH-062).** While a session is selected, the cockpit reads
   `GET /harness/adaptive/guardrails/status?sessionID=` under the artifacts bearer (read-only, no
   acting token) and paints a dismissible banner over the conversation when the same in-memory ring
-  crosses a threshold. It carries only opaque state — reason, counts, tool, `decisionID`, risk and
+  crosses a threshold. It carries only opaque state — reason, counts, tool, `decisionID` and
   time — never content, and it clears itself when the streak breaks, the window expires or the
   feature is off. The dismissal is per `decisionID` and in memory: a new loop arms it again and a
   session change forgets it. It is a warning only, and the turn is never stopped.
-- **`toolRisk` is raise-only.** `clampLearned` caps any learned score at `CONFIRM` and
-  `elevateRisk(native, learned)` returns the most restrictive of the native floor and the clamped
-  score, so a learned policy can only raise confirmation and can never reach `DENY` unless the native
-  floor already is. The deterministic baseline is exactly `state.native ?? "ALLOW"` and never
-  elevates.
+- **No `toolRisk` any more (PI-03).** A raise-only `toolRisk` score used to be asked beside every
+  detected loop. Nothing read it (the banner does not show it and the plugin ignores the response),
+  so the kind and its risk algebra were removed. A tool-risk decision comes back with a consumer, for
+  example a permission seam that can act on it.
 - **Coexistence.** E7 neither consumes nor modifies the engine's own `doom_loop`; it only observes.
   `shadow.ts` is untouched: guardrails is a separate hot route, not a shadow kind.
 
@@ -711,18 +743,10 @@ chat turn spent: the usage screen only knows runs, and the engine only keeps ses
 - **Access.** The `POST` takes the dedicated `adaptive-token`; without one it is a 404 and the
   `adaptive-metrics` capability is absent. `GET /harness/adaptive/metrics?sessionID=` returns one
   session's turns to the browser under the artifacts bearer.
-- **Summary (AH-B02).** `GET /harness/adaptive/metrics/sessions?since=&directory=&limit=` adds every
-  session's turns up in one read, under the same artifacts bearer: tokens by kind, USD, the cached
-  share (`cacheRead / (input + cacheRead + cacheWrite)`), nearest-rank p50/p95 of the turn duration
-  (`endedAt - startedAt`) and of the time to first token, and the tools ranked by output bytes. A turn
-  counts when it ended inside the window (`since`, epoch ms) and belongs to the project (`directory`,
-  the metrics' project id). Sessions come newest first, cut to `limit` (50 by default, 200 at most);
-  the totals cover them all. The arithmetic is the pure `summariseSessions` in
-  `adaptive/session-summary.ts`.
-- **Where it shows.** The **Cost** screen draws a **Sessions** block under the runs, sharing their
-  window and project filter. It asks only when `/harness/health` lists `adaptive-metrics`, says so
-  when the server does not, says so when nothing was measured in the window, and reports a failed
-  read inline with **Try again**.
+- **No summary route any more.** `GET /harness/adaptive/metrics/sessions` (AH-B02) added every
+  session's turns up for the Cost screen. The screen reads the usage ledger instead (UL-06:
+  `/harness/usage/summary?groupBy=session`), so the route and `adaptive/session-summary.ts` were
+  removed (PI-03). The per-turn rows stay: the live evaluation (`packages/adaptive-eval`) reads them.
 
 ## Compaction anchors
 
@@ -1210,7 +1234,7 @@ only and writes nothing to disk.
   | --- | --- |
   | Decision service | asks no model; records the deterministic baseline with `degradedReason: "session-paused"` and `shadow: true` |
   | Skill relevance | from the **next user turn**: no line (`reason: "session-paused"`, no `retryAfterMs`), and the decision is still recorded as paused. The plugin asks once per turn and pins that answer, so the current turn keeps the line the model already read at its first step, and earlier turns keep theirs as history. Dropping it mid-turn would only rewrite the prompt cache (ADR-0024 §7). A resume decides afresh at the next turn |
-  | Loop warnings | the ring keeps accumulating; a crossed threshold records the `failure`/`toolRisk` rows as paused and answers `continue` with `reason: "session-paused"`; `status` is `null` |
+  | Loop warnings | the ring keeps accumulating; a crossed threshold records the `failure` row as paused and answers `continue` with `reason: "session-paused"`; `status` is `null` |
   | Context plan | `plan` and `planEpisode` return nothing, so nothing is filtered or stored |
   | Compaction anchors | no block |
   | Tool-output trim | `trimmed: false`, `reason: "session-paused"`, no `retryAfterMs` (the plugin's back-off is global). Refs handed out earlier stay readable |
@@ -1325,7 +1349,7 @@ always safe.
   restoring the default.
 - **Which kinds are drawn.** The model selectors and the provider consent rows offer **every kind a
   registered model answers** (from the view's `models[].supports`), each under its plain name — e.g.
-  "Why a step failed" for `failure`, "How risky a tool call is" for `toolRisk` — so a kind that can be
+  "Why a step failed" for `failure` — so a kind that can be
   assigned can also be consented to. A kind with no plain name yet is still drawn, by its id, after
   the named ones. An older server that does not serve its registry is shown the four kinds it shipped
   with (`completion`, `skillRelevance`, `contextItem`, `skillReflection`).
