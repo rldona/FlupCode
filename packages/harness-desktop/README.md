@@ -1,7 +1,8 @@
 # @flupcode/desktop
 
-Electron wrapper for FlupCode. It loads the `packages/harness` web renderer and, in a later
-ticket, will manage the local OpenCode server sidecar, native menus, auto-update and packaging.
+Electron app for FlupCode. It loads the `packages/harness` web renderer, starts the pinned OpenCode 2
+engine and FlupCode's harness server as sidecars, signs its window in to both, and carries native
+menus, auto-update and packaging.
 
 ## Scripts
 
@@ -18,9 +19,9 @@ the bundled `out/renderer/index.html`.
 
 ## Status
 
-F5-1 bootstrap: main process + window loading. Server sidecar, menus, updater and signing are
-tracked in `docs/tickets/F5-desktop.md`.
+Builds are not signed or notarized yet (F5-4). Open desktop hardening work is in
+`docs/AUDIT-2026-10.md` (TI-10, TI-17).
 
 ## Boundary
 
-Never edit upstream packages. Extend from here.
+The engine is never patched here; FlupCode's additions to it ship as plugins.

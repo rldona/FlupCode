@@ -1,5 +1,8 @@
 # OpenCode V2 migration audit
 
+> **Historical document.** The audit that planned the move to OpenCode 2; the migration it describes is complete (3.0.0, ADR-0027), so its "Status" line below is the status it had when written. The current plan and status are in
+> [AUDIT-2026-10.md](AUDIT-2026-10.md); where they disagree, that audit is right.
+
 - **Status:** Audit, not started. No code has changed.
 - **Date:** 2026-09-30
 - **Question:** "We run OpenCode 1.18.33. OpenCode V2.0.20 exists. Can FlupCode move to the V2 engine by

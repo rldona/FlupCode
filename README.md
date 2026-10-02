@@ -74,14 +74,16 @@ This repository started as a fork of OpenCode and no longer carries its source (
 - **Upstream by version.** A weekly pull request moves the pin to the newest OpenCode 2 release
   once it is three days old, and the engine suite and the live e2e judge it. See
   [docs/UPSTREAM.md](docs/UPSTREAM.md).
-- **Full TUI parity.** Feature-for-feature mapping of the terminal UI to the web UI is tracked in
-  [docs/PARITY.md](docs/PARITY.md).
+- **TUI parity.** The September mapping of the terminal UI to the web UI is in
+  [docs/PARITY.md](docs/PARITY.md) (historical); what works today is in
+  [docs/AUDIT-2026-10.md](docs/AUDIT-2026-10.md) §5.
 - **Harness features.** Usage dashboard, activity heatmap, multi-project workspaces, pinned
-  items, artifacts and routines — see [docs/ROADMAP.md](docs/ROADMAP.md).
+  items, artifacts and routines — see [docs/USAGE.md](docs/USAGE.md).
 - **Runs that outlive the window.** A harness server of its own keeps runs, tasks, routines and
   artifacts: workflows written down as editable files and launched with `/feature …`, checks the
   harness runs itself with the evidence kept, bounded retries when one fails, and human gates that
-  hold a run until you let it through — see [docs/USAGE.md](docs/USAGE.md#runs).
+  hold a run until you let it through — see [docs/USAGE.md](docs/USAGE.md#runs). The harness server
+  runs with the desktop app; in the web app and on the phone FlupCode is a UI for OpenCode only.
 - **Remote control.** Drive your computer's sessions from your phone on any network, like Claude
   Code's remote control: pair with a QR code, follow and start sessions, answer permission requests.
   Traffic is end-to-end encrypted through a relay that cannot read it. Host it from the desktop app
@@ -90,15 +92,18 @@ This repository started as a fork of OpenCode and no longer carries its source (
 
 ## Status
 
-**v1.15.0.** The web harness (Claude Code–style shell, TUI parity, dashboard, i18n), the Electron
+**3.0.x** (see [Releases](https://github.com/rldona/FlupCode/releases)). The web harness (Claude Code–style shell, TUI parity, dashboard, i18n), the Electron
 desktop app and remote control (relay at `relay.flupcode.com`, phone view, `flupcode remote`) are
 released, along with the harness server that owns runs: tasks, routines with history, verification
 with evidence, workflows with human gates, and artifacts — now including the **documents the agent
 generates** (kept in `.flupcode/artifacts` with the `artifact_write` tool, listed under Artifacts and
 read by type: markdown, HTML, image, PDF). Editors for routines, agents and skills open in dialogs,
 and Compare runs inside the chat layout. The release pipeline and the weekly engine bump are in place.
-Desktop builds are not yet signed by Apple or Microsoft (see [Install](#install)). See
-[docs/ROADMAP.md](docs/ROADMAP.md) for the live status.
+Desktop builds are not yet signed by Apple or Microsoft (see [Install](#install)).
+
+The October 2026 audit, [docs/AUDIT-2026-10.md](docs/AUDIT-2026-10.md), is the live status and the
+plan: what works end to end, what does not yet (§1 lists the gaps, such as stopping a run, the
+"success" state and costs), and the order in which it is being fixed (§22).
 
 ## Repository layout
 

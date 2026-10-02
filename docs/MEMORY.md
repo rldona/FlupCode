@@ -66,8 +66,12 @@ no se despliega a mano.` FlupCode captures the clause immediately and infers the
 2. **The agent decides to.** An agent can call the `memory` tool to add, update, forget, or list
    memories when it discovers something durable.
 3. **Background extraction.** After a session goes idle, FlupCode can summarize the recent turns
-   with the configured small model and store new knowledge as **candidates**. Candidates are never
-   used automatically until you approve them (or they come from an explicit instruction).
+   with the configured small model and store new knowledge as **candidates**, for you to review.
+
+> **Today, candidates are injected too.** Retrieval reads `active` and `candidate` memories alike,
+> so an extracted memory you have not reviewed can reach a prompt, and the `memory` tool lists,
+> updates and forgets memories of any project. Both are being fixed (AUDIT-2026-10, TI-08); until
+> then, review or delete candidates in the Memory panel, or turn `auto` off.
 
 FlupCode deliberately ignores logs, stack traces, generated code, one-off errors, and ordinary
 question/answer chatter. When in doubt, it stores a candidate for you to review rather than silently

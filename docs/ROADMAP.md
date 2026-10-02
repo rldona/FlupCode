@@ -1,11 +1,16 @@
-# Roadmap
+# Roadmap (historical)
 
-Released: **flupcode-v1.0.0** (web bundle attached to the GitHub Release).
+**This is not the current plan.** The current plan, the status of every feature and the order of
+work are in [AUDIT-2026-10.md](AUDIT-2026-10.md): feature statuses in §5, tickets in §17, execution
+order in §22. Where this file and that audit disagree, the audit is right.
 
-Prioritised, ticket-based plan. Priorities: **P0** must-have for the phase · **P1** important ·
-**P2** nice-to-have. Detailed tickets live in [docs/tickets/](tickets/).
+What follows is the record of how FlupCode was built, phase by phase, up to the 3.0 line (current
+release: see the GitHub Releases). Each row's status is what was recorded when the phase closed. The
+October 2026 audit, run against the code and the running app, contradicts several of them; those
+rows carry a note pointing at it. A `done` without a note means "built", not "verified end to end".
 
-Status: `todo` · `doing` · `done` · `blocked` · `cut`
+Priorities: **P0** must-have for the phase · **P1** important · **P2** nice-to-have. Detailed
+tickets of that period live in [docs/tickets/](tickets/).
 
 ## Milestones
 
@@ -20,47 +25,9 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | **M6 Remote control** | F8 | Phone drives a desktop session through an E2E encrypted relay |
 | **M7 Web actions** | F9 | The agent acts on a real website through a profile you declare, with approval |
 
----
-
-## Status summary
-
-_Last updated: 2026-09-20._
-
-`docs/AUDIT-2026-09.md` (14 September 2026) checked this table against `packages/harness` and found
-nine tickets marked `done` that were empty, broken or a UI over a stub. They are corrected below.
-**The audit's §17 backlog, not this table, is the current plan**; this phase table stays as the
-record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–#214; the HF block
-(HF-1–HF-9, PR #252) brought Workflows, Runs, Artifacts and Routines to 100% on 2026-09-20.
-
-| Status | Count | Tickets |
-| --- | --- | --- |
-| done | 65 | — |
-| doing | 0 | — |
-| blocked | 1 | F5-4 |
-| todo | 0 | — |
-| **total** | **66** | |
-
-### What remains
-
-F8 (remote control, ADR-0010) shipped in `flupcode-v1.0.9`, with the relay at
-`wss://relay.flupcode.com`. Push notifications (F8-9, ADR-0011) complete it.
-
-Genuinely blocked on something outside the repo:
-
-- **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets.
-
-Corrected, and now really done:
-
-- **F3-14 MCP manager** was marked `blocked` on the claim that the vendored client called a removed
-  `/api/mcp`. The engine serves `/mcp` and always did; the harness now uses it.
-- **Share/unshare (part of F3-5)** was marked impossible for the same reason. `/session/:id/share`
-  exists; the harness now uses it.
-- **F3-7 Move session** is wired to `/experimental/control-plane/move-session`.
-- **F3-8 Session tags/labels** was marked `todo (never built)`; `TagsDialog.tsx` + sidebar tag
-  filter + server-side `session-prefs` exist — verified 2026-09-20.
-- **F4-5 Artifacts / F4-6 Routines** run on the harness server (`@flupcode/harness-server` 1.13.8)
-  with panels, history and the HF block (search/export/`@artifact` cites; workflow+policy routines)
-  — verified live 2026-09-20.
+Since then FlupCode stopped being a fork: it runs on the pinned OpenCode 2 engine and adds to it
+through plugins (ADR-0027). The fork-era rows below (F0, F1) describe a repository layout that no
+longer exists.
 
 ---
 
@@ -101,34 +68,34 @@ Corrected, and now really done:
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F3-1 | P0 | Slash commands + command palette in harness | done |
+| F3-1 | P0 | Slash commands + command palette in harness | done — October audit: seven built-ins are Broken from the composer (§5.2, TI-13) |
 | F3-2 | P0 | `@` mentions and `!` shell mode | done |
 | F3-3 | P0 | Permissions & questions docks | done |
 | F3-4 | P0 | Undo/redo, revert, fork, compact | done |
-| F3-5 | P0 | Session list/switch, share/unshare, export | done |
-| F3-6 | P0 | Agents, subagents, todos | done |
+| F3-5 | P0 | Session list/switch, share/unshare, export | done — October audit: sharing is Partially implemented, a loopback link (§5.2) |
+| F3-6 | P0 | Agents, subagents, todos | done — October audit: todos are Dead code on OpenCode 2 (§5.1) |
 | F3-7 | P1 | Move session between locations | done (wired 2026-09-16) |
 | F3-8 | P1 | Session tags/labels | done (TagsDialog + sidebar filter + server prefs, verified 2026-09-20) |
 | F3-9 | P1 | Prompt stash | done |
 | F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | done (SK-1 per-agent visibility, SK-2 source badges, verified 2026-09-20) |
 | F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
-| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done (SE-1 pattern rules, SE-2 MCP OAuth, verified 2026-09-20) |
+| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done (SE-1 pattern rules, SE-2 MCP OAuth, verified 2026-09-20) — October audit: the agent editor is Partially implemented, its tools are empty on OpenCode 2, and Config (advanced) shows `{}` (§5.2) |
 | F3-14 | P2 | MCP add/configure UI | done (wired 2026-09-16) |
 | F3-15 | P2 | "Toggle steps" command | done |
-| F3-16 | P2 | Console org switch | done (CO-1 selector in providers; no/single-Console verified live, multi-org wired — needs an account with 2 orgs to exercise) |
+| F3-16 | P2 | Console org switch | done (CO-1 selector in providers; no/single-Console verified live, multi-org wired — needs an account with 2 orgs to exercise) — October audit: the organisation switch is Dead code on OpenCode 2 (§5.2) |
 | F3-17 | P2 | Keybind/leader parity where sensible | done (7 actions editable in Settings shortcuts, keybinds.test.ts green, verified 2026-09-20) |
 
 ## F4 — Harness extras
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F4-1 | P1 | Global usage dashboard (sessions/messages/tokens/streaks/peak/favorite) | done |
+| F4-1 | P1 | Global usage dashboard (sessions/messages/tokens/streaks/peak/favorite) | done — October audit: its totals and its per-model breakdown count tokens differently (§2.3, UL-09) |
 | F4-2 | P1 | Multi-project workspaces + pinned items | done |
 | F4-3 | P1 | Unified "Personalizar" settings surface | done (CU-1–CU-3: agents/providers/MCP sections, modals retired) |
 | F4-4 | P2 | Activity heatmap + usage comparisons | done |
 | F4-5 | P2 | Artifacts | done in 1.10.0 (H-14): reports and verdicts kept by the harness server, with a panel |
-| F4-6 | P2 | Routines (scheduled tasks) | done in 1.8.0 (H-10): run by the harness server, with history |
+| F4-6 | P2 | Routines (scheduled tasks) | done in 1.8.0 (H-10): run by the harness server, with history — October audit: timezone is a Stub, templates UI-only, desktop only (§5.1) |
 | F4-7 | P2 | Voice input | done |
 | F4-8 | P2 | In-place message editing | done |
 
@@ -139,7 +106,7 @@ Corrected, and now really done:
 | F5-1 | P1 | `harness-desktop` Electron shell reusing `packages/desktop` patterns | done |
 | F5-2 | P1 | Native menus, window state, multi-window | done |
 | F5-3 | P1 | Auto-update | done |
-| F5-4 | P1 | Signing/notarization: macOS, Windows, Linux | blocked |
+| F5-4 | P1 | Signing/notarization: macOS, Windows, Linux | blocked (still, §5.2) |
 | F5-5 | P2 | First-launch onboarding | done |
 
 ## F6 — Remote / mobile
@@ -149,7 +116,7 @@ Corrected, and now really done:
 | F6-1 | P1 | PWA + responsive mobile layout | done |
 | F6-2 | P1 | QR pairing + auth flow for LAN access | done |
 | F6-3 | P2 | Push notifications | done |
-| F6-4 | P2 | In-app serve/tunnel management | done (TN-1 copyable LAN/tunnel commands, TN-2 URL reachability, verified 2026-09-20) |
+| F6-4 | P2 | In-app serve/tunnel management | done (TN-1 copyable LAN/tunnel commands, TN-2 URL reachability, verified 2026-09-20) — October audit: LAN/cloudflared sharing is UI-only and probably broken on OpenCode 2 (§5.2) |
 
 ## F7 — Release
 
@@ -191,7 +158,7 @@ automation is a later, separate medium (`flupcode.os`), not a profile inside `ac
 | WA-0 | P0 | Contract and docs (ADR-0015, WEB-ACTIONS) | done |
 | WA-1 | P0 | Browser runtime and boundary (token, SSRF, screenshots) | done |
 | WA-2 | P0 | Action engine (recipe, deterministic runner, extract, guards) | done |
-| WA-3 | P0 | Plugin tools and per-action approval | done |
+| WA-3 | P0 | Plugin tools and per-action approval | done — October audit: the approval is applied by the plugin, not by the harness server (§1, TI-09) |
 | WA-4 | P0 | Permissions and session UI | done |
 | WA-5 | P0 | Credentials, isolated profiles, redaction | done |
 | WA-6 | P1 | Live view and takeover | done |
@@ -226,33 +193,36 @@ is green; the real-site run (WA-10) and a real scheduled run are pending.
 
 ## Blockers
 
-Current truth (the entries below from the older plan are kept struck for history):
+As recorded in September 2026; the current blockers and risks are in AUDIT-2026-10 §21 and §22.
 
 - **F3-16 Console org switch** — no console API in the v2 client.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo. WA-9 packaging (Chromium `extraResources` + signature check) waits on this too.
 - **WA-9 leftovers (open, no ticket yet)** — `app.flupcode.com` stays denied for the harness (desktop-only browser use; decided); loopback token travels via argv/env (IPC delivery is future work); every `/harness` route but the health, a share link and the separately guarded adaptive surfaces asks for the bearer when a token exists (AH-A05), and fails open when no token is configured (explicit opt-in missing); a web tab without the desktop has no harness until a pairing flow exists (only `vite` dev injects the token).
 - **WA E2E follow-ups (open, no ticket yet)** — second agent session on a project with a live browser gets `browser_busy`: decide reuse vs. actionable close/takeover; a real scheduled run end-to-end (WA-7 code is done and tested); the real-site publish+read run (WA-10).
-- **`web-actions` branch** — WA-0…WA-9 committed locally, not yet PR'd into `power`.
+- ~~`web-actions` branch — WA-0…WA-9 committed locally, not yet PR'd into `power`~~ — merged long since; `power` is now `main`.
 - ~~F3-14 MCP manager — vendored client calls removed `/api/mcp`~~ — false: the engine serves `/mcp`; the harness uses it.
 - ~~Share/unshare without endpoint~~ — false: `session.share/unshare` exist; the harness uses them.
 
 ### Engine API layer
 
-Resolved in ADR-0009: the harness uses `@opencode-ai/sdk/v2/client` (ADR-0009) and reaches the
-event stream over SSE. Projects are derived from session locations.
+Superseded: the app talks to the pinned OpenCode 2 engine through `@opencode/client` and FlupCode's
+adapters only (ADR-0027); ADR-0009's `@opencode-ai/sdk` no longer applies.
 
 ## HF — High features (2026-09-20, PR #252)
 
-`docs/tickets/HF-high-features.md`. Workflows, Runs, Artifacts and Routines to 100%:
+`docs/tickets/HF-high-features.md`. This block was recorded as bringing Workflows, Runs, Artifacts
+and Routines "to 100%". The October audit found that claim false: stopping a run did not stop the
+agent, "success" meant "the session went idle", a handoff was lost at a gate, and resuming from a
+checkpoint has no UI (§1 and §5.1 of AUDIT-2026-10; tickets TI-01 to TI-03, RP-01 to RP-07).
 
 | ID | Ticket | Status |
 | --- | --- | --- |
-| HF-1 | Workflows: palette launch, run-until-task, checkpoint resume | done |
+| HF-1 | Workflows: palette launch, run-until-task, checkpoint resume | done — checkpoint resume is Backend-only (§5.1) |
 | HF-2 | Workflows: input defaults, specific validation errors | done |
 | HF-3 | Workflows: `worktrees` in file, verify→recovery `when` | done |
 | HF-4 | Runs: cancel a queued task from the supervisor | done |
-| HF-5 | Runs: resume interrupted runs, restart requeues in-flight work | done |
-| HF-6 | Artifacts: cite inline by id, resolve `@artifact:` refs to content | done |
+| HF-5 | Runs: resume interrupted runs, restart requeues in-flight work | done — the notice, global pause and lock watch HF-5/HF-8 promised are Missing (§5.1) |
+| HF-6 | Artifacts: cite inline by id, resolve `@artifact:` refs to content | done — in interactive chat `@artifact:` is UI-only, inserted as text (§5.1) |
 | HF-7 | Artifacts: text search, `screenshot` kind, md/json export | done |
 | HF-8 | Routines: run workflows with policy and inputs | done |
 | HF-9 | Tool screens embedded in the main column, lifecycle nav order, clean topbar | done |
