@@ -1,35 +1,46 @@
-import { Show } from "solid-js"
+import { For, Show, createMemo, lazy, type Component } from "solid-js"
+import type { Screen } from "../../screen"
 import { useApp } from "../../app-context"
-import RunsRoute from "../runs/RunsRoute"
-import ChangesRoute from "../workspace/ChangesRoute"
-import WorkflowsRoute from "../runs/WorkflowsRoute"
-import ArtifactsRoute from "../workspace/ArtifactsRoute"
-import CompareRoute from "../runs/CompareRoute"
-import RoutinesRoute from "../runs/RoutinesRoute"
-import ActionsRoute from "../runs/ActionsRoute"
-import ContextRoute from "../workspace/ContextRoute"
-import DecisionsRoute from "../insights/DecisionsRoute"
-import AgentsRoute from "../catalog/AgentsRoute"
-import SkillsRoute from "../catalog/SkillsRoute"
-import UsageRoute from "../insights/UsageRoute"
 
-/** The tool screens that live in the main column (HF-9), each drawn by its own route. */
+/**
+ * The tool screens that live in the main column (HF-9), in the order they were always drawn. Each one
+ * is its own chunk, loaded the first time it is opened.
+ */
+const SCREENS: Array<[Screen, Component]> = [
+  ["runs", lazy(() => import("../runs/RunsRoute"))],
+  ["changes", lazy(() => import("../workspace/ChangesRoute"))],
+  ["workflows", lazy(() => import("../runs/WorkflowsRoute"))],
+  ["artifacts", lazy(() => import("../workspace/ArtifactsRoute"))],
+  ["compare", lazy(() => import("../runs/CompareRoute"))],
+  ["routines", lazy(() => import("../runs/RoutinesRoute"))],
+  ["actions", lazy(() => import("../runs/ActionsRoute"))],
+  ["context", lazy(() => import("../workspace/ContextRoute"))],
+  ["decisions", lazy(() => import("../insights/DecisionsRoute"))],
+  ["agents", lazy(() => import("../catalog/AgentsRoute"))],
+  ["skills", lazy(() => import("../catalog/SkillsRoute"))],
+  ["usage", lazy(() => import("../insights/UsageRoute"))],
+]
+
+/**
+ * The tool screens. One that was opened stays mounted until the reader leaves the tool screens, as
+ * when they were all mounted together: going from Runs to Changes and back finds Runs as it was.
+ */
 export function Screens() {
   const app = useApp()
+  const visited = createMemo<Screen[]>((previous) => {
+    if (!app.router.toolScreen()) return []
+    const screen = app.router.screen()
+    return screen && !previous.includes(screen) ? [...previous, screen] : previous
+  }, [])
   return (
     <Show when={app.router.toolScreen()}>
-      <RunsRoute />
-      <ChangesRoute />
-      <WorkflowsRoute />
-      <ArtifactsRoute />
-      <CompareRoute />
-      <RoutinesRoute />
-      <ActionsRoute />
-      <ContextRoute />
-      <DecisionsRoute />
-      <AgentsRoute />
-      <SkillsRoute />
-      <UsageRoute />
+      <For each={SCREENS}>
+        {([screen, Route]) => (
+          <Show when={visited().includes(screen)}>
+            <Route />
+          </Show>
+        )}
+      </For>
     </Show>
   )
 }

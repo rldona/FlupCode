@@ -55,3 +55,14 @@ export function runReason(run: Run) {
   if (state === "budget") return run.overBudget
   return state === run.verdict?.value ? run.verdict.reason : run.error
 }
+
+/** Held mid-turn for a person (RP-05): answered in the engine, never approved like a gate. */
+export const heldForRequest = (run: Run) => run.status === "awaiting" && run.paused === "request"
+
+/**
+ * Where a run met a task that needs a person (RP-05): held for it, or failed for it — a failed task
+ * judged as needing the user is the one way a run's task fails for that.
+ */
+export const metPerson = (run: Run) =>
+  heldForRequest(run) ||
+  (run.tasks ?? []).some((task) => task.status === "failed" && task.verdict?.value === "needs-user")

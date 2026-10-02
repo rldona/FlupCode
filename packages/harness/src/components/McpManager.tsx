@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { McpResource, McpServer } from "../engine-types"
 import type { AgentFile, McpConfig, McpScope } from "../types"
 import { mcpAccess } from "../mcp-access"
-import { BROWSER_PRESETS } from "../mcp"
+import { BROWSER_PRESETS, needsOAuth } from "../mcp"
 import { t } from "../i18n"
 
 /** A server added from here goes to the global configuration unless the reader says otherwise. */
@@ -29,9 +29,6 @@ const statusLabel = (server: McpServer) => {
   const value = (server.status as { status?: string } | undefined)?.status
   return value ?? "unknown"
 }
-
-/** Plain connect cannot finish these: only the engine's OAuth flow can (SE-2). */
-export const needsOAuth = (server: McpServer) => statusLabel(server) === "needs_auth"
 
 /** Why a server is not working, when the engine said: a failed one carries the reason (H-34). */
 const statusError = (server: McpServer) => (server.status as { error?: string }).error
