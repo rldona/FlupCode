@@ -3,9 +3,9 @@
  *
  * A decision is a question about the session the harness is observing — is this episode complete,
  * which skills matter for this objective, what should happen to this context item — and a typed
- * answer to it. The eight kinds are declared here even though only three carry rich deterministic
- * logic in this phase, so the seam, the audit and the provider dispatch are all exhaustive: adding a
- * kind to `DecisionSpec` does not compile until every map below lists it.
+ * answer to it. Only kinds a production path asks are declared (PI-03): a kind with no caller is not
+ * kept "for later", it comes back with its consumer. The seam, the audit and the provider dispatch
+ * are all exhaustive: adding a kind to `DecisionSpec` does not compile until every map below lists it.
  *
  * This module is the domain and nothing else: no provider, no network, no Jev. It is also the only
  * place that reads a decision's answer out of untrusted data, always falling back to a safe value
@@ -84,15 +84,6 @@ export type ContextItem = {
   createdAt?: number
 }
 
-export const DECISION_TIERS = ["CHEAP", "BALANCED", "HIGH", "MAX"] as const
-export type DecisionTier = (typeof DECISION_TIERS)[number]
-
-export const AGENT_ROUTES = ["CONTINUE", "REVIEW", "DEBUG", "ARCHITECT", "ASK_USER"] as const
-export type AgentRoute = (typeof AGENT_ROUTES)[number]
-
-export const TOOL_RISKS = ["ALLOW", "CONFIRM", "REVIEW", "DENY"] as const
-export type ToolRisk = (typeof TOOL_RISKS)[number]
-
 /**
  * The change a reusable lesson calls for (FH-031). `merge` and `drop` are declared so the vocabulary
  * is closed and the Jev adapter can parse them, but Phase 3b rejects both with a reason: only `add`
@@ -107,9 +98,6 @@ export const isReflectionIntent = (value: unknown): value is ReflectionIntent =>
 export type CompletionAnswer = { verdict: "complete" | "not_complete" }
 export type SkillRelevanceAnswer = { load: string[] }
 export type ContextItemAnswer = { decisions: Array<{ id: string; disposition: ItemDisposition }> }
-export type ModelRouteAnswer = { tier: DecisionTier }
-export type AgentRouteAnswer = { agent: AgentRoute }
-export type ToolRiskAnswer = { risk: ToolRisk }
 export type FailureAnswer = { verdict: "continue" | "intervene" }
 export type SkillReflectionAnswer = {
   reusable: boolean
@@ -140,9 +128,6 @@ export type SkillRelevanceState = {
   skills: Array<{ name: string; description: string; learned: boolean }>
 }
 export type ContextItemState = { objective: string; items: ContextItem[] }
-export type ModelRouteState = { role: string; taskName: string; declared?: string }
-export type AgentRouteState = { objective: string; signals: string[] }
-export type ToolRiskState = { tool: string; argsDigest: string; native?: ToolRisk }
 export type FailureState = {
   repeatedCalls: number
   repeatedErrors: number
@@ -166,14 +151,17 @@ export type SkillReflectionState = {
   skills: Array<{ name: string; description: string; learned: boolean }>
 }
 
-/** The map that defines the eight kinds and correlates each state with its answer. */
+/**
+ * The map that defines the kinds and correlates each state with its answer. Each has a caller:
+ * `completion` (the episode shadow and the run auditor, RP-06), `skillRelevance` (the relevance line),
+ * `contextItem` (the context manager), `failure` (the loop guardrails) and `skillReflection` (learning).
+ * `modelRoute`, `agentRoute` and `toolRisk` were removed with nothing asking them (PI-03); audit rows
+ * written before read back as an `unknown` kind with the stored name in `raw`.
+ */
 export type DecisionSpec = {
   completion: { state: CompletionState; answer: CompletionAnswer }
   skillRelevance: { state: SkillRelevanceState; answer: SkillRelevanceAnswer }
   contextItem: { state: ContextItemState; answer: ContextItemAnswer }
-  modelRoute: { state: ModelRouteState; answer: ModelRouteAnswer }
-  agentRoute: { state: AgentRouteState; answer: AgentRouteAnswer }
-  toolRisk: { state: ToolRiskState; answer: ToolRiskAnswer }
   failure: { state: FailureState; answer: FailureAnswer }
   skillReflection: { state: SkillReflectionState; answer: SkillReflectionAnswer }
 }
@@ -185,9 +173,6 @@ export const DECISION_KINDS: Record<DecisionKind, true> = {
   completion: true,
   skillRelevance: true,
   contextItem: true,
-  modelRoute: true,
-  agentRoute: true,
-  toolRisk: true,
   failure: true,
   skillReflection: true,
 }

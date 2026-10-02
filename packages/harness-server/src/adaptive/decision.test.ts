@@ -36,9 +36,6 @@ const sampleRequests: { [Q in DecisionKind]: DecisionRequest<Q> } = {
     objective: "fix the failing test",
     items: [{ id: "item-1", kind: "file", tokens: 120, referenced: true, anchors: 0, archived: false }],
   }),
-  modelRoute: request("modelRoute", { role: "build", taskName: "task-1", declared: "HIGH" }),
-  agentRoute: request("agentRoute", { objective: "fix the failing test", signals: ["red-check"] }),
-  toolRisk: request("toolRisk", { tool: "bash", argsDigest: "abc123" }),
   failure: request("failure", { repeatedCalls: 0, repeatedErrors: 0, stepsUsed: 1 }),
   skillReflection: request("skillReflection", {
     episodeID: "episode:1",
@@ -56,9 +53,6 @@ describe("decision kinds", () => {
       "completion",
       "skillRelevance",
       "contextItem",
-      "modelRoute",
-      "agentRoute",
-      "toolRisk",
       "failure",
       "skillReflection",
     ])

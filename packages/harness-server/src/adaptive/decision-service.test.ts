@@ -32,6 +32,17 @@ const completion = (objective = "fix the failing test"): DecisionRequest<"comple
   },
 })
 
+const contextItem = (): DecisionRequest<"contextItem"> => ({
+  kind: "contextItem",
+  sessionID: "ses_1",
+  projectID: "/work/project",
+  policy: DEFAULT_DECISION_POLICY,
+  state: {
+    objective: "fix the failing test",
+    items: [{ id: "message:1", kind: "message", tokens: 50, referenced: false, anchors: 0, archived: false }],
+  },
+})
+
 /** A neutral prediction that gives every question asked the same answer. */
 const predictionFor = (questions: readonly Question[], answer: Answer, version?: string): Prediction => ({
   answers: Object.fromEntries(questions.map((question) => [question.id, answer])),
@@ -302,28 +313,14 @@ describe("the decision service (FH-015)", () => {
     repository.close()
   })
 
-  test("an empty probability map and absent axes are not gates", async () => {
-    // A binary answer is its distribution, so the empty map is a choice the model named outright.
-    const route: DecisionRequest<"modelRoute"> = {
-      kind: "modelRoute",
-      sessionID: "ses_1",
-      projectID: "/work/project",
-      policy: DEFAULT_DECISION_POLICY,
-      state: { role: "build", taskName: "task-1" },
-    }
-    const routeOn = { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { modelRoute: true } } }
-    const emptyMap = spyModel({ probabilities: {}, choice: "HIGH", confidence: 1 })
-    const empty = serviceFor(routeOn, emptyMap)
-    const passed = await empty.service.predict(route)
-    expect(passed).toMatchObject({ source: "model", degraded: false, answer: { tier: "HIGH" } })
+  test("an empty probability map is not a gate", async () => {
+    // A choice the model named outright, with no distribution behind it, is judged on its confidence.
+    const contextOn = { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { contextItem: true } } }
+    const emptyMap = spyModel({ probabilities: {}, choice: "archive", confidence: 1 })
+    const empty = serviceFor(contextOn, emptyMap)
+    const passed = await empty.service.predict(contextItem())
+    expect(passed).toMatchObject({ source: "model", degraded: false, answer: { decisions: [{ id: "message:1", disposition: "archive" }] } })
     empty.repository.close()
-
-    const bare = spyModel({ probabilities: {}, choice: "HIGH" })
-    const none = serviceFor(routeOn, bare)
-    const alsoPassed = await none.service.predict(route)
-    expect(alsoPassed).toMatchObject({ source: "model", degraded: false, answer: { tier: "HIGH" } })
-    expect(alsoPassed.confidence).toBeUndefined()
-    none.repository.close()
   })
 
   test("never persists an answer echoing raw content: the writer redacts before the row", async () => {
@@ -623,13 +620,6 @@ describe("the predictive model registry (AH-C01)", () => {
       model: { id, version: "v1" },
     })
 
-  const agentRoute = (): DecisionRequest<"agentRoute"> => ({
-    kind: "agentRoute",
-    sessionID: "ses_1",
-    projectID: "/work/project",
-    policy: DEFAULT_DECISION_POLICY,
-    state: { objective: "fix the failing test", signals: ["red-check"] },
-  })
 
   test("a binary answer: the chosen answer's probability is the confidence, and the model is audited", async () => {
     const model = registered("fake-local", "local", answering({ q0: { probabilities: { yes: 0.05, no: 0.95 } } }))
@@ -666,35 +656,36 @@ describe("the predictive model registry (AH-C01)", () => {
     const model = registered(
       "fake-local",
       "local",
-      answering({ q0: { probabilities: { CONTINUE: 0.1, DEBUG: 0.8, REVIEW: 0.1 } } }),
+      answering({ q0: { probabilities: { keep: 0.1, archive: 0.8, drop: 0.1 }, confidence: 0.8 } }),
     )
-    const { repository, service } = serviceFor({ models: { agentRoute: "fake-local" } }, model)
-    const result = await service.predict(agentRoute())
+    const { repository, service } = serviceFor({ models: { contextItem: "fake-local" } }, model)
+    const result = await service.predict(contextItem())
 
-    expect(model.seen[0]!.questions[0]).toMatchObject({
-      id: "q0",
-      type: "choice",
-      options: ["CONTINUE", "REVIEW", "DEBUG", "ARCHITECT", "ASK_USER"],
+    expect(model.seen[0]!.questions[0]).toMatchObject({ id: "q0", type: "choice", options: ["keep", "archive", "drop"] })
+    expect(result).toMatchObject({
+      source: "model",
+      degraded: false,
+      answer: { decisions: [{ id: "message:1", disposition: "archive" }] },
+      confidence: 0.8,
     })
-    expect(result).toMatchObject({ source: "model", degraded: false, answer: { agent: "DEBUG" }, confidence: 0.8 })
     repository.close()
   })
 
   test("confidence is the weakest of the model's own claim and the chosen probability, and it gates", async () => {
     const claim = (confidence: number) =>
-      registered("fake-local", "local", answering({ q0: { probabilities: { DEBUG: 0.8, CONTINUE: 0.2 }, confidence } }))
+      registered("fake-local", "local", answering({ q0: { probabilities: { yes: 0.2, no: 0.8 }, confidence } }))
 
-    const modest = serviceFor({ models: { agentRoute: "fake-local" } }, claim(0.7))
-    expect(await modest.service.predict(agentRoute())).toMatchObject({ source: "model", confidence: 0.7 })
+    const modest = serviceFor({ models: { completion: "fake-local" } }, claim(0.7))
+    expect(await modest.service.predict(completion())).toMatchObject({ source: "model", confidence: 0.7 })
     modest.repository.close()
 
     // A model cannot talk its way past the chosen probability either: 0.99 claimed, 0.8 recorded.
-    const boastful = serviceFor({ models: { agentRoute: "fake-local" } }, claim(0.99))
-    expect(await boastful.service.predict(agentRoute())).toMatchObject({ confidence: 0.8 })
+    const boastful = serviceFor({ models: { completion: "fake-local" } }, claim(0.99))
+    expect(await boastful.service.predict(completion())).toMatchObject({ confidence: 0.8 })
     boastful.repository.close()
 
-    const unsure = serviceFor({ models: { agentRoute: "fake-local" } }, claim(0.4))
-    const gated = await unsure.service.predict(agentRoute())
+    const unsure = serviceFor({ models: { completion: "fake-local" } }, claim(0.4))
+    const gated = await unsure.service.predict(completion())
     expect(gated).toMatchObject({
       source: "fallback",
       degraded: true,
@@ -735,15 +726,15 @@ describe("the predictive model registry (AH-C01)", () => {
 
   test("a model assigned to a kind it does not support is never asked: the baseline answers", async () => {
     const model = registered("fake-local", "local", answering({}), ["completion"])
-    const { repository, service } = serviceFor({ models: { agentRoute: "fake-local" } }, model)
-    const result = await service.predict(agentRoute())
+    const { repository, service } = serviceFor({ models: { failure: "fake-local" } }, model)
+    const result = await service.predict(failure())
 
     expect(model.seen).toHaveLength(0)
     expect(result).toMatchObject({
       source: "baseline",
       provider: "deterministic",
       degraded: false,
-      answer: { agent: "CONTINUE" },
+      answer: { verdict: "intervene" },
     })
     repository.close()
   })

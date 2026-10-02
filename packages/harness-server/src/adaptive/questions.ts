@@ -10,16 +10,8 @@
  * one before any model sees them; `readAnswers` maps the answers back by position.
  */
 
-import {
-  AGENT_ROUTES,
-  DECISION_TIERS,
-  ITEM_DISPOSITIONS,
-  REFLECTION_INTENTS,
-  TOOL_RISKS,
-  isReflectionIntent,
-} from "./decision"
+import { ITEM_DISPOSITIONS, REFLECTION_INTENTS, isReflectionIntent } from "./decision"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
-import { clampLearned } from "./risk"
 import type { Answer, Question } from "./predictive/model"
 
 /** The questions one state asks, one plan per kind so adding a kind does not compile until it is asked. */
@@ -53,20 +45,6 @@ const questionPlans: QuestionPlanner = {
       prompt: `Disposition for the ${item.kind} item "${item.id}" against: ${state.objective}`,
       options: [...ITEM_DISPOSITIONS],
     })),
-  modelRoute: (state) => [
-    {
-      id: "tier",
-      type: "choice",
-      prompt: `Which tier for the ${state.role} role on "${state.taskName}"?`,
-      options: [...DECISION_TIERS],
-    },
-  ],
-  agentRoute: (state) => [
-    { id: "agent", type: "choice", prompt: `Which route for: ${state.objective}?`, options: [...AGENT_ROUTES] },
-  ],
-  toolRisk: (state) => [
-    { id: "risk", type: "score", prompt: `How risky is calling ${state.tool}?`, options: [...TOOL_RISKS] },
-  ],
   failure: (state) => [
     {
       id: "verdict",
@@ -183,26 +161,6 @@ const answerReaders: AnswerReader = {
     return {
       answer: { decisions: decisions.map((decision) => ({ id: decision.id, disposition: decision.disposition })) },
       confidence: Math.min(...decisions.map((decision) => decision.confidence)),
-    }
-  },
-  modelRoute: (answers) => {
-    const tier = chosen(answers.tier)
-    if (!answers.tier || !isOneOf(DECISION_TIERS, tier)) return undefined
-    return { answer: { tier }, confidence: answers.tier.confidence, probabilities: answers.tier.probabilities }
-  },
-  agentRoute: (answers) => {
-    const agent = chosen(answers.agent)
-    if (!answers.agent || !isOneOf(AGENT_ROUTES, agent)) return undefined
-    return { answer: { agent }, confidence: answers.agent.confidence, probabilities: answers.agent.probabilities }
-  },
-  // A learned score may only raise confirmation, never exceed the ceiling (FH-063, ADR-0023 §5).
-  toolRisk: (answers) => {
-    const risk = chosen(answers.risk)
-    if (!answers.risk || !isOneOf(TOOL_RISKS, risk)) return undefined
-    return {
-      answer: { risk: clampLearned(risk) },
-      confidence: answers.risk.confidence,
-      probabilities: answers.risk.probabilities,
     }
   },
   failure: (answers) => {

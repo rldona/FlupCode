@@ -29,7 +29,6 @@ const result: GuardrailResult = {
   decisionID: "failure:ses_1:bash:abc",
   source: "baseline",
   degraded: false,
-  risk: { risk: "CONFIRM", raiseOnly: true },
   latencyMs: 1,
 }
 
@@ -179,7 +178,6 @@ describe("the guardrails route (FH-060–063)", () => {
       repeatedErrors: 0,
       tool: "bash",
       decisionID: "failure:ses_1:bash:abc",
-      risk: "ALLOW",
       at: 1,
     }
 

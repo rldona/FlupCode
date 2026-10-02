@@ -908,16 +908,16 @@ describe("choosing a model per decision (AH-C01)", () => {
     expect(modelKinds(assigning({}))).toEqual(["completion", "skillRelevance", "contextItem", "skillReflection", "failure"])
     const all = {
       ...assigning({}),
-      models: [{ ...MODELS[0]!, supports: ["toolRisk", "agentRoute", "modelRoute", "failure", "completion", "futureKind"] }],
+      models: [{ ...MODELS[0]!, supports: ["futureKind", "failure", "completion"] }],
     }
     // A kind this build has no name for yet still gets its row, after the named ones.
-    expect(modelKinds(all)).toEqual(["completion", "modelRoute", "agentRoute", "toolRisk", "failure", "futureKind"])
+    expect(modelKinds(all)).toEqual(["completion", "failure", "futureKind"])
     // An older server that does not serve its registry keeps the four kinds it shipped with.
     expect(modelKinds(view())).toEqual(["completion", "skillRelevance", "contextItem", "skillReflection"])
   })
 
   test("every assignable kind has a plain name in both languages, with no jargon", () => {
-    for (const kind of ["completion", "skillRelevance", "contextItem", "skillReflection", "modelRoute", "agentRoute", "toolRisk", "failure"]) {
+    for (const kind of ["completion", "skillRelevance", "contextItem", "skillReflection", "failure"]) {
       const label = KIND_LABELS[kind]!
       expect(label).toBeDefined()
       expect(label).not.toMatch(/Jev|shadow|egress|skillRelevance|\w+\.\w+/i)

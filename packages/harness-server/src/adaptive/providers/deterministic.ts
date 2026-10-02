@@ -75,12 +75,6 @@ export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
     ),
     rule: "context-score",
   }),
-  // The kinds below are typed but not implemented in this phase: each answers its safe default.
-  modelRoute: () => ({ answer: { tier: "BALANCED" }, rule: "declared-policy" }),
-  agentRoute: () => ({ answer: { agent: "CONTINUE" }, rule: "safe-default" }),
-  // The native floor is the answer: the baseline never elevates a tool call on its own, and with no
-  // floor it is the safe `ALLOW` (FH-063, ADR-0023 §5).
-  toolRisk: (request) => ({ answer: { risk: request.state.native ?? "ALLOW" }, rule: "permission-floor" }),
   // A repeated identical call or error is an intervention; anything below the policy threshold is a
   // plain continue. Calls are checked first, mirroring the run that ends the observation ring
   // (FH-060/061, ADR-0023 §6).

@@ -47,7 +47,7 @@ type Fixture = {
   observations: LoopObservation[]
   config?: Record<string, unknown>
   runtime?: "legacy" | "v2"
-  jev?: { model: string; failure: JevAnswer; toolRisk: JevAnswer }
+  jev?: { model: string; failure: JevAnswer }
   expect: {
     verdict: "continue" | "intervene"
     reason: GuardrailReason
@@ -55,7 +55,6 @@ type Fixture = {
     repeatedCalls?: number
     repeatedErrors?: number
     source?: DecisionSource
-    risk?: string
   }
 }
 
@@ -98,14 +97,7 @@ const recorded = (model: string, answer: JevAnswer): JevFetchResponse => ({
   json: async () => ({ model, answers: { w0: answer } }),
 })
 
-const recordedFetch = (fixture: Fixture): JevFetch => async ({ body }) => {
-  const parsed: unknown = JSON.parse(body)
-  const questions = parsed && typeof parsed === "object" ? (parsed as { questions?: Array<{ prompt?: unknown }> }).questions : undefined
-  const prompt = Array.isArray(questions) && typeof questions[0]?.prompt === "string" ? questions[0].prompt : ""
-  // The two decisions are separate requests; the prompt tells them apart.
-  if (prompt.startsWith("Should the harness intervene")) return recorded(fixture.jev!.model, fixture.jev!.failure)
-  return recorded(fixture.jev!.model, fixture.jev!.toolRisk)
-}
+const recordedFetch = (fixture: Fixture): JevFetch => async () => recorded(fixture.jev!.model, fixture.jev!.failure)
 
 /** A recorded Jev failure: the fallback records `timeout` and the deterministic baseline runs. */
 const recordedTimeout = (): Error => {
@@ -172,7 +164,6 @@ describe("E7 / FH-060–063 evaluation: failure/loop guardrails (offline, record
       if (fixture.expect.repeatedErrors !== undefined)
         expect(result.repeatedErrors, name).toBe(fixture.expect.repeatedErrors)
       if (fixture.expect.source !== undefined) expect(result.source, name).toBe(fixture.expect.source)
-      if (fixture.expect.risk !== undefined) expect(result.risk?.risk as string | undefined, name).toBe(fixture.expect.risk)
       // A gate fixture and a below-threshold trace write nothing; a detected loop writes a row.
       const rows = fixture.expect.decision ? 1 : 0
       expect(result.decisionID === undefined ? 0 : 1, name).toBe(rows)
@@ -219,13 +210,12 @@ describe("E7 / FH-060–063 evaluation: failure/loop guardrails (offline, record
     expect(offLegacy.decisionID).toBeUndefined()
   })
 
-  test("a recorded Jev answer decides the loop and its risk is capped", async () => {
+  test("a recorded Jev answer decides the loop", async () => {
     const result = await run(load("failure-jev-recorded"))
     expect(result).toMatchObject({
       verdict: "intervene",
       source: "model",
       degraded: false,
-      risk: { risk: "CONFIRM", raiseOnly: true },
     })
   })
 
@@ -235,7 +225,6 @@ describe("E7 / FH-060–063 evaluation: failure/loop guardrails (offline, record
       verdict: "intervene",
       source: "fallback",
       degraded: true,
-      risk: { risk: "ALLOW", raiseOnly: true },
     })
   })
 })

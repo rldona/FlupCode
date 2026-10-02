@@ -1,14 +1,13 @@
 /**
- * The failure and toolRisk deterministic baselines (FH-060/061/063, ADR-0023 §4–§6).
+ * The failure deterministic baseline (FH-060/061, ADR-0023 §4–§6).
  *
- * These are the guarantees that hold with Jev off: a repeated identical call or error is an
- * intervention at the policy threshold, and the tool-risk baseline is exactly the native floor, never
- * elevated by the baseline itself.
+ * The guarantee that holds with Jev off: a repeated identical call or error is an intervention at the
+ * policy threshold.
  */
 
 import { describe, expect, test } from "bun:test"
 import { DEFAULT_DECISION_POLICY } from "../decision"
-import type { DecisionRequest, ToolRisk } from "../decision"
+import type { DecisionRequest } from "../decision"
 import { deterministicBaseline } from "./deterministic"
 
 const failure = (
@@ -19,12 +18,6 @@ const failure = (
   kind: "failure",
   state: { repeatedCalls, repeatedErrors, stepsUsed: 0 },
   policy,
-})
-
-const toolRisk = (native?: ToolRisk): DecisionRequest<"toolRisk"> => ({
-  kind: "toolRisk",
-  state: { tool: "bash", argsDigest: "abc", ...(native ? { native } : {}) },
-  policy: DEFAULT_DECISION_POLICY,
 })
 
 describe("the failure baseline", () => {
@@ -58,18 +51,5 @@ describe("the failure baseline", () => {
     expect(deterministicBaseline(failure(2, 2, policy)).rule).toBe("repeated-calls")
     const below = { ...DEFAULT_DECISION_POLICY, repeatedCalls: 9, repeatedErrors: 9 }
     expect(deterministicBaseline(failure(3, 3, below)).rule).toBe("safe-default")
-  })
-})
-
-describe("the toolRisk baseline", () => {
-  test("answers the native floor unchanged", () => {
-    expect(deterministicBaseline(toolRisk("REVIEW"))).toEqual({
-      answer: { risk: "REVIEW" },
-      rule: "permission-floor",
-    })
-  })
-
-  test("is ALLOW with no native floor and never elevates", () => {
-    expect(deterministicBaseline(toolRisk())).toEqual({ answer: { risk: "ALLOW" }, rule: "permission-floor" })
   })
 })

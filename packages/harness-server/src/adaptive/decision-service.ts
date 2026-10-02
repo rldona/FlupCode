@@ -135,9 +135,6 @@ const QUESTIONS: Record<DecisionKind, string> = {
   completion: "Should this episode be marked complete?",
   skillRelevance: "Which skills should be loaded for this objective?",
   contextItem: "What disposition should each context item take?",
-  modelRoute: "Which model tier should this task use?",
-  agentRoute: "Which agent route should this objective take?",
-  toolRisk: "How risky is this tool call?",
   failure: "Should the harness intervene in this loop?",
   skillReflection: "Does this episode carry a reusable lesson, and what change does it call for?",
 }
@@ -159,9 +156,6 @@ const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
   completion: "distribution",
   skillRelevance: "gates",
   contextItem: "distribution",
-  modelRoute: "distribution",
-  agentRoute: "distribution",
-  toolRisk: "distribution",
   failure: "distribution",
   skillReflection: "gates",
 }
