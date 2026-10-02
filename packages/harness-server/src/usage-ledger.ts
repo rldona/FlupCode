@@ -14,6 +14,7 @@
  */
 
 import { basename, dirname } from "node:path"
+import { childEnv } from "./child-env"
 
 export const USAGE_KINDS = ["step", "step_failed", "compaction", "title", "generate", "adaptive", "external"] as const
 export type UsageKind = (typeof USAGE_KINDS)[number]
@@ -280,7 +281,7 @@ export function repositoryRoot(directory: string) {
   if (known) return known
   const result = Bun.spawnSync(
     ["git", "-C", directory, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
-    { stdout: "pipe", stderr: "ignore" },
+    { stdout: "pipe", stderr: "ignore", env: childEnv() },
   )
   const [own, common] = result.success ? result.stdout.toString().trim().split("\n") : []
   // A worktree's own git folder differs from the common one, which is the main checkout's `.git`.
