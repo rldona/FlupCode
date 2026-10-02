@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
+import { withEnginePlugins } from "./engine-plugins"
 
 /**
  * The OpenCode 2 engine FlupCode launches (V2-60): one pinned binary, kept where FlupCode owns it,
@@ -119,15 +120,15 @@ export function openCodeV2Database(env: NodeJS.ProcessEnv = process.env) {
 
 /**
  * The environment a 2.x engine FlupCode starts runs with: always a password, the user name 2.x
- * expects (it has no `OPENCODE_SERVER_USERNAME`), and the isolated database unless the reader set
- * `OPENCODE_DB` on purpose.
+ * expects (it has no `OPENCODE_SERVER_USERNAME`), the isolated database unless the reader set
+ * `OPENCODE_DB` on purpose, and FlupCode's plugins from FlupCode's own folder (HE-04).
  */
 export function openCodeV2Env(input: { password: string; env?: NodeJS.ProcessEnv }) {
   const env = input.env ?? process.env
   const database = env.OPENCODE_DB || openCodeV2Database(env)
   mkdirSync(join(database, ".."), { recursive: true })
   const { OPENCODE_SERVER_USERNAME: _username, ...rest } = env
-  return { ...rest, OPENCODE_SERVER_PASSWORD: input.password, OPENCODE_DB: database }
+  return withEnginePlugins({ ...rest, OPENCODE_SERVER_PASSWORD: input.password, OPENCODE_DB: database })
 }
 
 /** The suffix of the platform package npm would pick for this machine. */

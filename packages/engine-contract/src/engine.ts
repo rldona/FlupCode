@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { detectEngine } from "@flupcode/remote/engine-kind"
+import { installEnginePlugins, withEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { installSandboxOpenCodeV2 } from "./opencode-v2"
 
 /**
@@ -19,8 +20,13 @@ export async function startEngine(input: {
   config?: Record<string, unknown>
   /** Layered over the isolated environment. `OPENCODE_PURE: undefined` lets plugins load. */
   env?: Record<string, string | undefined>
-  /** Runs once the isolated home exists and before the engine starts, e.g. to install plugins. */
+  /** Runs once the isolated home exists and before the engine starts, e.g. to write config. */
   prepare?: (home: string) => Promise<void>
+  /**
+   * FlupCode's plugins, installed and loaded the way FlupCode's hosts do (HE-04): written into the
+   * isolated home's FlupCode folder after `prepare`, named in the engine's config, out of pure mode.
+   */
+  flupcodePlugins?: boolean
 }) {
   // The real path: macOS hands out `/var/...`, a link to `/private/var/...`, and the engine asks for
   // an external-directory permission when a tool reads a path that is not under the one it resolved.
@@ -30,33 +36,38 @@ export async function startEngine(input: {
   mkdirSync(home, { recursive: true })
   mkdirSync(project, { recursive: true })
   await input.prepare?.(home)
+  if (input.flupcodePlugins) await installEnginePlugins({ XDG_CONFIG_HOME: join(home, ".config") }, home)
   const password = crypto.randomUUID()
+  const withPlugins = (env: Record<string, string | undefined>) =>
+    input.flupcodePlugins ? withEnginePlugins(env, home) : env
   const port = freePort()
   const command = await engineCommand()
   const child = Bun.spawn(
     command.map((part) => part.replaceAll("{port}", String(port))),
     {
       cwd: project,
-      env: definedOnly({
-        PATH: process.env.PATH ?? "",
-        HOME: home,
-        OPENCODE_TEST_HOME: home,
-        XDG_CONFIG_HOME: join(home, ".config"),
-        XDG_DATA_HOME: join(home, ".local/share"),
-        XDG_STATE_HOME: join(home, ".local/state"),
-        XDG_CACHE_HOME: join(home, ".cache"),
-        OPENCODE_SERVER_PASSWORD: password,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...stubConfig(input.modelUrl, input.price), ...input.config }),
-        OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-        OPENCODE_DISABLE_AUTOUPDATE: "1",
-        OPENCODE_DISABLE_MODELS_FETCH: "1",
-        OPENCODE_DISABLE_AUTOCOMPACT: "1",
-        OPENCODE_AUTH_CONTENT: "{}",
-        // No plugins from npm or the user: this suite is about the engine's own contract. The plugin
-        // smoke test (V2-03) turns this off and installs FlupCode's plugins on purpose.
-        OPENCODE_PURE: "1",
-        ...input.env,
-      }),
+      env: definedOnly(
+        withPlugins({
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          OPENCODE_TEST_HOME: home,
+          XDG_CONFIG_HOME: join(home, ".config"),
+          XDG_DATA_HOME: join(home, ".local/share"),
+          XDG_STATE_HOME: join(home, ".local/state"),
+          XDG_CACHE_HOME: join(home, ".cache"),
+          OPENCODE_SERVER_PASSWORD: password,
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...stubConfig(input.modelUrl, input.price), ...input.config }),
+          OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+          OPENCODE_DISABLE_AUTOUPDATE: "1",
+          OPENCODE_DISABLE_MODELS_FETCH: "1",
+          OPENCODE_DISABLE_AUTOCOMPACT: "1",
+          OPENCODE_AUTH_CONTENT: "{}",
+          // No plugins from npm or the user: this suite is about the engine's own contract. The plugin
+          // smoke test (V2-03) turns this off with `flupcodePlugins`, to load FlupCode's on purpose.
+          OPENCODE_PURE: input.flupcodePlugins ? undefined : "1",
+          ...input.env,
+        }),
+      ),
       stdin: "ignore",
       stdout: "ignore",
       stderr: "pipe",

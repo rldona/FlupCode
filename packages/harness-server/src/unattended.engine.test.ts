@@ -4,7 +4,6 @@ import { join } from "node:path"
 import { OpenCode } from "@opencode/client"
 import { CONTRACT_LINE, startEngine, type Engine as EngineProcess } from "@flupcode/engine-contract/engine"
 import { startModel } from "@flupcode/engine-contract/model"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { createHarnessHandler } from "./api"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
@@ -51,8 +50,8 @@ beforeAll(async () => {
       FLUPCODE_HARNESS_SERVER_URL: `http://127.0.0.1:${server.port}`,
       FLUPCODE_PLUGIN_TOKEN: "plugin-token",
     },
+    flupcodePlugins: true,
     prepare: async (home) => {
-      await installEnginePlugins(join(home, ".config", "opencode"))
       // The memory plugin's extraction asks the model after a turn, which would take a scripted reply.
       writeFileSync(join(home, "..", "project", "opencode.json"), JSON.stringify({ memory: { auto: false } }))
     },

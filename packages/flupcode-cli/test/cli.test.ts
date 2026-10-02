@@ -3,6 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { enginePluginFolders } from "@flupcode/remote/engine-plugins"
 import {
   connectChannel,
   connectRelayClient,
@@ -22,7 +23,7 @@ const engine = Bun.serve({
       : new Response("not found", { status: 404 }),
 })
 const configDir = mkdtempSync(join(tmpdir(), "flupcode-cli-"))
-// Where the CLI installs the engine plugins for a local engine: never the real OpenCode config.
+// OpenCode's global config, where the CLI clears the plugins older versions left: never the real one.
 const engineConfigDir = mkdtempSync(join(tmpdir(), "flupcode-cli-opencode-"))
 const spawned: Array<ReturnType<typeof Bun.spawn>> = []
 
@@ -44,6 +45,7 @@ function cliWith(env: Record<string, string | undefined>, ...args: string[]) {
       ...process.env,
       FLUPCODE_CONFIG_DIR: configDir,
       OPENCODE_CONFIG_DIR: engineConfigDir,
+      XDG_CONFIG_HOME: join(configDir, "xdg"),
       NO_COLOR: "1",
       ...env,
     },
@@ -81,6 +83,7 @@ Bun.serve({
       return Response.json({
         harness: process.env.FLUPCODE_HARNESS_SERVER_URL ?? null,
         secrets: Object.keys(process.env).filter((name) => /^FLUPCODE_(BROWSER_TOKEN|PLUGIN_TOKEN|ENGINE_AUTH|VAULT_KEY)$/.test(name)),
+        plugins: JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || "{}").plugins ?? [],
       })
     return Response.json({ _tag: "NotFound" }, { status: 404 })
   },
@@ -263,10 +266,12 @@ describe("flupcode remote", () => {
       // Nobody else can: the engine is not open to a caller without the password.
       expect((await fetch(`http://127.0.0.1:${port}/api/info`)).status).toBe(401)
 
-      // The plugins went to the engine's config before it started, in the set 2.x loads.
-      expect(readFileSync(join(engineConfigDir, "plugins", "flupcode-tool-uses.js"), "utf8")).toContain(
+      // The plugins went to FlupCode's own folder before the engine started, in the set 2.x loads, and
+      // the engine was told where they are (HE-04); OpenCode's global folder got none.
+      expect(readFileSync(join(configDir, "engine-plugins", "flupcode-tool-uses", "index.js"), "utf8")).toContain(
         "for OpenCode 2",
       )
+      expect(existsSync(join(engineConfigDir, "plugins"))).toBe(false)
 
       host.stdin.write("q\n")
       expect(await host.exited).toBe(0)
@@ -369,9 +374,10 @@ describe("flupcode serve hosts the harness (HE-01)", () => {
       const [, code] = await out.wait(/Pairing code ([A-Z2-9]{4}-[A-Z2-9]{4})/)
       expect(out.output).toContain("local network")
 
-      // The engine knows where the harness is, and holds none of its secrets.
+      // The engine knows where the harness is, holds none of its secrets, and is told where FlupCode's
+      // plugins are: their folders, in FlupCode's own config folder (HE-04).
       const signedIn = await fetch(`http://127.0.0.1:${port}/test/env`, { headers: { origin: "https://app.flupcode.com" } })
-      expect(await signedIn.json()).toEqual({ harness, secrets: [] })
+      expect(await signedIn.json()).toEqual({ harness, secrets: [], plugins: enginePluginFolders({ FLUPCODE_CONFIG_DIR: config }) })
 
       // A hosted tab reads nothing until it pairs.
       const origin = "https://app.flupcode.com"

@@ -172,12 +172,14 @@ model catalog has no effort levels for most models, so FlupCode adds them with a
 `flupcode-reasoning-variants.js`, which reads each model's levels from the models.dev data the
 engine caches.
 
-- The desktop app and `flupcode remote` install it in OpenCode's global config folder
-  (`~/.config/opencode/plugins/`, or `$XDG_CONFIG_HOME` / `OPENCODE_CONFIG_DIR`) before starting
-  the engine, so it loads for every project. An engine that was already running picks it up when
-  restarted.
-- If you run `opencode serve` yourself and never started the desktop app or `flupcode remote`,
-  the menu only shows levels set in your OpenCode config.
+- The desktop app and `flupcode` keep it, with FlupCode's other engine plugins, in FlupCode's own
+  config folder (`~/.config/flupcode/engine-plugins/`, or `$XDG_CONFIG_HOME` / `FLUPCODE_CONFIG_DIR`)
+  and name them in the config of the engine they start (`OPENCODE_CONFIG_CONTENT`), so they load for
+  every project in that engine and in no other. Your own global config and plugins still load.
+- An `opencode` you start yourself loads none of FlupCode's plugins: there the menu only shows
+  levels set in your OpenCode config. Copies an earlier FlupCode wrote into
+  `~/.config/opencode/plugins/` are removed the next time FlupCode starts (only files with
+  FlupCode's plugin names that begin with `// Installed by FlupCode`).
 - Models without levels show no effort menu, and a stored level the model does not offer is not
   sent (the engine would reject it).
 

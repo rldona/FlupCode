@@ -44,6 +44,7 @@ afterEach(async () => {
     "FLUPCODE_ANCHORS_FETCH_TIMEOUT_MS",
     "FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS",
     "FLUPCODE_USAGE_RETRY_MS",
+    "OPENCODE_CONFIG_DIR",
   ])
     delete process.env[name]
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
@@ -88,8 +89,11 @@ function context(directory = "/work/demo", events: unknown[] = []) {
 
 async function plugin(file: string, config?: string) {
   config ??= await temp()
-  const { paths } = await installEnginePlugins(config)
-  const target = paths.find((entry) => entry.endsWith(file))
+  // `config` stands for the reader's OpenCode config folder the plugin reads, and is also the home and
+  // FlupCode folder the installer writes to, so nothing outside the test's folders is touched.
+  process.env.OPENCODE_CONFIG_DIR = config
+  const { paths } = await installEnginePlugins({ FLUPCODE_CONFIG_DIR: config, OPENCODE_CONFIG_DIR: config }, config)
+  const target = paths.find((entry) => entry.endsWith(path.join(file.replace(/\.js$/, ""), "index.js")))
   expect(target).toBeDefined()
   return (await import(pathToFileURL(target!).href)).default as {
     id: string
