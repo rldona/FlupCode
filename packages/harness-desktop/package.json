@@ -40,7 +40,7 @@
     "afterPack": "scripts/after-pack.cjs",
     "extraResources": [
       {
-        "from": "../harness-server/dist/",
+        "from": "../harness-server/dist/${arch}/",
         "to": "harness-server",
         "filter": [
           "flupcode-harness",
@@ -48,7 +48,7 @@
         ]
       },
       {
-        "from": "browsers/",
+        "from": "browsers/${arch}/",
         "to": "browsers"
       }
     ],
@@ -90,7 +90,7 @@
       },
       "extraResources": [
         {
-          "from": "out/speech",
+          "from": "out/speech/${arch}",
           "to": "speech"
         }
       ]

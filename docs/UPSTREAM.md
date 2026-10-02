@@ -12,17 +12,21 @@ not by merging upstream's source ([ADR-0027](adr/0027-official-opencode-binary.m
 
 - **The pin.** `OPENCODE_V2_VERSION` in `packages/remote/src/opencode-v2.ts` is the binary the
   desktop, `flupcode remote` and `flupcode serve` fetch. `@opencode/client` in the FlupCode
-  `package.json` files is pinned to the same exact version.
+  `package.json` files is pinned to the same exact version. `OPENCODE_V2_INTEGRITY`, beside it,
+  holds the sha512 of every platform binary of that version: the installer refuses a tarball that
+  does not match, whatever the registry says about it (HE-05).
 - **The bump.** `.github/workflows/opencode-bump.yml` runs every Monday, and on demand with an
   optional version. It moves the pin to the newest 2.x release older than `minimumReleaseAge`
   (`bunfig.toml`, three days), refreshes `bun.lock` and opens or updates the `opencode-bump` pull
   request. The harness workflow then starts the new binary for real: the engine-contract suite and
   the live e2e (`test:e2e:engine`). Merge it once `gate` is green. Bump a major by hand.
 - **By hand:** `bun script/opencode-pin.ts bump [version]`, then `bun install`. The script refuses a
-  version younger than `minimumReleaseAge`, or one that any platform binary lacks.
+  version younger than `minimumReleaseAge`, or one that any platform binary lacks, and rewrites the
+  sha512s with the version.
 - **The boundary.** FlupCode packages reach OpenCode only through the pinned npm packages.
   `bun script/opencode-pin.ts` (a step of the harness `build` job) fails on a version that disagrees
-  with the pin, and on any file importing `@opencode-ai/*` that `docs/opencode-boundary.txt` does
+  with the pin, on a pinned sha512 that is not the one the registry publishes for that version, and
+  on any file importing `@opencode-ai/*` that `docs/opencode-boundary.txt` does
   not list. The list is empty and stays that way.
 
 An engine bug is fixed upstream or worked around in a plugin, never patched here.
