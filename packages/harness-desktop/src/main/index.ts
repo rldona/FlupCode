@@ -9,11 +9,14 @@ import { isAppPage } from "./renderer-origin"
 import { initRemoteHost } from "./remote"
 import { rendererCsp } from "./renderer-csp"
 import {
+  childStates,
+  copyDiagnostics,
   engineCredentials,
   ensureHarnessServer,
   ensureServer,
   harnessBrowserToken,
   importOpenCodeV1History,
+  restartChild,
   stopServer,
   undoOpenCodeV1Import,
 } from "./server"
@@ -167,6 +170,7 @@ app.whenReady().then(async () => {
     onCheckUpdates: () => void checkForUpdates(),
     onImportV1History: () => void importOpenCodeV1History(),
     onUndoV1Import: () => void undoOpenCodeV1Import(),
+    onCopyDiagnostics: () => void copyDiagnostics(),
   })
   initAutoUpdate()
   initSpeech()
@@ -212,6 +216,19 @@ ipcMain.on("flupcode:credentials", (event) => {
     ? { ...(credentials ? { engineAuth: credentials } : {}), browserToken: harnessBrowserToken() }
     : {}
 })
+
+/**
+ * The engine and the harness as their supervisor sees them (HE-03), for the window's banner, and the
+ * two things it offers: start one it gave up on again, and copy the diagnostics. Only the app's own
+ * page may ask.
+ */
+const fromAppPage = (event: Electron.IpcMainInvokeEvent) =>
+  isAppPage(event.senderFrame?.url ?? "", process.env.FLUPCODE_DEV_URL || !app.isPackaged ? DEV_URL : undefined)
+ipcMain.handle("flupcode:children", (event) => (fromAppPage(event) ? childStates() : []))
+ipcMain.handle("flupcode:restart-child", (event, name: unknown) =>
+  fromAppPage(event) ? restartChild(name) : undefined,
+)
+ipcMain.handle("flupcode:copy-diagnostics", (event) => (fromAppPage(event) ? copyDiagnostics() : false))
 
 ipcMain.handle("flupcode:title-bar", (event, overlay: { color?: string; symbolColor?: string }) => {
   if (process.platform !== "win32") return

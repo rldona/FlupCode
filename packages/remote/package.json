@@ -13,7 +13,9 @@
     "./opencode-v2": "./src/opencode-v2.ts",
     "./engine-proxy": "./src/engine-proxy.ts",
     "./v1-import": "./src/v1-import.ts",
-    "./secret-patterns": "./src/secret-patterns.ts"
+    "./secret-patterns": "./src/secret-patterns.ts",
+    "./supervisor": "./src/supervisor.ts",
+    "./diagnostics": "./src/diagnostics.ts"
   },
   "scripts": {
     "test": "bun test",

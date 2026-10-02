@@ -15,6 +15,9 @@ import {
   OPENCODE_V2_VERSION,
   resolveOpenCodeV2,
 } from "@flupcode/remote/opencode-v2"
+import { diagnosticsBundle } from "@flupcode/remote/diagnostics"
+import { engineConfigDir } from "@flupcode/remote/engine-plugins"
+import { flupcodeDataDir, reapOrphan, superviseChild } from "@flupcode/remote/supervisor"
 import QRCode from "qrcode"
 import pkg from "../package.json"
 
@@ -32,6 +35,7 @@ Usage:
   flupcode engine import-v1        Copy OpenCode 1.x history into FlupCode's OpenCode 2 engine
   flupcode engine import-memory    Copy a running OpenCode 1.x engine's memories into it
   flupcode engine rollback-import  Put FlupCode's OpenCode 2 database back as it was before
+  flupcode diagnostics             Print versions, the engine's state and log, and config, secrets removed
 
 Options:
   --engine <url>   OpenCode server to expose (default: http://127.0.0.1:4096)
@@ -290,7 +294,7 @@ async function runServe(port: number) {
   const address = `http://127.0.0.1:${port}`
   if ((await runningEngine(address, engineCredentials())).kind !== "none" || (await openCodeV2Locked(address)))
     fail(`an engine already answers at ${address}; stop it, or pass --port`)
-  const engine = await privateOpenCodeV2()
+  const engine = await supervisedOpenCodeV2()
   // The desktop app, opened while this runs, uses this engine rather than starting one: its window is
   // served too.
   const proxy = await startEngineProxy({
@@ -311,15 +315,105 @@ async function runServe(port: number) {
     `${bold("OpenCode")} ${info.version ?? OPENCODE_V2_VERSION} ${dim("for FlupCode's web app at")} ${proxy.url}`,
   )
   console.log(dim(`Open ${WEB_ORIGINS[0]} and connect to ${proxy.url}. Ctrl-C stops it.`))
+  console.log(dim(`The engine's log: ${engine.log}`))
   const stop = () => {
-    void proxy.close().finally(() => {
-      engine.stop()
+    void proxy.close().finally(async () => {
+      await engine.stop()
       process.exit(0)
     })
   }
   process.on("SIGINT", stop)
   process.on("SIGTERM", stop)
   await new Promise(() => undefined)
+}
+
+/**
+ * The engine `flupcode serve` keeps running (HE-03): restarted on the same private port and password
+ * when it stops, so the proxy in front of it keeps working, and its output kept in
+ * `$XDG_DATA_HOME/flupcode/logs/engine.log`. One an earlier `serve` left behind when it was killed is
+ * stopped first: nobody has its password any more.
+ */
+async function supervisedOpenCodeV2() {
+  const binary = await resolveOpenCodeV2()
+  await installEnginePlugins()
+  const dir = flupcodeDataDir()
+  await reapOrphan({
+    dir,
+    name: "engine",
+    probe: async (record) => typeof record.meta?.url === "string" && (await openCodeV2Locked(record.meta.url)),
+  })
+  const password = randomBytes(24).toString("hex")
+  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } })
+  const port = probe.port
+  probe.stop(true)
+  const url = `http://127.0.0.1:${port}`
+  const authorization = `Basic ${btoa(`opencode:${password}`)}`
+  let announced = "running"
+  const engine = superviseChild({
+    name: "engine",
+    command: binary,
+    args: ["serve", "--hostname", "127.0.0.1", "--port", String(port)],
+    options: { env: openCodeV2Env({ password }) },
+    dir,
+    ready: async () => (await detectEngine(url, fetch, { headers: { authorization } })).kind === "v2",
+    meta: { url },
+    onChange: (state) => {
+      if (state.phase === announced) return
+      if (state.phase === "restarting") console.log(yellow(`The engine stopped (${state.failure?.message}), restarting…`))
+      if (state.phase === "running" && announced === "restarting") console.log(green("The engine is back."))
+      if (state.phase === "failed" && announced !== "starting")
+        console.log(red(`The engine stopped and could not be restarted: ${state.failure?.message}`))
+      announced = state.phase
+    },
+  })
+  announced = "starting"
+  const state = await engine.start()
+  if (state.phase !== "running")
+    fail(
+      `OpenCode ${OPENCODE_V2_VERSION} ${state.failure?.message ?? "did not start"}\n${(state.failure?.lastLines ?? []).join("\n")}\nLog: ${state.log}`,
+    )
+  return { url, authorization, log: state.log, stop: () => engine.stop() }
+}
+
+/** Whether the engine `flupcode serve` recorded is still a live process (not that it answers). */
+async function servedEngineAlive(dir: string) {
+  const file = join(dir, "engine.pid")
+  if (!existsSync(file)) return false
+  const record = (await Bun.file(file)
+    .json()
+    .catch(() => ({}))) as { pid?: unknown }
+  const pid = Number(record.pid)
+  return Number.isInteger(pid) && spawnSync("kill", ["-0", String(pid)]).status === 0
+}
+
+/** `flupcode diagnostics`: what `flupcode serve` knows about itself, for a bug report, secrets removed. */
+async function printDiagnostics() {
+  const dir = flupcodeDataDir()
+  const log = join(dir, "logs", "engine.log")
+  const tokens = configDir()
+  console.log(
+    diagnosticsBundle({
+      title: "FlupCode diagnostics",
+      versions: {
+        flupcode: pkg.version,
+        "OpenCode (pinned)": OPENCODE_V2_VERSION,
+        OS: `${process.platform} ${process.arch}`,
+        Bun: Bun.version,
+      },
+      ports: { "flupcode serve (default)": "http://127.0.0.1:4096" },
+      children: existsSync(log)
+        ? [{ name: "engine", phase: (await servedEngineAlive(dir)) ? "running" : "stopped", restarts: 0, log }]
+        : [],
+      configs: ["opencode.json", "opencode.jsonc"].map((file) => ({ label: "OpenCode", file: join(engineConfigDir(), file) })),
+      env: process.env,
+      secrets: [
+        process.env.OPENCODE_SERVER_PASSWORD,
+        ...["browser-token", "plugin-token", "vault-key"].map((file) =>
+          existsSync(join(tokens, file)) ? readFileSync(join(tokens, file), "utf8").trim() : undefined,
+        ),
+      ],
+    }),
+  )
 }
 
 /**
@@ -593,6 +687,10 @@ if (args.values.version) {
 }
 
 const [command, subcommand, ...rest] = args.positionals
+if (command === "diagnostics") {
+  await printDiagnostics()
+  process.exit(0)
+}
 if (args.values.help || (command !== "remote" && command !== "engine" && command !== "serve")) {
   console.log(HELP)
   process.exit(args.values.help || !command ? 0 : 1)

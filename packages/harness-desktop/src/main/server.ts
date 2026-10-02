@@ -1,19 +1,20 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
-import { homedir } from "node:os"
+import { homedir, release } from "node:os"
 import { delimiter, join } from "node:path"
-import { app, dialog, shell } from "electron"
+import { BrowserWindow, app, clipboard, dialog } from "electron"
+import { diagnosticsBundle } from "@flupcode/remote/diagnostics"
 import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { engineConfigDir, installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { startEngineProxy } from "@flupcode/remote/engine-proxy"
 import { openCodeV2Env, OPENCODE_V2_VERSION, resolveOpenCodeV2 } from "@flupcode/remote/opencode-v2"
-import { readOrCreateFileToken } from "./browser-token-file"
+import { portInUse, reapOrphan, superviseChild, type ChildFailure, type Supervisor } from "@flupcode/remote/supervisor"
+import { readFileToken, readOrCreateFileToken, tokenFileDir } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
 
 export const SERVER_URL = process.env.FLUPCODE_SERVER_URL ?? "http://127.0.0.1:4096"
 export const HARNESS_SERVER_URL = process.env.FLUPCODE_HARNESS_SERVER_URL ?? "http://127.0.0.1:4097"
-export const OPENCODE_DOCS = "https://opencode.ai/docs/"
 /**
  * Where an OpenCode 2 engine this app starts listens (2.1). `SERVER_URL` is the engine proxy in front
  * of it, which signs in for the window, the harness and FlupCode's web app alike: 2.x always asks for a
@@ -22,9 +23,14 @@ export const OPENCODE_DOCS = "https://opencode.ai/docs/"
 const ENGINE_PORT = Number(process.env.FLUPCODE_ENGINE_PORT ?? 4098)
 const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`
 
-let child: ChildProcess | undefined
+/**
+ * The engine and the harness this app started, each kept alive by a supervisor (HE-03): restarted
+ * when it stops, its output in `<userData>/logs`, its pid in `<userData>` so the next launch can
+ * stop one this launch leaves behind.
+ */
+let engine: Supervisor | undefined
+let harness: Supervisor | undefined
 let proxy: Awaited<ReturnType<typeof startEngineProxy>> | undefined
-let harnessChild: ChildProcess | undefined
 let prompted = false
 let promptedRestart = false
 let promptedLocked = false
@@ -190,25 +196,34 @@ function resolveHarnessServer(): { command: string; args: string[]; cwd?: string
   return undefined
 }
 
-function promptNoEngine() {
+/**
+ * FlupCode has no engine, and the dialog says why: the download, a port another program holds, or
+ * the engine's own last words when it stopped as it started. Its log has the rest, and so does the
+ * diagnostics the dialog offers to copy.
+ */
+function promptNoEngine(problem: { message: string; detail: string }) {
+  console.error(`[flupcode] no engine: ${problem.message}`)
   if (prompted) return
   prompted = true
   void dialog
     .showMessageBox({
       type: "warning",
       title: "OpenCode 2 is not available",
-      message: `FlupCode could not start OpenCode ${OPENCODE_V2_VERSION}`,
-      detail:
-        "FlupCode downloads its OpenCode 2 engine once and keeps it in its cache. The download or the start " +
-        "failed, so FlupCode is offline for now.\n\n" +
-        "Check the connection and reopen FlupCode, or name an OpenCode 2 binary with FLUPCODE_OPENCODE.",
-      buttons: ["Open OpenCode docs", "Continue offline"],
+      message: problem.message,
+      detail: `${problem.detail}\n\nFlupCode is offline for now.`,
+      buttons: ["Copy Diagnostics", "Continue offline"],
       defaultId: 1,
       cancelId: 1,
     })
     .then((result) => {
-      if (result.response === 0) void shell.openExternal(OPENCODE_DOCS)
+      if (result.response === 0) void copyDiagnostics()
     })
+}
+
+/** What a child's failure says in a dialog: the reason, then the last lines it printed. */
+function failureDetail(failure: ChildFailure | undefined, hint: string) {
+  const lines = failure?.lastLines.slice(-6) ?? []
+  return [hint, ...(lines.length ? ["", "Its last output:", ...lines] : [])].join("\n")
 }
 
 /** An OpenCode 1.x engine on FlupCode's port: it would take the address the 2.x engine needs. */
@@ -277,13 +292,37 @@ export async function ensureServer() {
   if (await openCodeV2Locked(SERVER_URL, fetch, { headers: authHeaders() })) return promptLockedEngine()
 
   // The pinned binary or `FLUPCODE_OPENCODE`, never whichever `opencode` the PATH happens to hold.
-  const command = await resolveOpenCodeV2().catch((cause: unknown) => {
-    console.error(`[flupcode] could not get OpenCode 2: ${cause instanceof Error ? cause.message : String(cause)}`)
-    return undefined
-  })
-  if (!command) return promptNoEngine()
+  const resolved = await resolveOpenCodeV2().then(
+    (command) => ({ command }),
+    (cause: unknown) => ({ error: cause instanceof Error ? cause.message : String(cause) }),
+  )
+  if ("error" in resolved) {
+    console.error(`[flupcode] could not get OpenCode 2: ${resolved.error}`)
+    return promptNoEngine({
+      message: `FlupCode could not download OpenCode ${OPENCODE_V2_VERSION}`,
+      detail:
+        `${resolved.error}\n\nFlupCode downloads its engine once and keeps it in its cache. Check the connection ` +
+        "and reopen FlupCode, or name an OpenCode 2 binary with FLUPCODE_OPENCODE.",
+    })
+  }
+  const command = resolved.command
   // Before the engine starts, since it reads its plugins once, at startup.
   await installEnginePlugins()
+
+  // An engine an earlier launch left running holds the port behind a password nobody has any more.
+  // Only the one this app recorded, and only while it still answers as OpenCode 2, is stopped.
+  const orphan = await reapOrphan({
+    dir: app.getPath("userData"),
+    name: "engine",
+    probe: async () => (await openCodeV2Locked(ENGINE_URL)) || (await detectEngine(ENGINE_URL)).kind === "v2",
+  })
+  if (orphan.reaped) console.info(`[flupcode] stopped the engine an earlier launch left running (pid ${orphan.pid})`)
+  if (await portInUse(ENGINE_PORT))
+    return promptNoEngine({
+      message: `Port ${ENGINE_PORT}, where FlupCode starts its engine, is taken by another program`,
+      detail:
+        "Close the program that holds it and reopen FlupCode, or start FlupCode with FLUPCODE_ENGINE_PORT set to a free port.",
+    })
 
   // The engine listens privately; the proxy takes the address everything else asks for, once it is up.
   const args = ["serve", "--port", String(ENGINE_PORT), "--hostname", "127.0.0.1"]
@@ -298,35 +337,40 @@ export async function ensureServer() {
     FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
   }
   // FlupCode's own database: 2.x would migrate 1.x's `opencode.db` one way, so 1.x history only
-  // reaches it through the explicit import (V2-61).
-  child = spawn(command, args, {
-    stdio: "inherit",
-    shell: process.platform === "win32",
-    env: openCodeV2Env({ password: secret, env }),
+  // reaches it through the explicit import (V2-61). A restart reuses the same password, so the proxy
+  // and the harness keep signing in.
+  engine = superviseChild({
+    name: "engine",
+    command,
+    args,
+    options: { shell: process.platform === "win32", env: openCodeV2Env({ password: secret, env }) },
+    dir: app.getPath("userData"),
+    ready: async () => (await detectEngine(ENGINE_URL, fetch, { headers: authHeaders() })).kind === "v2",
+    echo: !app.isPackaged,
+    onChange: announceChildren,
   })
-  child.on("error", () => {
-    child = undefined
-  })
-
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const started = await detectEngine(ENGINE_URL, fetch, { headers: authHeaders() })
-    if (started.kind === "v2") {
-      await serveEngine()
-      console.info(`[flupcode] engine ready: OpenCode ${started.version}, for the web app too at ${SERVER_URL}`)
-      return
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500))
+  const state = await engine.start()
+  if (state.phase === "running") {
+    await serveEngine()
+    console.info(`[flupcode] engine ready, for the web app too at ${SERVER_URL}`)
+    return
   }
-
-  promptNoEngine()
+  promptNoEngine({
+    message: `OpenCode ${OPENCODE_V2_VERSION} ${state.failure?.message ?? "did not start"}`,
+    detail: failureDetail(state.failure, `Its log is at ${state.log}.`),
+  })
 }
 
 export async function ensureHarnessServer() {
   if (process.env.FLUPCODE_NO_SERVER === "1" || process.env.FLUPCODE_NO_HARNESS_SERVER === "1") return
+
+  // A harness an earlier launch left running has a password and token this launch did not give it.
+  const orphan = await reapOrphan({ dir: app.getPath("userData"), name: "harness", probe: isHarnessServerHealthy })
+  if (orphan.reaped) console.info(`[flupcode] stopped the harness an earlier launch left running (pid ${orphan.pid})`)
   if (await isHarnessServerHealthy()) return
 
-  const harness = resolveHarnessServer()
-  if (!harness) return
+  const resolved = resolveHarnessServer()
+  if (!resolved) return
 
   const port = new URL(HARNESS_SERVER_URL).port || "4097"
   // Windows and Linux hand the harness the key their keychain holds, so both processes open the
@@ -336,31 +380,108 @@ export async function ensureHarnessServer() {
   // the renderer uses. It starts before the engine, which is why the password is decided here.
   ensureEngineCredentials()
   const authorization = engineCredentials()
-  harnessChild = spawn(harness.command, harness.args, {
-    cwd: harness.cwd,
-    env: {
-      ...process.env,
-      PATH: searchPath(),
-      FLUPCODE_ENGINE_URL: SERVER_URL,
-      FLUPCODE_HARNESS_PORT: port,
-      FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
-      ...(authorization ? { FLUPCODE_ENGINE_AUTH: authorization } : {}),
-      // The Chromium that ships beside the app, so Playwright finds it without a download of its
-      // own. In development it is not packaged, and the system browser is used instead (WA-9).
-      ...(app.isPackaged ? { PLAYWRIGHT_BROWSERS_PATH: join(process.resourcesPath, "browsers") } : {}),
-      ...(vaultKey ? { FLUPCODE_VAULT_KEY: vaultKey } : {}),
+  harness = superviseChild({
+    name: "harness",
+    command: resolved.command,
+    args: resolved.args,
+    options: {
+      cwd: resolved.cwd,
+      env: {
+        ...process.env,
+        PATH: searchPath(),
+        FLUPCODE_ENGINE_URL: SERVER_URL,
+        FLUPCODE_HARNESS_PORT: port,
+        FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
+        ...(authorization ? { FLUPCODE_ENGINE_AUTH: authorization } : {}),
+        // The Chromium that ships beside the app, so Playwright finds it without a download of its
+        // own. In development it is not packaged, and the system browser is used instead (WA-9).
+        ...(app.isPackaged ? { PLAYWRIGHT_BROWSERS_PATH: join(process.resourcesPath, "browsers") } : {}),
+        ...(vaultKey ? { FLUPCODE_VAULT_KEY: vaultKey } : {}),
+      },
+      shell: process.platform === "win32",
     },
-    stdio: "inherit",
-    shell: process.platform === "win32",
+    dir: app.getPath("userData"),
+    ready: isHarnessServerHealthy,
+    echo: !app.isPackaged,
+    onChange: announceChildren,
   })
-  harnessChild.on("error", () => {
-    harnessChild = undefined
+  const state = await harness.start()
+  if (state.phase === "running") return
+  void dialog.showMessageBox({
+    type: "warning",
+    title: "The harness server did not start",
+    message: `FlupCode's harness server ${state.failure?.message ?? "did not start"}`,
+    detail: failureDetail(
+      state.failure,
+      `Runs, Workflows, Routines and Artifacts need it; chat with the engine still works. Its log is at ${state.log}.`,
+    ),
+    buttons: ["Copy Diagnostics", "Continue"],
+    defaultId: 1,
+    cancelId: 1,
+  }).then((result) => {
+    if (result.response === 0) void copyDiagnostics()
   })
+}
 
-  for (let attempt = 0; attempt < 40; attempt++) {
-    if (await isHarnessServerHealthy()) return
-    await new Promise((resolve) => setTimeout(resolve, 250))
-  }
+/** What the window shows about the engine and the harness: restarting, failed, or nothing. */
+export function childStates() {
+  return [harness?.state(), engine?.state()].filter((state) => state !== undefined)
+}
+
+function announceChildren() {
+  const states = childStates()
+  BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("flupcode:children-changed", states))
+}
+
+/** "Restart" on the banner of a child the supervisor gave up on. */
+export async function restartChild(name: unknown) {
+  const target = name === "engine" ? engine : name === "harness" ? harness : undefined
+  if (!target || target.state().phase !== "failed") return
+  const state = await target.start()
+  if (target === engine && state.phase === "running") await serveEngine()
+}
+
+/**
+ * The diagnostics "Copy Diagnostics" puts on the clipboard (HE-03): versions, ports, both children and
+ * the end of their logs, the engine's config, with every secret this app holds taken out.
+ */
+export async function diagnostics() {
+  const running = await runningEngine()
+  const configDir = tokenFileDir()
+  return diagnosticsBundle({
+    title: "FlupCode diagnostics",
+    versions: {
+      FlupCode: app.getVersion(),
+      "OpenCode (pinned)": OPENCODE_V2_VERSION,
+      "OpenCode (running)": running.kind === "none" ? "none answering" : `${running.kind} ${running.version ?? ""}`.trim(),
+      Electron: process.versions.electron,
+      Chromium: process.versions.chrome,
+      Node: process.versions.node,
+      OS: `${process.platform} ${release()} ${process.arch}`,
+      packaged: String(app.isPackaged),
+    },
+    ports: { "engine (for the app)": SERVER_URL, "engine (private)": ENGINE_URL, harness: HARNESS_SERVER_URL },
+    children: childStates(),
+    configs: ["opencode.json", "opencode.jsonc"].map((file) => ({
+      label: "OpenCode",
+      file: join(engineConfigDir(), file),
+    })),
+    env: process.env,
+    secrets: [
+      password,
+      browserToken,
+      readFileToken(join(configDir, "browser-token")),
+      readFileToken(join(configDir, "plugin-token")),
+      readFileToken(join(configDir, "vault-key")),
+      process.env.FLUPCODE_VAULT_KEY,
+      vaultKeyForHarness(),
+    ],
+  })
+}
+
+export async function copyDiagnostics() {
+  clipboard.writeText(await diagnostics())
+  return true
 }
 
 /**
@@ -400,10 +521,10 @@ async function changeV2Database(input: {
   action: string
   done: (answer: Record<string, unknown>) => string
 }) {
-  const harness = resolveHarnessServer()
+  const resolved = resolveHarnessServer()
   // Only the engine this app started is FlupCode's 2.x engine on FlupCode's database; one someone else
   // runs keeps it open, and changing a database under a running engine is how it gets corrupted.
-  if (!harness || (!child && (await runningEngine()).kind !== "none")) {
+  if (!resolved || (!engine && (await runningEngine()).kind !== "none")) {
     await dialog.showMessageBox({
       type: "info",
       message: "FlupCode can only do this with the OpenCode 2 engine it starts",
@@ -422,8 +543,8 @@ async function changeV2Database(input: {
   })
   if (confirmed.response !== 0) return
   await stopEngine()
-  const run = spawnSync(harness.command, [...harness.args, "engine-data", ...input.command], {
-    cwd: harness.cwd,
+  const run = spawnSync(resolved.command, [...resolved.args, "engine-data", ...input.command], {
+    cwd: resolved.cwd,
     encoding: "utf8",
     env: { ...process.env, PATH: searchPath() },
     shell: process.platform === "win32",
@@ -446,23 +567,17 @@ function parseAnswer(stdout: string | null): Record<string, unknown> {
   }
 }
 
-/** Stops the engine this app started and waits until its port is free. */
+/** Stops the engine this app started, for good, and waits until its port is free. */
 async function stopEngine() {
-  const running = child
-  child = undefined
-  if (!running || running.exitCode !== null) return
-  const exited = new Promise((resolve) => running.once("exit", resolve))
-  running.kill()
-  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 10_000))])
+  await engine?.stop()
+  engine = undefined
 }
 
 export function stopServer() {
   void proxy?.close()
   proxy = undefined
-  harnessChild?.kill()
-  harnessChild = undefined
-  child?.kill()
-  child = undefined
+  void harness?.stop()
+  void engine?.stop()
 }
 
 /** The harness's secrets, which no engine process (and so no agent's shell) is handed (TI-10). */

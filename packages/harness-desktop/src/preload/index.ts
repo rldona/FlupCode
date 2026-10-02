@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron"
 import type { RemoteHostBridge, RemoteHostState, SpeechBridge, SpeechEvent } from "@flupcode/remote"
+import type { ChildState } from "@flupcode/remote/supervisor"
 
 const remote: RemoteHostBridge = {
   state: () => ipcRenderer.invoke("flupcode:remote-state"),
@@ -12,6 +13,18 @@ const remote: RemoteHostBridge = {
     const handler = (_event: Electron.IpcRendererEvent, state: RemoteHostState) => listener(state)
     ipcRenderer.on("flupcode:remote-changed", handler)
     return () => ipcRenderer.removeListener("flupcode:remote-changed", handler)
+  },
+}
+
+// The engine and the harness the app started, as their supervisor sees them (HE-03).
+const children = {
+  state: () => ipcRenderer.invoke("flupcode:children") as Promise<ChildState[]>,
+  restart: (name: string) => ipcRenderer.invoke("flupcode:restart-child", name) as Promise<void>,
+  copyDiagnostics: () => ipcRenderer.invoke("flupcode:copy-diagnostics") as Promise<boolean>,
+  onChange: (listener: (states: ChildState[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, states: ChildState[]) => listener(states)
+    ipcRenderer.on("flupcode:children-changed", handler)
+    return () => ipcRenderer.removeListener("flupcode:children-changed", handler)
   },
 }
 
@@ -52,6 +65,7 @@ contextBridge.exposeInMainWorld("flupcode", {
   // A link in the transcript opens the reader's real browser, never the sandboxed renderer.
   openExternal: (url: string) => ipcRenderer.invoke("flupcode:open-external", url) as Promise<boolean>,
   remote,
+  children,
   ...(speech ? { speech } : {}),
   ...(engineAuth ? { engineAuth } : {}),
   ...(browserToken ? { browserToken } : {}),

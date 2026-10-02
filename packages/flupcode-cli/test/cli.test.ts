@@ -340,6 +340,42 @@ describe("flupcode serve", () => {
   }, 60_000)
 })
 
+describe("flupcode serve supervises its engine (HE-03)", () => {
+  test("an engine that stops is started again behind the same address, and its output is kept", async () => {
+    const { bin, binary } = fakeOpenCodeV2()
+    const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
+    const port = freePort()
+    try {
+      const served = cliWith({ FLUPCODE_OPENCODE: binary, XDG_DATA_HOME: data }, "serve", "--port", String(port))
+      const out = reader(served.stdout)
+      await out.wait(/for FlupCode's web app at/)
+      const pidFile = join(data, "flupcode", "engine.pid")
+      const first = JSON.parse(readFileSync(pidFile, "utf8")).pid as number
+      process.kill(first, "SIGKILL")
+      await out.wait(/engine stopped \(was stopped by SIGKILL\), restarting/)
+      await out.wait(/engine is back/)
+      expect(JSON.parse(readFileSync(pidFile, "utf8")).pid).not.toBe(first)
+      const page = await fetch(`http://127.0.0.1:${port}/api/info`, { headers: { origin: "https://app.flupcode.com" } })
+      expect(page.status).toBe(200)
+      const log = readFileSync(join(data, "flupcode", "logs", "engine.log"), "utf8")
+      expect(log).toContain("restarting in")
+
+      const report = cliWith({ XDG_DATA_HOME: data }, "diagnostics")
+      const text = await new Response(report.stdout).text()
+      expect(await report.exited).toBe(0)
+      expect(text).toContain("# FlupCode diagnostics")
+      expect(text).toContain("## Log: engine")
+      expect(text).toContain("was stopped by SIGKILL; restarting in")
+      served.kill("SIGINT")
+      expect(await served.exited).toBe(0)
+      expect(existsSync(pidFile)).toBe(false)
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+      rmSync(data, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
 describe("flupcode serve --install", () => {
   // Nothing is loaded here: FLUPCODE_SERVICE_MANAGER=none writes the file a real install would load.
   test("writes the login service that runs flupcode serve, and --uninstall removes it", async () => {

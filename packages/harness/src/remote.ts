@@ -14,6 +14,7 @@ import {
   type SpeechBridge,
   type TunnelClient,
 } from "@flupcode/remote"
+import type { ChildState } from "@flupcode/remote/supervisor"
 import { readStorage, STORAGE_KEYS, writeStorage } from "./storage"
 import { setEngineTransport, type EngineTransport } from "./transport"
 import { currentSubscription, disablePush, enablePush } from "./push"
@@ -53,6 +54,13 @@ declare global {
       openPath?: (path: string, app?: string) => Promise<void>
       /** Open an http(s) URL in the system browser. Desktop only; the web build uses `window.open`. */
       openExternal?: (url: string) => Promise<boolean>
+      /** The engine and the harness server the desktop app started, as its supervisor sees them (HE-03). */
+      children?: {
+        state: () => Promise<ChildState[]>
+        restart: (name: string) => Promise<void>
+        copyDiagnostics: () => Promise<boolean>
+        onChange: (listener: (states: ChildState[]) => void) => () => void
+      }
     }
   }
 }
