@@ -177,10 +177,12 @@ const browserRequest = (
     }),
   )
 
-/** The bytes behind a screenshot artifact, read back through the route the UI would use. */
-const screenshotBytes = async (handler: Handler, id: string, label: string) => {
-  const response = await browserRequest(handler, "screenshot", id, { body: { label } })
-  const artifactId = (await response.json()).data.artifactId
+/**
+ * The bytes behind a screenshot artifact, read back through the route the UI would use. The capture
+ * itself is the runtime's: only an approved action takes one (BU-01).
+ */
+const screenshotBytes = async (handler: Handler, runtime: BrowserRuntime, id: string, label: string) => {
+  const artifactId = (await runtime.screenshot(id, label)).artifactId
   const raw = await handler(
     new Request(`http://x/harness/artifacts/${artifactId}/raw`, { headers: { authorization: `Bearer ${TOKEN}` } }),
   )
@@ -575,9 +577,9 @@ describe("driving a real browser", () => {
         await runtime.navigate(id, maskURL(field))
         if (protectSelector) runtime.protect(id, { selector: protectSelector, value: "site-password" })
         await runtime.type(id, `#${field}`, "ab")
-        const short = await screenshotBytes(handler, id, "short")
+        const short = await screenshotBytes(handler, runtime, id, "short")
         await runtime.type(id, `#${field}`, "abcdefghijklmnop")
-        const long = await screenshotBytes(handler, id, "long")
+        const long = await screenshotBytes(handler, runtime, id, "long")
         return { short, long }
       }
 
@@ -698,8 +700,7 @@ describe("driving a real browser", () => {
       // The fixture copies the query value into `document.title`.
       await runtime.navigate("s1", `${base}reflect?value=${encodeURIComponent(secret)}`)
 
-      const shot = await browserRequest(handler, "screenshot", "s1", { body: {} })
-      const artifactId = (await shot.json()).data.artifactId
+      const artifactId = (await runtime.screenshot("s1")).artifactId
       const artifact = repository.getArtifact(artifactId)
       expect(artifact?.title).not.toContain(secret)
       expect(artifact?.title).toBe("[redacted]")
@@ -1013,14 +1014,14 @@ describe("the live view's control (WA-6)", () => {
     "stores a frame and announces it, but a polled frame is not announced",
     async () => {
       const server = fixture()
-      const { handler, repository } = open(server)
+      const { handler, repository, runtime } = open(server)
       const frames: string[] = []
       const unsubscribe = repository.subscribe((entry) => {
         if (entry.event.type === "browser.frame") frames.push(entry.event.artifactId)
       })
 
       await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
-      await browserRequest(handler, "screenshot", "s1", { body: { label: "step" } })
+      await runtime.screenshot("s1", "step")
       const polled = await browserRequest(handler, "frame", "s1", { method: "GET", query: "?store=0" })
       expect(polled.headers.get("content-type")).toBe("image/png")
       unsubscribe()

@@ -11,6 +11,8 @@ import type { ActionInputKind, ActionProfile } from "./actions"
 import { createActionApprover } from "./action-approval"
 import { ActionRunError, createActionRunner, toActionErrorBody } from "./action-runner"
 import type { ActionCatalogProfile, ActionRunRequest } from "./action-runner"
+import { approvedRunner } from "./action-permit.fixture"
+import { createBrowserPolicy } from "./browser-policy"
 import { createHarnessHandler } from "./api"
 import { createBrowserRuntime } from "./browser"
 import type { BrowserRuntime, BrowserStartInput } from "./browser"
@@ -678,7 +680,7 @@ describe("running action recipes", () => {
     profiles: Record<string, unknown>,
     credentials: ActionCredentialResolver = unavailableActionCredentialResolver,
   ) =>
-    createActionRunner({
+    approvedRunner({
       browser: runtime,
       repository,
       credentials,
@@ -1468,6 +1470,7 @@ describe("the action HTTP routes", () => {
     const runtime = createBrowserRuntime({ repository })
     const actions = createActionRunner({
       browser: runtime,
+      policy: createBrowserPolicy(repository),
       repository,
       credentials: unavailableActionCredentialResolver,
       loadProfiles: () => ({ configDir: root, profiles, scopes: {}, guardDirs: {} }),
@@ -1556,6 +1559,7 @@ describe("the action HTTP routes", () => {
           run: async () => {
             throw new Error(leaked)
           },
+          policy: createBrowserPolicy(repository),
         },
       },
     )
@@ -1660,8 +1664,8 @@ describe("a run needs the server's own approval (TI-09)", () => {
       actions: actions as never,
       actionApprover: createActionApprover({
         actions,
+        policy: createBrowserPolicy(repository),
         ask: async () => answers.shift(),
-        file: join(mkdtempSync(join(tmpdir(), "fc-approval-")), "approvals.json"),
       }),
     })
     const post = (path: string, body: unknown) =>

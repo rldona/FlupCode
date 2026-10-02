@@ -20,6 +20,8 @@ import { substituteActionTemplate, validateActionProfile } from "./actions"
 import type { ActionInputKind, ActionProfile, ActionStep, ActionStepName } from "./actions"
 import type { ActionProfilesSource, ActionProfileScope } from "./config-files"
 import type { SqliteRoutineRepository } from "./repository"
+import { UNTRUSTED_NOTICE, profileTier, stepTier, tierRank } from "./browser-policy"
+import type { BrowserPermit, BrowserPolicy, BrowserTier, DecideInput } from "./browser-policy"
 
 export const MAX_STEP_ATTEMPTS = 2
 export const RETRY_DELAY_MS = 250
@@ -69,6 +71,11 @@ export type ActionRunRequest = {
    */
   runID?: string
   taskID?: string
+  /**
+   * What the browser policy issued for this run (BU-01): a run that drives a page spends it before the
+   * browser opens, and a run without one drives nothing. The editor's preview asks the policy itself.
+   */
+  permit?: BrowserPermit
   /** The run was stopped: refuse between steps instead of driving a browser nobody is watching. */
   stopped?: () => boolean
   /**
@@ -104,6 +111,8 @@ export type ActionRunResult = {
   steps: ActionStepReport[]
   evidence: string[]
   extract?: Record<string, string>
+  /** The page's title, URL, extracts and screenshots are data from the site, never instructions (BU-01). */
+  notice: string
 }
 
 export type ActionDryRunResult = {
@@ -130,6 +139,7 @@ export type ActionPreviewResult = {
   startedAt: number
   finishedAt: number
   steps: ActionStepReport[]
+  notice: string
 }
 
 /** A profile as the catalogue lists it, with the layer that declared it (WA-8). */
@@ -143,10 +153,14 @@ export type ActionRunner = {
     rejected: Array<{ id: string; code: string; message: string }>
   }
   run(input: ActionRunRequest): Promise<ActionRunResult | ActionDryRunResult | ActionPreviewResult>
+  /** The policy its drives answer to, which an unattended run asks before it starts one (BU-01). */
+  policy: Pick<BrowserPolicy, "decide">
 }
 
 export type ActionRunnerOptions = {
   browser: BrowserRuntime
+  /** Every drive is the policy's decision (BU-01): the runner spends its permit and logs what it did. */
+  policy: Pick<BrowserPolicy, "decide" | "answer" | "spend" | "recordAction">
   repository: Pick<SqliteRoutineRepository, "addArtifact" | "getArtifact">
   credentials: ActionCredentialResolver
   loadProfiles: (input?: ActionListInput) => ActionProfilesSource
@@ -205,7 +219,7 @@ export const toActionErrorBody = (error: ActionRunError) => ({
 })
 
 export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
-  const { browser, repository, credentials, loadProfiles } = options
+  const { browser, repository, credentials, loadProfiles, policy } = options
   const fallbackEvidence = options.defaultEvidence ?? "each"
 
   const list = (input?: ActionListInput) => {
@@ -270,14 +284,63 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
           steps: profile.steps.map((step, index) => plannedReport(step, index)),
         }
 
-      if (input.preview === true) return await previewDrive(profile, resolved, input)
+      if (input.preview === true) return await policed(profile, input, previewTier(profile), () => previewDrive(profile, resolved, input))
 
-      return await drive(profile, resolved, input, secrets)
+      return await policed(profile, input, profileTier(profile), () => drive(profile, resolved, input, secrets))
     } finally {
       resolved.cleanup()
       // A scheduled action is one shot: closing here releases the project before the task is
       // written down, and a failure closes just the same. Interactive calls keep their window.
       if (input.closeOnFinish === true) await browser.close(input.sessionID).catch(() => undefined)
+    }
+  }
+
+  /**
+   * The drive, under the policy (BU-01). A run spends the permit its approval carried; the editor's
+   * preview, which only the app's own token can ask for, is the person's own request, so the policy is
+   * asked and a blocked site still refuses it. What happened is logged either way, with the last
+   * piece of evidence it left.
+   */
+  const policed = async <T extends ActionRunResult | ActionPreviewResult>(
+    profile: ActionProfile,
+    input: ActionRunRequest,
+    tier: BrowserTier,
+    act: () => Promise<T>,
+  ): Promise<T> => {
+    const question: DecideInput = {
+      origin: profile.origin,
+      tier,
+      action: profile.id,
+      ...(input.runID ? { runId: input.runID } : { sessionId: input.sessionID }),
+      ...(input.taskID ? { taskId: input.taskID } : {}),
+    }
+    const verdict = input.preview === true ? policy.decide(question) : undefined
+    const permit =
+      verdict === undefined
+        ? input.permit
+        : verdict.decision === "deny"
+          ? undefined
+          : (verdict.permit ?? policy.answer(question, "once", "person"))
+    if (!policy.spend(permit, { origin: profile.origin, tier }))
+      throw new ActionRunError({
+        code: verdict?.decision === "deny" ? "blocked" : "approval_required",
+        status: 403,
+        message: verdict?.decision === "deny" ? verdict.reason : "This run was not approved by the browser policy.",
+        action: profile.id,
+      })
+    try {
+      const result = await act()
+      const last = "evidence" in result ? result.evidence.at(-1) : undefined
+      policy.recordAction(question, { outcome: "success", ...(last ? { artifactID: last } : {}) })
+      return result
+    } catch (cause) {
+      const last = cause instanceof ActionRunError ? cause.evidence.at(-1) : undefined
+      policy.recordAction(question, {
+        outcome: cause instanceof ActionRunError && cause.code === "stopped" ? "stopped" : "failed",
+        detail: messageOf(cause),
+        ...(last ? { artifactID: last } : {}),
+      })
+      throw cause
     }
   }
 
@@ -428,7 +491,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
           kind: "log",
           title: `${profile.id}:text`,
           producer: "harness",
-          content: redactSecrets(snapshot.text, secrets),
+          content: `${UNTRUSTED_NOTICE}\n\n${redactSecrets(snapshot.text, secrets)}`,
           ...(input.runID ? { runID: input.runID } : {}),
           ...(input.taskID ? { taskID: input.taskID } : {}),
         })
@@ -448,6 +511,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
         steps,
         evidence,
         ...(extract !== undefined ? { extract } : {}),
+        notice: UNTRUSTED_NOTICE,
       }
     } finally {
       // The run is over, whichever way it ended: a window somebody asked for no longer has a step
@@ -529,6 +593,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
         startedAt,
         finishedAt: Date.now(),
         steps,
+        notice: UNTRUSTED_NOTICE,
       }
     } finally {
       // A failed reveal must not skip the close below, which is what frees the project's reservation.
@@ -539,7 +604,15 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
     }
   }
 
-  return { list, run }
+  return { list, run, policy }
+}
+
+/** The tier of what a preview drives: the steps before its cut (BU-01). */
+const previewTier = (profile: ActionProfile): BrowserTier => {
+  const cut = profile.steps.findIndex(isEffectStep)
+  return (cut === -1 ? profile.steps : profile.steps.slice(0, cut))
+    .map(stepTier)
+    .reduce<BrowserTier>((top, tier) => (tierRank(tier) > tierRank(top) ? tier : top), "read")
 }
 
 /** The steps that change the page: where a preview stops before it runs one (WA-8). */

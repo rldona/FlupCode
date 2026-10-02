@@ -11,7 +11,8 @@ import type {
   UsagePurpose,
 } from "./usage-ledger"
 import { safeEvent } from "./stream"
-import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
+import type { BrowserTier } from "./browser-policy"
 import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, sep } from "node:path"
 import {
@@ -40,6 +41,8 @@ import type {
 import type {
   ActionTaskInput,
   BrowserAllowRule,
+  BrowserAuditEntry,
+  BrowserGrant,
   Routine,
   RoutineCreateOptions,
   Artifact,
@@ -756,6 +759,25 @@ function readTags(value: string | null): string[] {
 
 type StashedPromptRow = { id: string; text: string; created_at: number }
 
+type BrowserGrantRow = { id: string; origin: string; tier: string; scope: string; session_id: string | null; created_at: number }
+
+type BrowserAuditRow = {
+  id: string
+  at: number
+  kind: string
+  origin: string
+  tier: string
+  decision: string | null
+  scope: string | null
+  outcome: string | null
+  reason: string | null
+  action: string | null
+  session_id: string | null
+  run_id: string | null
+  task_id: string | null
+  artifact_id: string | null
+}
+
 const decodeStash = (row: StashedPromptRow): StashedPrompt => ({
   id: row.id,
   text: row.text,
@@ -1447,7 +1469,64 @@ export class SqliteRoutineRepository implements RoutineRepository {
           this.addColumn("tasks", "require_verdict", "TEXT")
         },
       },
+      {
+        // The browser policy (BU-01): standing grants per origin and tier, and the audit of every
+        // decision and action. The "always" answers the web-action approver kept in
+        // `action-approvals.json` beside the database become grants: a bare origin was a read-only
+        // action's consent, so it is kept as "open and read pages" there. An `origin:action` entry
+        // was a sensitive action's, which now asks every time, so it is not carried over. The file
+        // itself is left where it is.
+        version: 10,
+        name: "browser-policy",
+        rewrites: true,
+        up: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS browser_grants (
+              id TEXT PRIMARY KEY,
+              origin TEXT NOT NULL,
+              tier TEXT NOT NULL,
+              scope TEXT NOT NULL,
+              session_id TEXT,
+              created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS browser_grants_origin ON browser_grants(origin);
+            CREATE TABLE IF NOT EXISTS browser_audit (
+              id TEXT PRIMARY KEY,
+              at INTEGER NOT NULL,
+              kind TEXT NOT NULL,
+              origin TEXT NOT NULL,
+              tier TEXT NOT NULL,
+              decision TEXT,
+              scope TEXT,
+              outcome TEXT,
+              reason TEXT,
+              action TEXT,
+              session_id TEXT,
+              run_id TEXT,
+              task_id TEXT,
+              artifact_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS browser_audit_run ON browser_audit(run_id, at);
+            CREATE INDEX IF NOT EXISTS browser_audit_session ON browser_audit(session_id, at);
+          `)
+          for (const origin of this.legacyActionApprovals())
+            this.addBrowserGrant({ origin, tier: "navigate", scope: "always" })
+        },
+      },
     ]
+  }
+
+  /** The bare origins the web-action approver remembered before BU-01, if its file is there. */
+  private legacyActionApprovals(): string[] {
+    if (this.path === ":memory:") return []
+    const file = join(dirname(this.path), "action-approvals.json")
+    if (!existsSync(file)) return []
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"))
+    const always = parsed && typeof parsed === "object" && "always" in parsed ? parsed.always : undefined
+    if (!Array.isArray(always)) return []
+    return always.filter(
+      (entry): entry is string => typeof entry === "string" && URL.canParse(entry) && new URL(entry).origin === entry,
+    )
   }
 
   private migrateReferentialIntegrity() {
@@ -3250,6 +3329,96 @@ export class SqliteRoutineRepository implements RoutineRepository {
          ON CONFLICT(session_id) DO UPDATE SET engine_updated = excluded.engine_updated, reconciled_at = excluded.reconciled_at`,
       )
       .run(sessionID, engineUpdated, now)
+  }
+
+  // ---- browser policy (BU-01) -------------------------------------------------------------------
+
+  listBrowserGrants(): BrowserGrant[] {
+    const rows = this.db.query("SELECT * FROM browser_grants ORDER BY created_at, rowid").all() as BrowserGrantRow[]
+    return rows.map((row) => ({
+      id: row.id,
+      origin: row.origin,
+      tier: row.tier as BrowserTier,
+      scope: row.scope === "session" ? "session" : "always",
+      ...(row.session_id ? { sessionID: row.session_id } : {}),
+      createdAt: row.created_at,
+    }))
+  }
+
+  /** A grant, or the one already standing for the same origin, tier, scope and session. */
+  addBrowserGrant(input: Omit<BrowserGrant, "id" | "createdAt">, now = Date.now()): BrowserGrant {
+    const existing = this.listBrowserGrants().find(
+      (grant) =>
+        grant.origin === input.origin &&
+        grant.tier === input.tier &&
+        grant.scope === input.scope &&
+        grant.sessionID === input.sessionID,
+    )
+    if (existing) return existing
+    const grant: BrowserGrant = { id: crypto.randomUUID(), ...input, createdAt: now }
+    this.db
+      .query("INSERT INTO browser_grants (id, origin, tier, scope, session_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+      .run(grant.id, grant.origin, grant.tier, grant.scope, grant.sessionID ?? null, now)
+    return grant
+  }
+
+  removeBrowserGrant(id: string) {
+    return this.db.query("DELETE FROM browser_grants WHERE id = ?1").run(id).changes > 0
+  }
+
+  /** One audit line, kept in `browser_audit` and appended to the event log for its run. */
+  recordBrowserAudit(input: Omit<BrowserAuditEntry, "id" | "at">, now = Date.now()): BrowserAuditEntry {
+    const entry: BrowserAuditEntry = { id: crypto.randomUUID(), at: now, ...input }
+    this.db
+      .query(
+        `INSERT INTO browser_audit (id, at, kind, origin, tier, decision, scope, outcome, reason, action, session_id, run_id, task_id, artifact_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
+      )
+      .run(
+        entry.id,
+        now,
+        entry.kind,
+        entry.origin,
+        entry.tier,
+        entry.decision ?? null,
+        entry.scope ?? null,
+        entry.outcome ?? null,
+        entry.reason ?? null,
+        entry.action ?? null,
+        entry.sessionID ?? null,
+        entry.runID ?? null,
+        entry.taskID ?? null,
+        entry.artifactID ?? null,
+      )
+    this.append({ type: "browser.audit", entry }, now)
+    return entry
+  }
+
+  /** The newest audit lines first, for a run, a session, or all of them. */
+  listBrowserAudit(filter: { runID?: string; sessionID?: string; limit?: number } = {}): BrowserAuditEntry[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM browser_audit
+          WHERE (?1 IS NULL OR run_id = ?1) AND (?2 IS NULL OR session_id = ?2)
+          ORDER BY at DESC, rowid DESC LIMIT ?3`,
+      )
+      .all(filter.runID ?? null, filter.sessionID ?? null, filter.limit ?? 100) as BrowserAuditRow[]
+    return rows.map((row) => ({
+      id: row.id,
+      at: row.at,
+      kind: row.kind as BrowserAuditEntry["kind"],
+      origin: row.origin,
+      tier: row.tier as BrowserTier,
+      ...(row.decision ? { decision: row.decision as NonNullable<BrowserAuditEntry["decision"]> } : {}),
+      ...(row.scope ? { scope: row.scope as NonNullable<BrowserAuditEntry["scope"]> } : {}),
+      ...(row.outcome ? { outcome: row.outcome as NonNullable<BrowserAuditEntry["outcome"]> } : {}),
+      ...(row.reason ? { reason: row.reason } : {}),
+      ...(row.action ? { action: row.action } : {}),
+      ...(row.session_id ? { sessionID: row.session_id } : {}),
+      ...(row.run_id ? { runID: row.run_id } : {}),
+      ...(row.task_id ? { taskID: row.task_id } : {}),
+      ...(row.artifact_id ? { artifactID: row.artifact_id } : {}),
+    }))
   }
 
   /** A session's billable facts, in the order they were stored. */

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { createActionRunner, ActionRunError } from "./action-runner"
+import { approvedRunner } from "./action-permit.fixture"
 import type { BrowserRuntime } from "./browser"
 import { createHarnessServer } from "./index"
 import { SqliteRoutineRepository } from "./repository"
@@ -463,7 +464,7 @@ describe("the runner's credential prefetch", () => {
   })
 
   const runnerWith = (browser: BrowserRuntime, repository: SqliteRoutineRepository, vault: CredentialVault) =>
-    createActionRunner({
+    approvedRunner({
       browser,
       repository,
       credentials: vault,

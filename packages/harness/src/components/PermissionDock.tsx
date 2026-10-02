@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
-import type { PermissionV2Request, SessionMessageInfo } from "../engine-types"
+import type { PermissionV2Request, QuestionV2Request, SessionMessageInfo } from "../engine-types"
+import type { BrowserApproval, BrowserTier } from "../types"
 import { t } from "../i18n"
 import { alwaysScope, permissionPreview, previewImage, type PermissionPreview } from "../permission-preview"
 import { diffLines, highlight, highlightDiff } from "../highlight"
@@ -198,3 +199,130 @@ export const PermissionDock: Component<PermissionDockProps> = (props) => {
     </div>
   )
 }
+
+/** What a tier lets the agent do, in the words the approval and the settings use (BU-01). */
+export const TIER_WORDS: Record<BrowserTier, string> = {
+  read: "read pages",
+  navigate: "open and read pages",
+  interact: "click and type",
+  sensitive: "send forms, upload files or sign in",
+}
+
+type BrowserApprovalDockProps = {
+  request: QuestionV2Request
+  approval: BrowserApproval
+  busy: boolean
+  /** Answers with the label of the option picked, which the form maps back to its value. */
+  onAnswer: (label: string) => void
+}
+
+/**
+ * A browser approval (BU-01): the server asked whether the agent may act on a site, as a form. It
+ * names the site, what the agent would do there in plain words, and how long each answer lasts; the
+ * per-site "always" is one click, so reading a site the reader trusts is not asked again.
+ */
+export const BrowserApprovalDock: Component<BrowserApprovalDockProps> = (props) => {
+  const option = (value: string) => props.approval.options.find((entry) => entry.value === value)
+  const answer = (value: string) => {
+    const picked = option(value)
+    if (picked) props.onAnswer(picked.label)
+  }
+  const what = () => t(TIER_WORDS[props.approval.tier])
+  const sensitive = () => props.approval.tier === "sensitive"
+  const reading = () => props.approval.tier === "read" || props.approval.tier === "navigate"
+  const always = () => (
+    <Show when={option("always")}>
+      <button
+        class="fc-button"
+        classList={{ "fc-button-primary": reading() }}
+        type="button"
+        disabled={props.busy}
+        onClick={() => answer("always")}
+      >
+        {t("Always allow on {site}", { site: props.approval.site })}
+        <span class="fc-permission-scope">{what()}</span>
+      </button>
+    </Show>
+  )
+  return (
+    <div class="fc-dock fc-dock-permission fc-browser-approval" data-tier={props.approval.tier}>
+      <div class="fc-dock-header">
+        <span class="fc-dock-title">{t("Permission required")}</span>
+        <span class="fc-permission-browser-head">
+          <span class="fc-chip">{t("Agent browser")}</span>
+          <Show when={sensitive()}>
+            <span class="fc-chip fc-permission-sensitive">{t("Sensitive")}</span>
+          </Show>
+        </span>
+      </div>
+      <div class="fc-permission-preview fc-permission-browser">
+        <p class="fc-browser-approval-ask">
+          {t("Let the agent {what} on {site}?", { what: what(), site: props.approval.site })}
+        </p>
+        <dl class="fc-permission-browser-facts">
+          <dt>{t("Origin")}</dt>
+          <dd class="fc-permission-browser-origin">{props.approval.origin}</dd>
+          <Show when={props.approval.action}>
+            <dt>{t("Action")}</dt>
+            <dd>{props.approval.action}</dd>
+          </Show>
+        </dl>
+        <Show when={props.request.questions[0]?.question}>
+          {(text) => <p class="fc-permission-browser-desc">{text()}</p>}
+        </Show>
+        <Show when={sensitive()}>
+          <p class="fc-permission-browser-desc">{t("A sensitive action asks every time.")}</p>
+        </Show>
+      </div>
+      <div class="fc-dock-actions">
+        {/* Reading a site is what the agent asks most, so "always" leads there; anything that
+            changes a page leads with once. */}
+        <Show when={reading()}>{always()}</Show>
+        <button
+          class="fc-button"
+          classList={{ "fc-button-primary": !reading() || !option("always") }}
+          type="button"
+          disabled={props.busy}
+          onClick={() => answer("once")}
+        >
+          {t("Allow once")}
+        </button>
+        <Show when={option("session")}>
+          <button class="fc-button" type="button" disabled={props.busy} onClick={() => answer("session")}>
+            {t("Allow for this session")}
+          </button>
+        </Show>
+        <Show when={!reading()}>{always()}</Show>
+        <button class="fc-button fc-button-danger" type="button" disabled={props.busy} onClick={() => answer("deny")}>
+          {t("Deny")}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+type BrowserGrantsProps = {
+  grants: Array<{ id: string; origin: string; tier: BrowserTier; scope: "session" | "always" }>
+  onRevoke: (id: string) => void
+}
+
+/** The sites the agent may act on without asking (BU-01), each revocable. */
+export const BrowserGrants: Component<BrowserGrantsProps> = (props) => (
+  <Show when={props.grants.length > 0} fallback={<p class="fc-settings-hint">{t("No site is allowed without asking")}</p>}>
+    <ul class="fc-saved-permissions">
+      <For each={props.grants}>
+        {(grant) => (
+          <li class="fc-settings-row">
+            <span>
+              <code>{grant.origin}</code> · {t(TIER_WORDS[grant.tier])} ·{" "}
+              {grant.scope === "always" ? t("always") : t("this session")}
+            </span>
+            <button class="fc-button" type="button" onClick={() => props.onRevoke(grant.id)}>
+              {t("Revoke")}
+            </button>
+          </li>
+        )}
+      </For>
+    </ul>
+  </Show>
+)

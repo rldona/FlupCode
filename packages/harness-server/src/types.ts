@@ -14,6 +14,7 @@
 
 import type { SessionAttribution } from "./usage-ledger"
 import type { Arm } from "./adaptive/holdout"
+import type { BrowserTier } from "./browser-policy"
 import type {
   EpisodeFailure,
   EpisodeFilter,
@@ -223,6 +224,37 @@ export type BrowserAllowRule = {
   permission: "browser" | "browser_sensitive"
   pattern: string
   action: "allow"
+}
+
+/** A standing browser grant (BU-01): a tier on an origin, for one session or always. */
+export type BrowserGrant = {
+  id: string
+  origin: string
+  tier: BrowserTier
+  scope: "session" | "always"
+  sessionID?: string
+  createdAt: number
+}
+
+/**
+ * One line of the browser audit (BU-01): a policy decision, a person's answer to it, or an action
+ * the browser took, with the evidence it left.
+ */
+export type BrowserAuditEntry = {
+  id: string
+  at: number
+  kind: "decision" | "answer" | "action"
+  origin: string
+  tier: BrowserTier
+  decision?: "allow" | "ask" | "deny"
+  scope?: "once" | "session" | "always"
+  outcome?: "success" | "failed" | "stopped"
+  reason?: string
+  action?: string
+  sessionID?: string
+  runID?: string
+  taskID?: string
+  artifactID?: string
 }
 
 /**
@@ -485,6 +517,8 @@ export type ServerEvent =
   | { type: "browser.frame"; sessionID: string; artifactId: string; url: string; title: string }
   /** A browser session started, paused, resumed, taken over, stopped or closed (WA-6). */
   | { type: "browser.status"; sessionID: string; headed: boolean; paused: boolean; closed?: boolean }
+  /** A browser policy decision, answer or action (BU-01), as `browser_audit` keeps it. */
+  | { type: "browser.audit"; entry: BrowserAuditEntry }
 
 /** A way back to how a folder looked (H-15). The commit lives in the reader's own repository. */
 export type Checkpoint = {

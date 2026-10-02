@@ -150,13 +150,15 @@ export class V2Engine {
     title: string
     description: string
     options: Array<{ value: string; label: string; description?: string }>
+    /** What the app reads to show the form as something other than a plain question (BU-01). */
+    metadata?: Record<string, string>
     timeoutMs: number
   }) {
     const form = await call(
       this.client.session.form.create({
         sessionID: input.sessionID,
         title: input.title,
-        metadata: { flupcode: "choice" },
+        metadata: input.metadata ?? { flupcode: "choice" },
         fields: [
           {
             key: "choice",

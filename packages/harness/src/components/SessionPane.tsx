@@ -30,7 +30,7 @@ import { AdaptiveChip } from "./AdaptiveChip"
 import { Composer } from "./Composer"
 import { ModelSwitchDialog } from "./ModelSwitchDialog"
 import { ModelUnavailableDock } from "./ModelUnavailableDock"
-import { PermissionDock, type PermissionReply } from "./PermissionDock"
+import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
 import { SessionView } from "./SessionView"
 
@@ -435,12 +435,26 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         </For>
         <For each={questionData}>
           {(request) => (
-            <QuestionDock
-              request={request}
-              busy={busy()}
-              onReply={(answers) => replyQuestion(request, answers)}
-              onReject={() => rejectQuestion(request)}
-            />
+            <Show
+              when={request.browser}
+              fallback={
+                <QuestionDock
+                  request={request}
+                  busy={busy()}
+                  onReply={(answers) => replyQuestion(request, answers)}
+                  onReject={() => rejectQuestion(request)}
+                />
+              }
+            >
+              {(approval) => (
+                <BrowserApprovalDock
+                  request={request}
+                  approval={approval()}
+                  busy={busy()}
+                  onAnswer={(label) => replyQuestion(request, [[label]])}
+                />
+              )}
+            </Show>
           )}
         </For>
       </div>

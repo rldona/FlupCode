@@ -114,10 +114,12 @@ const dispatch = async (
   }
   // A run that can change a page is the reader's decision, made in `approve` above and spent here.
   // The editor's dry run plans without a browser and its preview stops before the first effect.
+  // The id carries the browser policy's permit (BU-01), which the runner spends before it opens a page.
   const approval = typeof body.approval === "string" ? body.approval : ""
-  if (!run.dryRun && !run.preview && !(approval && approver?.consume(approval, { ...run, action: run.action ?? "" })))
+  const permit = approval ? approver?.consume(approval, { ...run, action: run.action ?? "" }) : undefined
+  if (!run.dryRun && !run.preview && !permit)
     return error("This run was not approved. Ask for approval and run with the id it returns.", "approval_required", 403)
-  return json({ data: await actions.run(run) })
+  return json({ data: await actions.run({ ...run, ...(permit ? { permit } : {}) }) })
 }
 
 const failure = (cause: unknown): Response => {

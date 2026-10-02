@@ -5,6 +5,7 @@ import { readStorage, STORAGE_KEYS } from "./storage"
 import { anonymousFetch, engineFetch, harnessBrowserToken } from "./transport"
 import type {
   ActionCatalog,
+  BrowserGrant,
   ActionPreview,
   ActionProfileFile,
   ActionProfileScope,
@@ -525,6 +526,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           artifactId: response.headers.get("x-flupcode-artifact") ?? undefined,
         }
       },
+    },
+    // The browser policy's standing grants (BU-01): listed and revoked from the settings.
+    browserPolicy: {
+      grants: () => harnessAuthorizedJson<BrowserGrant[]>(baseUrl, "/harness/browser-policy/grants"),
+      revoke: (id: string) =>
+        harnessAuthorizedJson<{ revoked: boolean }>(baseUrl, `/harness/browser-policy/grants/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+        }),
     },
     // What a reader keeps about a session (H-18). On the server, so it travels to the phone.
     sessionPrefs: {

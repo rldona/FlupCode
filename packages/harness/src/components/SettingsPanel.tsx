@@ -10,7 +10,7 @@ import type {
   McpServer,
   ProviderDirectoryInfo,
 } from "../engine-types"
-import type { AgentFile, CommandFile, McpConfig, McpScope } from "../types"
+import type { AgentFile, BrowserGrant, CommandFile, McpConfig, McpScope } from "../types"
 import type { ConfiguredProvider, CustomProviderResult } from "../custom-provider"
 import { engineTargetVersion } from "../client"
 import { t, type Locale } from "../i18n"
@@ -25,6 +25,7 @@ import { ProvidersEditor } from "./ProvidersPanel"
 import { CommandsPanel, type CommandDraft } from "./CommandsPanel"
 import { McpEditor } from "./McpManager"
 import { PermissionsPanel } from "./PermissionsPanel"
+import { BrowserGrants } from "./PermissionDock"
 import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
@@ -56,6 +57,9 @@ type SettingsPanelProps = {
   /** Permissions the reader granted with "Allow always"; the engine applies them to every session. */
   savedPermissions: Array<{ id: string; action: string; resource: string }>
   onRevokePermission: (id: string) => void
+  /** The sites the agent may act on without asking (BU-01); absent when the server has no browser. */
+  browserGrants?: BrowserGrant[]
+  onRevokeBrowserGrant: (id: string) => void
   /** The engine's `permission` policy, as it is on disk (H-25). */
   permissionPolicy: unknown
   permissionServerAvailable: boolean
@@ -618,6 +622,17 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     onSave={props.onSavePermissionPolicy}
                     serverAvailable={props.permissionServerAvailable}
                   />
+                  <Show when={props.browserGrants}>
+                    {(grants) => (
+                      <div class="fc-settings-section">
+                        <h3 class="fc-settings-title">{t("Browser access")}</h3>
+                        <p class="fc-settings-hint">
+                          {t("Sites the agent may act on without asking. Payment, banking and sign-in sites are never allowed.")}
+                        </p>
+                        <BrowserGrants grants={grants()} onRevoke={props.onRevokeBrowserGrant} />
+                      </div>
+                    )}
+                  </Show>
                 </section>
               </Show>
 

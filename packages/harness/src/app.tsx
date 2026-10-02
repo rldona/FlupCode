@@ -105,7 +105,7 @@ import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
 import { HomeCanvas } from "./components/HomeCanvas"
 import { Composer } from "./components/Composer"
-import { PermissionDock, type PermissionReply } from "./components/PermissionDock"
+import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./components/PermissionDock"
 import { QuestionDock } from "./components/QuestionDock"
 import { CommandPalette } from "./components/CommandPalette"
 import { SessionView, setCompositionTools } from "./components/SessionView"
@@ -1846,6 +1846,19 @@ export const App: Component = () => {
     () => (ready() && settingsOpen() ? serverUrl() : undefined),
     async (url) => createClient(url).permission.saved.list(),
   )
+  // The sites the agent may act on without asking (BU-01), kept by the harness server.
+  const [browserGrants, { refetch: refetchBrowserGrants }] = createResource(
+    () => (settingsOpen() && supports("browser-policy") ? harnessServerUrl() : undefined),
+    (url) => createHarnessClient(url).browserPolicy.grants(),
+  )
+  const revokeBrowserGrant = (id: string) =>
+    void createHarnessClient(harnessServerUrl())
+      .browserPolicy.revoke(id)
+      .then(() => {
+        void refetchBrowserGrants()
+        toast(t("Permission revoked"), "success")
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   const revokePermission = (id: string) =>
     void run(async (current) => {
       await current.permission.saved.remove({ id })
@@ -5465,12 +5478,26 @@ export const App: Component = () => {
               </For>
               <For each={questionData}>
                 {(request) => (
-                  <QuestionDock
-                    request={request}
-                    busy={busy()}
-                    onReply={(answers) => replyQuestion(request, answers)}
-                    onReject={() => rejectQuestion(request)}
-                  />
+                  <Show
+                    when={request.browser}
+                    fallback={
+                      <QuestionDock
+                        request={request}
+                        busy={busy()}
+                        onReply={(answers) => replyQuestion(request, answers)}
+                        onReject={() => rejectQuestion(request)}
+                      />
+                    }
+                  >
+                    {(approval) => (
+                      <BrowserApprovalDock
+                        request={request}
+                        approval={approval()}
+                        busy={busy()}
+                        onAnswer={(label) => replyQuestion(request, [[label]])}
+                      />
+                    )}
+                  </Show>
                 )}
               </For>
             </div>
@@ -5794,6 +5821,8 @@ export const App: Component = () => {
         keybinds={keybinds()}
         savedPermissions={savedPermissions()?.data ?? []}
         onRevokePermission={revokePermission}
+        browserGrants={browserGrants.state === "errored" ? undefined : browserGrants()}
+        onRevokeBrowserGrant={revokeBrowserGrant}
         permissionPolicy={permissionPolicy()}
         permissionServerAvailable={ready()}
         onSavePermissionPolicy={savePermissionPolicy}

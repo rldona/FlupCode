@@ -2094,4 +2094,12 @@ export type QuestionV2Request = {
    */
   questions: Array<QuestionV2Info>
   tool?: QuestionV2Tool
+  /** Set when the harness asks it as a browser approval (BU-01), so the app shows the site and scope. */
+  browser?: {
+    origin: string
+    site: string
+    tier: "read" | "navigate" | "interact" | "sensitive"
+    action: string
+    options: Array<{ value: string; label: string }>
+  }
 }
