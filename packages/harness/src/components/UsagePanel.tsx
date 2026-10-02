@@ -20,6 +20,7 @@ import {
 import { formatTokens } from "../metrics"
 import { runTitle } from "../run-title"
 import { CostFigure } from "./CostFigure"
+import { BudgetsBlock } from "./BudgetsBlock"
 import { PanelFailure } from "./PanelBoundary"
 import type { Run, UsageBucket, UsageDimension, UsageGroup, UsageSummary } from "../types"
 
@@ -35,6 +36,8 @@ type UsagePanelProps = {
   /** What the app knows of runs, routines and sessions, to name the ledger's ids. */
   runs: Run[]
   routineName: (id: string) => string | undefined
+  /** The routines a standing budget can be for (UL-08). */
+  routines: Array<{ id: string; name: string }>
   sessionTitle: (id: string) => string | undefined
   onOpenRuns: () => void
   onOpenSession: (id: string) => void
@@ -288,6 +291,17 @@ export const UsagePanel: Component<UsagePanelProps> = (props) => {
             </div>
           )}
         </Show>
+
+        {/* The budgets over this spend (UL-08), under the figures they are about. Shown with nothing
+            spent yet too, so one can be set before it is needed. */}
+        <div class="fc-usage">
+          <BudgetsBlock
+            serverUrl={props.serverUrl}
+            serverAvailable={props.serverAvailable}
+            routines={props.routines}
+            workflows={[...new Set(props.runs.flatMap((run) => (run.workflow ? [run.workflow.name] : [])))]}
+          />
+        </div>
       </section>
     </Show>
   )

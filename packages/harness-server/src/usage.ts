@@ -10,6 +10,7 @@
 
 import type { SqliteRoutineRepository } from "./repository"
 import { repositoryRoot, type Billing, type CostBasis, type UsageTokens } from "./usage-ledger"
+import { runStandings } from "./budget"
 
 /**
  * Every way the ledger can be added up (audit §8.4, "Dimensiones que el ledger responde"). `session`
@@ -303,7 +304,7 @@ export function runReport(
 
 type UsageReader = Pick<
   SqliteRoutineRepository,
-  "usageTotals" | "usageSessionParents" | "usageSessionTree" | "knowsRunUsage"
+  "usageTotals" | "usageSessionParents" | "usageSessionTree" | "knowsRunUsage" | "getRun" | "budgetSpend" | "listBudgets" | "get"
 >
 
 /**
@@ -330,13 +331,23 @@ export function handleUsageRead(request: Request, path: string[], repository: Us
     const runID = path[3]
     if (!repository.knowsRunUsage(runID))
       return Response.json({ error: "Run not found", code: "not_found" }, { status: 404 })
+    const run = repository.getRun(runID)
     return Response.json({
-      data: runReport(runID, {
-        task: repository.usageTotals({ groupBy: "task", runID }),
-        purpose: repository.usageTotals({ groupBy: "purpose", runID }),
-        agent: repository.usageTotals({ groupBy: "agent", runID }),
-        model: repository.usageTotals({ groupBy: "model", runID }),
-      }),
+      data: {
+        ...runReport(runID, {
+          task: repository.usageTotals({ groupBy: "task", runID }),
+          purpose: repository.usageTotals({ groupBy: "purpose", runID }),
+          agent: repository.usageTotals({ groupBy: "agent", runID }),
+          model: repository.usageTotals({ groupBy: "model", runID }),
+        }),
+        // The budgets the run answers to and where each stands (UL-08): the card's meter. A standing
+        // budget is today's, so it says something about a run only while the run is going.
+        budgets: run
+          ? runStandings(repository, run).filter(
+              (entry) => entry.scope === "run" || run.status === "running" || run.status === "awaiting",
+            )
+          : [],
+      },
     })
   }
   return undefined

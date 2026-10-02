@@ -499,7 +499,12 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   learning.start()
   // The usage ledger converges on what the engine kept (UL-03): every session at the first pass, which
   // is also the one-time backfill, then each session that went idle since.
-  const usage = createUsageReconciler({ repository, engine: scheduler.engine, classify: usagePricing.classify })
+  const usage = createUsageReconciler({
+    repository,
+    engine: scheduler.engine,
+    classify: usagePricing.classify,
+    onStored: (sessionID) => scheduler.checkBudgets([sessionID]),
+  })
   usage.start()
   void runtimeProbe.refresh()
   const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)

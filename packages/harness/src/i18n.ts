@@ -1445,6 +1445,34 @@ const ES: Record<string, string> = {
   "Paused at its budget": "En pausa al llegar a su presupuesto",
   "Carry on": "Continuar",
 
+  // Budgets as policy (UL-08)
+  Budget: "Presupuesto",
+  Budgets: "Presupuestos",
+  "Today's budget (cost)": "Presupuesto de hoy (coste)",
+  "Today's budget (tokens)": "Presupuesto de hoy (tokens)",
+  "{name}, daily budget (cost)": "{name}, presupuesto diario (coste)",
+  "{name}, daily budget (tokens)": "{name}, presupuesto diario (tokens)",
+  "{spent} of {limit}": "{spent} de {limit}",
+  "{spent} of {limit} tokens": "{spent} de {limit} tokens",
+  "{count} unpriced model calls not counted": "{count} llamadas al modelo sin precio no contadas",
+  "Warn at (%)": "Avisar al (%)",
+  "Warn once when a run has spent this share of its budget":
+    "Avisa una vez cuando una ejecución ha gastado esta parte de su presupuesto",
+  "warns at {pct}%": "avisa al {pct}%",
+  "{budget} reached: {amount}": "{budget} alcanzado: {amount}",
+  "{budget} nearly spent: {amount}": "{budget} casi gastado: {amount}",
+  "Spend over a day, from the usage ledger. Reaching one stops the runs it covers at the step that crossed it; a conversation is warned, not stopped.":
+    "Gasto por día, según el registro de uso. Al alcanzar uno se paran las ejecuciones que cubre en el paso que lo cruzó; una conversación recibe un aviso, no se para.",
+  "A budget needs a limit above zero": "Un presupuesto necesita un límite mayor que cero",
+  "Pick what the budget is for": "Elige para qué es el presupuesto",
+  "Everything, per day": "Todo, por día",
+  "A workflow, per day": "Un flujo de trabajo, por día",
+  "A routine, per day": "Una rutina, por día",
+  "Choose a routine": "Elige una rutina",
+  Unit: "Unidad",
+  "Cost (USD)": "Coste (USD)",
+  Limit: "Límite",
+
   // Exporting a conversation (H-35)
   "Export conversation": "Exportar la conversación",
   "This conversation": "Esta conversación",

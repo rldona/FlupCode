@@ -45,6 +45,8 @@ import type {
   TouchedFiles,
   UsageDimension,
   UsageRunReport,
+  Budget,
+  BudgetInput,
   UsageSessionReport,
   UsageSummary,
   SessionMetricTurn,
@@ -909,6 +911,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
     /** A run's cost by task, purpose, agent and model (UL-05). */
     runUsage: (runID: string) =>
       harnessRequest<UsageRunReport>(baseUrl, `/harness/usage/runs/${encodeURIComponent(runID)}`),
+    /** Standing budgets over a day (UL-08): today's, a workflow's, a routine's, each with today's spend. */
+    budgets: {
+      list: () => harnessRequest<Budget[]>(baseUrl, "/harness/budgets"),
+      save: (input: BudgetInput) =>
+        harnessRequest<Budget>(baseUrl, "/harness/budgets", { method: "PUT", body: JSON.stringify(input) }),
+      remove: (id: string) =>
+        harnessRequest<boolean>(baseUrl, `/harness/budgets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
     /**
      * Checkpoints (H-15): a way back from what a run did.
      *

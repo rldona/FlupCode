@@ -11780,6 +11780,129 @@ button.fc-status {
   margin: 6px 0 0;
 }
 
+/*
+ * A budget as a meter (UL-08): its name, the bar, what was spent of it. The fill is the accent while
+ * under, the warning colour past its warning share and the danger colour at the limit; the tick is
+ * the warning share. On a narrow card the figure wraps under the bar instead of squeezing it.
+ */
+.fc-budget-meters {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.fc-budget-meter {
+  display: grid;
+  /* One label width for every meter, so the bars of a card or a list line up. */
+  grid-template-columns: minmax(0, 12rem) minmax(80px, 1fr) max-content;
+  gap: 4px var(--fc-space-3);
+  align-items: center;
+  font-size: 13px;
+  --fc-budget-fill: var(--fc-accent);
+}
+
+.fc-budget-meter[data-level="soft"] {
+  --fc-budget-fill: var(--fc-warning);
+}
+
+.fc-budget-meter[data-level="hard"] {
+  --fc-budget-fill: var(--fc-danger);
+}
+
+.fc-budget-meter-label {
+  color: var(--fc-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.fc-budget-meter-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fc-text-muted) 18%, transparent);
+  overflow: hidden;
+}
+
+.fc-budget-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--fc-budget-fill);
+  border-radius: inherit;
+}
+
+.fc-budget-meter-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--fc-text);
+  opacity: 0.55;
+}
+
+.fc-budget-meter-figure {
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-budget-meter[data-level="hard"] .fc-budget-meter-figure {
+  color: var(--fc-danger);
+}
+
+.fc-budget-meter-note {
+  grid-column: 1 / -1;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+}
+
+/* The Cost screen's standing budgets (UL-08): a meter per budget with its remove button, then a row
+   to add one that wraps on a narrow screen. */
+.fc-budget-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.fc-budget-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: var(--fc-space-3);
+  align-items: center;
+}
+
+.fc-budget-row .fc-budget-meters {
+  margin: 0;
+}
+
+.fc-budget-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px var(--fc-space-4);
+  align-items: center;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--fc-border);
+}
+
+.fc-budget-form input {
+  width: 7em;
+  padding: 4px 8px;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-budget-problem {
+  color: var(--fc-danger);
+}
+
+@media (max-width: 560px) {
+  .fc-budget-meter {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .fc-budget-meter-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 /* ── What a task is doing, and what it changed (H-12) ─────────────────────── */
 
 .fc-run-doing {

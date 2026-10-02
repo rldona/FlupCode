@@ -8,7 +8,8 @@ import { take, type Checkpoint } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { packFiles, packRefs, expandArtifactRefs } from "./packs"
 import { parsePlan } from "./plan"
-import { budgetReason, fallbackModel, modelForTask } from "./policy"
+import { fallbackModel, modelForTask } from "./policy"
+import { announce, hardReason, runStandings } from "./budget"
 import { ActionRunError } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
 import { BrowserError } from "./browser-driver"
@@ -224,9 +225,15 @@ function dependencies(task: Task, tasks: Task[]): string[] {
 /** What a task is waiting for, and what lets it run. */
 type Decision = { action: "run" } | { action: "wait" } | { action: "skip"; reason: string }
 
+/**
+ * How a run is driven: its folder, whether it was stopped, and which budget the scheduler stopped it
+ * at mid-step (UL-08), if one.
+ */
+export type RunOptions = { directory?: string; stopped?: () => boolean; overBudget?: () => string | undefined }
+
 type RunContext = {
   run: Run
-  options: { directory?: string; stopped?: () => boolean }
+  options: RunOptions
   stopped: () => boolean
   parentID?: string
   packRefsList: string[]
@@ -420,21 +427,25 @@ export class TaskRunner {
   }
 
   /**
-   * Whether the run has spent its budget, and should stop and ask (H-30).
+   * Whether the run has reached a budget, and should stop and ask (H-30, UL-08).
    *
-   * Summed from the tasks because that is where a token count is first written — after the turn, not
-   * during it. A run whose budget was already approved is not asked again.
+   * Read from the usage ledger, the run's own budget and every standing one that covers it, so what
+   * a task spent mid-turn, its subagents and its closing notes all count. The scheduler stops a turn
+   * at the step that crosses (`overBudget`); this is the same rule at the edges of a task, and before
+   * the first one, so a run that starts over a spent day budget spends nothing. A run somebody let
+   * past its budget is not asked again.
    */
-  private pauseForBudget(run: Run) {
-    if (run.budgetApproved || !run.policy?.budget) return false
-    const totals = this.repository
-      .listTasks(run.id)
-      .reduce((sum, task) => ({ tokens: sum.tokens + (task.tokens ?? 0), cost: sum.cost + (task.cost ?? 0) }), {
-        tokens: 0,
-        cost: 0,
-      })
-    if (!budgetReason(run.policy, totals)) return false
-    this.repository.setPaused(run.id, "budget")
+  private pauseForBudget(run: Run, context: RunContext) {
+    if (context.pause === "budget") return true
+    if (run.budgetApproved) return false
+    const halted = context.options.overBudget?.()
+    const standings = halted ? [] : runStandings(this.repository, run)
+    const reason = halted ?? hardReason(standings)
+    if (!reason) return false
+    const crossed = standings.find((entry) => entry.level === "hard")
+    if (crossed) announce(this.repository, crossed, { runID: run.id, ...(run.sessionID ? { sessionID: run.sessionID } : {}) })
+    this.repository.setPaused(run.id, "budget", reason)
+    context.pause = "budget"
     return true
   }
 
@@ -616,7 +627,7 @@ export class TaskRunner {
    */
   async execute(
     run: Run,
-    options: { directory?: string; stopped?: () => boolean } = {},
+    options: RunOptions = {},
   ): Promise<"done" | "paused" | "stopped"> {
     try {
       return await this.runGraph(run, options)
@@ -629,7 +640,7 @@ export class TaskRunner {
 
   private async runGraph(
     run: Run,
-    options: { directory?: string; stopped?: () => boolean } = {},
+    options: RunOptions = {},
   ): Promise<"done" | "paused" | "stopped"> {
     const stopped = options.stopped ?? (() => false)
     const all = this.repository.listTasks(run.id)
@@ -675,6 +686,8 @@ export class TaskRunner {
       if (queued.length === 0 && running.size === 0) break
       let started = 0
       let skipped = false
+      // A budget reached by the work in flight, or before the first task (UL-08): nothing new starts.
+      if (queued.length > 0) this.pauseForBudget(run, context)
       for (const task of queued) {
         if (running.size >= RUN_CONCURRENCY || context.failure || context.pause || context.halted) break
         const decision = this.decide(task, tasks)
@@ -759,10 +772,7 @@ export class TaskRunner {
         context.handoffs.set(task.id, evidence)
         context.directories.set(task.id, directory)
         // The checks cost time, not tokens, but the run they belong to may already be over budget.
-        if (this.pauseForBudget(run)) {
-          context.pause = "budget"
-          return
-        }
+        if (this.pauseForBudget(run, context)) return
         if (!report.ok && !stopped()) {
           // A failed check is not the end of the run if it was given a budget to try again. The
           // retry carries the evidence in its own prompt, so the handoff is cleared, not repeated.
@@ -856,7 +866,8 @@ export class TaskRunner {
       // wait on a person does — fail the task with it, or hold the run until it is answered.
       try {
         await this.engine.waitForIdle(session.id, {
-          stopped,
+          // A budget the scheduler saw crossed stops the turn the way Stop does (TI-01).
+          stopped: () => stopped() || !!context.options.overBudget?.(),
           ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
           unattended: this.unattended(run, context),
           ...(directory ? { directory } : {}),
@@ -869,6 +880,20 @@ export class TaskRunner {
       // task's session never becomes an episode of its own.
       this.episodes?.captureSession({ sessionID: session.id, runID: run.id, directory })
       const answer = await this.engine.lastAnswer(session.id)
+      // Stopped at the step that crossed a budget (UL-08): the task failed for it, and the run waits at
+      // the budget gate, where carrying on does this task again.
+      const overBudget = stopped() ? undefined : context.options.overBudget?.()
+      if (overBudget) {
+        this.repository.finishTask(task.id, "failed", {
+          output: answer?.text,
+          error: overBudget,
+          tokens: answer?.tokens,
+          cost: answer?.cost,
+        })
+        this.repository.setTaskVerdict(task.id, { value: "failed", reason: overBudget, source: "rule" })
+        this.pauseForBudget(run, context)
+        return
+      }
       // A quiet session is not a successful one (TI-02): a refused or empty turn fails the task, with
       // what the engine said as its error and what it spent kept all the same.
       const failure = stopped() ? undefined : answer?.error
@@ -888,10 +913,7 @@ export class TaskRunner {
       // A stopped run has no next task to hand anything to, and a closing note is a turn of its own.
       if (stopped()) return
       // Over budget: stop and ask, before spending on a closing note that nobody asked for.
-      if (this.pauseForBudget(run)) {
-        context.pause = "budget"
-        return
-      }
+      if (this.pauseForBudget(run, context)) return
       // What the next task starts from (H-31): a closing note, not the whole answer. The note is kept
       // as an artifact so the run can be read back, and the raw answer is the fallback when the note
       // cannot be written. A run of a single task has no next task and no thread of its own (see

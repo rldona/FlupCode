@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto"
 import { Engine } from "./engine"
 import { parseModelKey } from "./policy"
+import { announce, runStandings, standingBudgets, type BudgetStanding } from "./budget"
 import { TaskRunner, resumePoint } from "./runner"
 import { FAILED_IN_A_ROW_NOTICE, nextFiring } from "./schedule"
 import { readWorkflow, tasksFor } from "./workflow"
 import type { WorkflowFile } from "./workflow"
 import { planRestore, restore } from "./checkpoint"
-import type { BrowserAllowRule, Run, RunPolicy, RunSource, RunVerdict, RunWorkflow, TaskInput } from "./types"
+import type { BrowserAllowRule, Run, RunPolicy, RunSource, RunVerdict, RunWorkflow, Task, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 import type { ActionRunner } from "./action-runner"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
@@ -83,6 +84,12 @@ export class RoutineScheduler {
   readonly auditor?: Auditor
   private readonly owner = crypto.randomUUID()
   private readonly stopping = new Set<string>()
+  /**
+   * The runs stopped at a budget mid-step (UL-08), with the budget's reason. The runner reads it the
+   * way it reads `stopping`; a run awaiting at the gate does not outlive this process (it is failed on
+   * restart), so neither does this.
+   */
+  private readonly overBudget = new Map<string, string>()
   private timer: ReturnType<typeof setInterval> | undefined
   private ticking = false
 
@@ -269,7 +276,11 @@ export class RoutineScheduler {
     if (!run) return
     const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor)
     try {
-      const outcome = await runner.execute(run, { directory, stopped: () => this.stopping.has(runID) })
+      const outcome = await runner.execute(run, {
+        directory,
+        stopped: () => this.stopping.has(runID),
+        overBudget: () => this.overBudget.get(runID),
+      })
       if (outcome === "paused" && !this.stopping.has(runID)) return this.repository.awaitRun(runID)
       // A task the browser stopped on its own is the run called off too, even though the scheduler
       // never set its own flag (WA-7).
@@ -291,8 +302,16 @@ export class RoutineScheduler {
     // A run held for a request mid-turn (RP-05) is still driven: what lets it go is the answer.
     if (!run || run.status !== "awaiting" || run.paused === "request") return undefined
     // A budget pause is not a gate: letting it through means the budget stops being checked (H-30),
-    // or the very next check would pause it again on the same totals.
-    if (run.paused === "budget") this.repository.approveBudget(runID)
+    // or the very next check would pause it again on the same totals. A task the budget stopped
+    // mid-turn (UL-08) is done again, as a new attempt, like any retry.
+    if (run.paused === "budget") {
+      const stopped = this.repository
+        .listTasks(runID)
+        .filter((task) => task.status === "failed" && run.overBudget !== undefined && task.error === run.overBudget)
+      this.repository.approveBudget(runID)
+      this.overBudget.delete(runID)
+      if (stopped.length > 0) this.repository.addTasks(runID, stopped.map(againOf))
+    }
     if (!this.repository.resumeRun(runID)) return undefined
     void this.drive(runID, run.directory)
     return this.repository.getRun(runID)
@@ -392,25 +411,7 @@ export class RoutineScheduler {
     this.repository.requeueTasks(fresh.map((task) => task.id))
     this.repository.addTasks(
       runID,
-      point.again
-        .filter((task) => task.startedAt !== undefined)
-        .map((task) => ({
-          name: task.name,
-          prompt: task.prompt,
-          kind: task.kind,
-          ...(task.command ? { command: task.command } : {}),
-          ...(task.action ? { action: task.action } : {}),
-          agent: task.agent,
-          model: task.model,
-          ...(task.retries !== undefined ? { retries: task.retries } : {}),
-          ...(task.gate ? { gate: task.gate } : {}),
-          ...(task.dependsOn ? { dependsOn: task.dependsOn } : {}),
-          ...(task.when ? { when: task.when } : {}),
-          ...(task.foreach ? { foreach: task.foreach } : {}),
-          ...(task.require ? { require: task.require } : {}),
-          attempt: task.attempt + 1,
-          retryOf: task.id,
-        })),
+      point.again.filter((task) => task.startedAt !== undefined).map(againOf),
     )
     const run = this.repository.getRun(runID)!
     this.repository.reopenRun(runID)
@@ -432,6 +433,7 @@ export class RoutineScheduler {
     // The run's boundary (FH-002). After the report, so the episode can name it as evidence.
     this.episodes?.captureRun(runID)
     this.stopping.delete(runID)
+    this.overBudget.delete(runID)
   }
 
   /**
@@ -476,6 +478,48 @@ export class RoutineScheduler {
       runID,
       sessionID: run.sessionID,
     })
+  }
+
+  /**
+   * Holds what the ledger just stored against every budget it touches (UL-08): called on each insert,
+   * so a budget is decided at the step that crosses it, here, where the agent cannot write (P7).
+   *
+   * The runs the sessions work for are checked against their own budgets and the standing ones that
+   * cover them; every standing budget is checked too, because a conversation spends today's budget
+   * as much as a run does. A warning is said once. A crossed limit is said once and stops every run
+   * going under it: the turn in flight is interrupted and its task fails with the budget's reason.
+   * A conversation is never interrupted: it is the person's own, so it is told, not stopped.
+   */
+  checkBudgets(sessionIDs: string[], now = Date.now()) {
+    const sessionFor = new Map<string, string>()
+    for (const sessionID of sessionIDs) {
+      const runID = this.repository.sessionBudgetScope(sessionID).runID
+      if (runID && !sessionFor.has(runID)) sessionFor.set(runID, sessionID)
+    }
+    const going = this.repository.listRunning().filter((run) => run.status === "running" && !run.budgetApproved)
+    // Today's standing budgets, once for this insert: a run's own standings repeat them per run.
+    for (const entry of standingBudgets(this.repository, now)) {
+      announce(this.repository, entry, sessionIDs[0] ? { sessionID: sessionIDs[0] } : {})
+      if (entry.level !== "hard") continue
+      for (const run of going.filter((candidate) => covers(entry, candidate))) this.haltForBudget(run.id, entry.reason)
+    }
+    for (const run of going.filter((candidate) => sessionFor.has(candidate.id))) {
+      for (const entry of runStandings(this.repository, run, now).filter((standing) => standing.scope === "run")) {
+        announce(this.repository, entry, { runID: run.id, sessionID: sessionFor.get(run.id)! })
+        if (entry.level === "hard") this.haltForBudget(run.id, entry.reason)
+      }
+    }
+  }
+
+  /** Stops a run's turns at a budget: the flag the runner reads, then each live session interrupted. */
+  private haltForBudget(runID: string, reason: string) {
+    if (this.overBudget.has(runID) || this.stopping.has(runID)) return
+    this.overBudget.set(runID, reason)
+    this.repository.setPaused(runID, "budget", reason)
+    const live = this.repository
+      .listTasks(runID)
+      .flatMap((task) => (task.status === "running" && task.sessionID ? [task.sessionID] : []))
+    void Promise.all(live.map((session) => this.engine.interrupt(session).catch(() => undefined)))
   }
 
   async stopRun(runID: string) {
@@ -630,6 +674,7 @@ export class RoutineScheduler {
       const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),
+        overBudget: () => this.overBudget.get(run.id),
       })
       // A routine's run is one task with no gate, so this cannot happen today — but saying "success"
       // for a run that stopped halfway is the kind of lie that survives a refactor.
@@ -662,6 +707,7 @@ export class RoutineScheduler {
     this.episodes?.captureRun(run.id)
     if (run.source.type === "routine") this.repository.release(routineLockKey(run.source.routineID), this.owner)
     this.stopping.delete(run.id)
+    this.overBudget.delete(run.id)
     if (run.source.type === "routine") this.noticeFailures(run.source.routineID)
   }
 
@@ -705,4 +751,32 @@ function withUnattended(policy: RunPolicy | undefined, workflow: { unattended?: 
 function runEnding(status: string, verdict: RunVerdict["value"] | undefined) {
   if (status !== "success" || !verdict) return status === "success" ? "succeeded" : status
   return { verified: "verified", unverified: "not verified", "needs-user": "needs your input", failed: "failed" }[verdict]
+}
+
+/** Whether a standing budget covers a run: today's covers all of them. */
+function covers(entry: BudgetStanding & { target?: string }, run: Run) {
+  if (entry.scope === "day") return true
+  if (entry.scope === "workflow") return run.workflow?.name === entry.target
+  return run.source.type === "routine" && run.source.routineID === entry.target
+}
+
+/** A task done again as a new attempt of itself, as a retry and a resume make it (H-12, RP-04). */
+function againOf(task: Task): TaskInput {
+  return {
+    name: task.name,
+    prompt: task.prompt,
+    kind: task.kind,
+    ...(task.command ? { command: task.command } : {}),
+    ...(task.action ? { action: task.action } : {}),
+    agent: task.agent,
+    model: task.model,
+    ...(task.retries !== undefined ? { retries: task.retries } : {}),
+    ...(task.gate ? { gate: task.gate } : {}),
+    ...(task.dependsOn ? { dependsOn: task.dependsOn } : {}),
+    ...(task.when ? { when: task.when } : {}),
+    ...(task.foreach ? { foreach: task.foreach } : {}),
+    ...(task.require ? { require: task.require } : {}),
+    attempt: task.attempt + 1,
+    retryOf: task.id,
+  }
 }

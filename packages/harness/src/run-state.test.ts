@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { runState, stateLabel, taskState } from "./run-state"
+import { runReason, runState, stateLabel, taskState } from "./run-state"
 import type { Run, Task } from "./types"
 
 const task = (over: Partial<Task>): Task => ({ id: "t", runID: "run", position: 0, name: "build", prompt: "", status: "success", ...over })
@@ -41,5 +41,14 @@ describe("how a run stands, said once (UX-04)", () => {
     expect(stateLabel("needs-user")).toBe("Needs your input")
     expect(stateLabel("approval")).toBe("Needs approval")
     expect(stateLabel("unverified")).toBe("Not verified")
+  })
+})
+
+describe("why a run waits at its budget (UL-08)", () => {
+  test("its tooltip names the budget it reached, and the task it stopped says the same", () => {
+    const waiting = run({ status: "awaiting", paused: "budget", overBudget: "Reached the run's cost budget ($0.1)" })
+    expect(runState(waiting)).toBe("budget")
+    expect(runReason(waiting)).toBe("Reached the run's cost budget ($0.1)")
+    expect(runReason(run({ status: "failed", error: "provider down" }))).toBe("provider down")
   })
 })

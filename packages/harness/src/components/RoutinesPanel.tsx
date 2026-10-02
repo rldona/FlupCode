@@ -2,6 +2,8 @@ import { For, Show, createEffect, createMemo, createResource, createSignal, onCl
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
+import { money } from "../cost"
+import { formatTokens } from "../metrics"
 import type { Attention } from "../attention"
 import { runState } from "../run-state"
 import { AttentionMark } from "./AttentionMark"
@@ -204,6 +206,19 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   }
 
   const updateForm = (patch: Partial<RoutineInput>) => setForm((current) => ({ ...current, ...patch }))
+
+  // The budget of each run the routine starts (UL-08): a number typed as text, kept only when positive.
+  const updateBudget = (patch: { cost?: string; tokens?: string; softPct?: string }) => {
+    const budget = { ...form().policy?.budget }
+    const positive = (value: string) => {
+      const number = Number(value.replace(/[\s,_]/g, ""))
+      return value.trim() && Number.isFinite(number) && number > 0 ? number : undefined
+    }
+    if (patch.cost !== undefined) budget.cost = positive(patch.cost)
+    if (patch.tokens !== undefined) budget.tokens = positive(patch.tokens)
+    if (patch.softPct !== undefined) budget.softPct = positive(patch.softPct)
+    updateForm({ policy: { ...form().policy, budget } })
+  }
 
   const updateSchedule = (type: RoutineSchedule["type"]) => {
     const current = form().schedule
@@ -432,7 +447,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                     <div class="fc-modal-body">
                       <div class="fc-routines-kicker">{t("Routine")}</div>
                       <p>{routine().description || t("No description")}</p>
-                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show><Show when={routine().retry}>{(retry) => <div><dt>{t("Retries")}</dt><dd>{t("{count} after {minutes} min", { count: retry().count, minutes: retry().backoffMinutes })}</dd></div>}</Show><Show when={routine().schedule.type !== "manual"}><div><dt>{t("Missed runs")}</dt><dd>{routine().missed === "skip" ? t("Skip them") : t("Run once when back")}</dd></div></Show></dl>
+                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show><Show when={budgetFact(routine().policy?.budget)}>{(fact) => <div><dt>{t("Budget")}</dt><dd>{fact()}</dd></div>}</Show><Show when={routine().retry}>{(retry) => <div><dt>{t("Retries")}</dt><dd>{t("{count} after {minutes} min", { count: retry().count, minutes: retry().backoffMinutes })}</dd></div>}</Show><Show when={routine().schedule.type !== "manual"}><div><dt>{t("Missed runs")}</dt><dd>{routine().missed === "skip" ? t("Skip them") : t("Run once when back")}</dd></div></Show></dl>
                       <section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section>
                       <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><Show when={props.runAttention(run)} fallback={<span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-stopped": run.status === "stopped" }} />}>{(level) => <AttentionMark level={level()} />}</Show><span><strong>{runLabel(run)}</strong><small>{formatDateTime(run.startedAt)}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
                     </div>
@@ -504,6 +519,12 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                 )}
               </Show>
               <label>{t("Fallback model")}<input class="fc-question-custom" value={form().policy?.fallback ?? ""} placeholder="provider/model" onInput={(event) => updateForm({ policy: { ...form().policy, fallback: event.currentTarget.value } })} /></label>
+              {/* Each run it starts stops at this budget, at the step that crosses it (UL-08). A web action has no model to spend. */}
+              <Show when={!isAction()}>
+                <label>{t("Budget (cost)")}<input class="fc-question-custom" inputMode="decimal" value={form().policy?.budget?.cost ?? ""} placeholder="USD" onInput={(event) => updateBudget({ cost: event.currentTarget.value })} /></label>
+                <label>{t("Budget (tokens)")}<input class="fc-question-custom" inputMode="numeric" value={form().policy?.budget?.tokens ?? ""} onInput={(event) => updateBudget({ tokens: event.currentTarget.value })} /></label>
+                <label>{t("Warn at (%)")}<input class="fc-question-custom" inputMode="numeric" value={form().policy?.budget?.softPct ?? ""} placeholder="80" title={t("Warn once when a run has spent this share of its budget")} onInput={(event) => updateBudget({ softPct: event.currentTarget.value })} /></label>
+              </Show>
               <label>{t("Project")}<select class="fc-question-custom" value={form().projectDirectory ?? ""} onChange={(event) => updateForm({ projectDirectory: event.currentTarget.value || undefined })}><option value="">{t("No folder")}</option><For each={props.projects}>{(project) => <option value={project.directory}>{project.name}</option>}</For></select></label>
               <label>{t("Agent")}<select class="fc-question-custom" value={form().agent ?? ""} onChange={(event) => updateForm({ agent: event.currentTarget.value || undefined })}><option value="">{t("Default")}</option><For each={props.agents.filter((agent) => !agent.hidden && agent.mode !== "subagent")}>{(agent) => <option value={agent.id}>{agent.id}</option>}</For></select></label>
               <label>{t("Model")}<select class="fc-question-custom" value={formModelValue()} onChange={(event) => { const [providerID, ...id] = event.currentTarget.value.split("/"); updateForm({ model: providerID && id.length > 0 ? { providerID, id: id.join("/") } : undefined }) }}><option value="">{t("Default model")}</option><For each={modelGroups()}>{(group) => <optgroup label={group.providerID}><For each={group.items}>{(model) => <option value={`${group.providerID}/${model.id}`}>{model.name}</option>}</For></optgroup>}</For></select></label>
@@ -530,4 +551,16 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
       </section>
     </Show>
   )
+}
+
+/** A routine's budget for each run, in one line: `$0.50 · 10K tokens · warns at 80%`. */
+function budgetFact(budget: { cost?: number; tokens?: number; softPct?: number } | undefined) {
+  if (!budget || (!budget.cost && !budget.tokens)) return undefined
+  return [
+    budget.cost ? money(budget.cost) : undefined,
+    budget.tokens ? t("{n} tokens", { n: formatTokens(budget.tokens) }) : undefined,
+    budget.softPct ? t("warns at {pct}%", { pct: budget.softPct }) : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ")
 }
