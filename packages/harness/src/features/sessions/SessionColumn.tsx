@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js"
+import { For, Show, lazy } from "solid-js"
 import { searchForDecision } from "../../screen"
 import { adaptiveSurfaces, createHarnessClient } from "../../client"
 import { runAttention } from "../../attention"
@@ -15,10 +15,11 @@ import { GuardrailBanner } from "../../components/GuardrailBanner"
 import { AdaptiveChip } from "../../components/AdaptiveChip"
 import { RemoteHome } from "../../components/RemoteHome"
 import { ChatHero, ChatStarters } from "../../components/ChatHome"
-import { SessionPane } from "../../components/SessionPane"
 import { SessionTabs } from "../../components/SessionTabs"
 import { PanelBoundary } from "../../components/PanelBoundary"
 import { useApp } from "../../app-context"
+
+const SplitPanes = lazy(() => import("./SplitPanes"))
 
 /** The session column: the open session (or split panes) with its docks and composer, or the home. */
 export function SessionColumn() {
@@ -29,58 +30,7 @@ export function SessionColumn() {
       fallback={
         // A tool screen replaces both branches: the split panes keep their state and return
         // when the screen is left.
-        app.router.toolScreen() ? (
-          <></>
-        ) : (
-          <div class="fc-split">
-            {/* Keyed by id: the session list refreshes while sessions run, and a pane must keep its state. */}
-            <For each={app.sessions.splitPanes()}>
-              {(id) => (
-                <Show when={app.sessions.sessionList()?.find((session) => session.id === id)}>
-                  {(session) => (
-                    <SessionPane
-                      session={session()}
-                      serverUrl={app.connection.serverUrl()}
-                      focused={app.sessions.selected() === session().id}
-                      running={!!app.sessions.runState()[session().id]}
-                      chat={app.sessions.chatClass(session())}
-                      chatsDirectory={app.connection.chatsDirectory()}
-                      showTools={app.settings.showTools()}
-                      showReasoning={app.settings.showReasoning()}
-                      models={app.catalog.modelList()}
-                      defaultModel={app.composer.modelRef()}
-                      compaction={app.catalog.engineConfig()?.compaction}
-                      favorites={app.settings.favorites()}
-                      agents={app.catalog.agents()?.data ?? []}
-                      agent={app.composer.agent()}
-                      permissionModeId={app.composer.permissionModeId()}
-                      delivery={app.composer.delivery()}
-                      onDeliveryChange={app.composer.changeDelivery}
-                      projects={app.sessions.projects()}
-                      history={promptHistory()}
-                      modelName={app.composer.modelName}
-                      searchFiles={app.composer.searchFiles}
-                      collapsePaste={app.composer.collapsePaste}
-                      expandPastes={app.composer.expandPastes}
-                      readFiles={app.composer.readAttachments}
-                      onFocus={() => app.sessions.selectSession(session().id)}
-                      onClose={() => app.sessions.closeSplitPane(session().id)}
-                      onOpenModelPicker={() => app.router.setModelPickerOpen(true)}
-                      onAgentChange={app.composer.changeAgent}
-                      onPermissionModeChange={app.composer.changePermissionMode}
-                      harnessUrl={app.runs.routinesServerAvailable() ? app.connection.harnessServerUrl() : undefined}
-                      adaptive={
-                        adaptiveSurfaces(app.connection.harnessCapabilities()).session
-                          ? { serverUrl: app.connection.harnessServerUrl(), onWhy: app.router.showDecision }
-                          : undefined
-                      }
-                    />
-                  )}
-                </Show>
-              )}
-            </For>
-          </div>
-        )
+        app.router.toolScreen() ? <></> : <SplitPanes />
       }
     >
       {/* The sessions open in this window (H-36). Hidden while split: the panes are the tabs then. */}

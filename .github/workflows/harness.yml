@@ -120,6 +120,10 @@ jobs:
       - name: Build
         run: bun run --cwd packages/harness build
 
+      # The main chunk stays under 500 kB, and what loads at startup under its own limit (UX-00).
+      - name: Bundle size
+        run: bun script/bundle-size.ts
+
       - name: E2E
         run: bun run --cwd packages/harness test:e2e
 

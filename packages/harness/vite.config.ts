@@ -27,5 +27,16 @@ export default defineConfig({
   build: {
     target: "esnext",
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // The third-party code the first screen needs, and the Spanish dictionary, ride apart from the
+        // app's own code: they change far less often than it does, so a release leaves them cached. They
+        // still load at startup, and `script/bundle-size.ts` counts them in what startup costs (UX-00).
+        manualChunks: (id) => {
+          if (/\/node_modules\/.*\/(solid-js|@opencode\/client|morphdom|dompurify)\//.test(id)) return "vendor"
+          if (id.endsWith("/src/i18n.ts")) return "i18n"
+        },
+      },
+    },
   },
 })
