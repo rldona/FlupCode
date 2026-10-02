@@ -68,8 +68,7 @@ async function open(page: Page, options: Options = {}) {
     return route.fulfill({ json: { data: [] } })
   })
   await page.goto("/runs")
-  // Scoped to the task row: the timeline names the same task above it.
-  await expect(page.locator(".fc-run-task-name").filter({ hasText: "build it" })).toBeVisible()
+  await expect(page.locator(".fc-run-node-name").filter({ hasText: "build it" })).toBeVisible()
   return { reads: () => activityReads }
 }
 
@@ -78,10 +77,11 @@ test("a running task says which tool it is inside, and for how long", async ({ p
     activity: [{ taskID: "t2", tool: "glob", detail: "project.yaml", waitingMs: 21_000 }],
   })
 
-  const doing = page.locator(".fc-run-doing")
-  await expect(doing).toContainText("glob")
-  await expect(doing).toContainText("project.yaml")
-  await expect(doing).toContainText("21s")
+  // On its node on the run's graph (UX-04): the tool and the time, and what it is reading as the tooltip.
+  const doing = page.locator(".fc-run-node").filter({ hasText: "build it" })
+  await expect(doing.locator(".fc-run-node-fact")).toContainText("glob")
+  await expect(doing.locator(".fc-run-node-fact")).toContainText("21s")
+  await expect(doing).toHaveAttribute("title", /project\.yaml/)
 })
 
 test("a call that has gone on too long stops looking like work", async ({ page }) => {
@@ -90,14 +90,17 @@ test("a call that has gone on too long stops looking like work", async ({ page }
     activity: [{ taskID: "t2", tool: "glob", detail: "project.yaml", waitingMs: 18 * 60_000 }],
   })
 
-  await expect(page.locator(".fc-run-doing")).toHaveClass(/fc-run-doing-long/)
-  await expect(page.locator(".fc-run-doing")).toContainText("18m")
+  const doing = page.locator(".fc-run-node").filter({ hasText: "build it" })
+  await expect(doing).toHaveClass(/fc-run-node-long/)
+  await expect(doing).toContainText("18m")
 })
 
 test("a short call is not marked as a problem", async ({ page }) => {
   await open(page, { activity: [{ taskID: "t2", tool: "bash", detail: "bun test", waitingMs: 9_000 }] })
 
-  await expect(page.locator(".fc-run-doing")).not.toHaveClass(/fc-run-doing-long/)
+  const doing = page.locator(".fc-run-node").filter({ hasText: "build it" })
+  await expect(doing).toContainText("bash")
+  await expect(doing).not.toHaveClass(/fc-run-node-long/)
 })
 
 test("without the tool's name it still says how long it has been waiting", async ({ page }) => {
@@ -105,8 +108,9 @@ test("without the tool's name it still says how long it has been waiting", async
   // how long it has been.
   await open(page, { activity: [{ taskID: "t2", waitingMs: 30_000 }] })
 
-  await expect(page.locator(".fc-run-doing")).toContainText(/working|trabajando/)
-  await expect(page.locator(".fc-run-doing")).toContainText("30s")
+  const doing = page.locator(".fc-run-node").filter({ hasText: "build it" })
+  await expect(doing).toContainText(/working|trabajando/)
+  await expect(doing).toContainText("30s")
 })
 
 test("it keeps asking while something is running", async ({ page }) => {
@@ -116,10 +120,11 @@ test("it keeps asking while something is running", async ({ page }) => {
   await expect.poll(() => reads(), { timeout: 10_000 }).toBeGreaterThan(first)
 })
 
-test("a finished task lists what it changed on disk", async ({ page }) => {
+test("a run lists what its tasks changed on disk", async ({ page }) => {
   await open(page)
 
-  const changed = page.locator(".fc-run-files")
+  // In the run's footer (UX-04), beside its checkpoints; each task's own list is in its detail.
+  const changed = page.locator(".fc-run-foot .fc-run-files")
   await expect(changed).toContainText(/1 files|1 archivos/)
   await changed.click()
   await expect(changed).toContainText("PLAN.md")

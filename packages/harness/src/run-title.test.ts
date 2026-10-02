@@ -18,6 +18,12 @@ test("a run is named after the workflow it executed, whoever asked for it (RP-01
   expect(runTitle(run({ source: { type: "routine", routineID: "r1" } }))).toBe("Routine")
 })
 
+test("a routine's run is named after the routine when its name is known (UX-04)", () => {
+  expect(runTitle(run({ source: { type: "routine", routineID: "r1" } }), "Nightly parser fix")).toBe("Nightly parser fix")
+  // The workflow is still what it did.
+  expect(runTitle(run({ source: { type: "routine", routineID: "r1" }, workflow: feature }), "Nightly")).toBe("feature")
+})
+
 test("a workflow run says the inputs it was given, and any other run none", () => {
   expect(runInputs(run({ workflow: feature }))).toBe("goal: search · area: api")
   expect(runInputs(run({ workflow: { ...feature, inputs: {} } }))).toBeUndefined()

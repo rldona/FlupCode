@@ -296,7 +296,6 @@ const ES: Record<string, string> = {
   "Manual run": "Ejecución manual",
   "an earlier version": "una versión anterior",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
-  "Run timeline": "Línea de tiempo de la ejecución",
   Workflows: "Flujos de trabajo",
   "Workflow graph": "Grafo del flujo",
   "Processes written down as files: the plan, the build, the check, and what waits for what.":
@@ -909,6 +908,7 @@ const ES: Record<string, string> = {
   Running: "En ejecución",
   Failed: "Fallida",
   Succeeded: "Completada",
+  Skipped: "Omitida",
   "Run interrupted": "Ejecución interrumpida",
   "Routine stopped": "Rutina detenida",
   "Stop run": "Detener ejecución",

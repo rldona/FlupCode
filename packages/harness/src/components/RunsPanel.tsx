@@ -1,16 +1,16 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
-import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedFiles, UsageRunReport } from "../types"
+import type { Artifact, Run, Task, TaskActivity, TaskTools, TouchedFiles, UsageRunReport } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
-import { RunTimeline } from "./RunTimeline"
-import { VerdictBadge } from "./VerdictBadge"
+import { RunGraph, elapsed } from "./RunGraph"
+import { StateBadge } from "./StateBadge"
 import { CostFigure } from "./CostFigure"
-import { purposeName, tokenCount } from "../cost"
-import { formatTokens } from "../metrics"
+import { purposeName } from "../cost"
 import { AttentionMark } from "./AttentionMark"
 import type { Attention } from "../attention"
 import { runInputs, runTitle } from "../run-title"
+import { runReason, runState } from "../run-state"
 
 type RunsPanelProps = {
   open: boolean
@@ -53,78 +53,46 @@ type RunsPanelProps = {
   onResume: (id: string) => void
   /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
   onBestOfN: () => void
-}
-
-/**
- * How long a single tool call may run before it is worth saying so.
- *
- * Not a limit and not a kill: a test suite legitimately takes minutes, and stopping somebody's
- * build on a guess is worse than the problem. H-47 was eighteen minutes inside one `glob` that
- * looked exactly like work — this is the point at which it stops looking like work.
- */
-const LONG_MS = 3 * 60_000
-
-/** Minutes and seconds, or seconds alone: a run is read while it happens, not measured. */
-const elapsed = (from: number, to: number | undefined) => {
-  const seconds = Math.max(0, Math.round(((to ?? Date.now()) - from) / 1000))
-  if (seconds < 60) return `${seconds}s`
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`
-}
-
-const marks: Record<TaskStatus, string> = {
-  queued: "○",
-  running: "◐",
-  success: "●",
-  failed: "✕",
-  stopped: "■",
-  // A task the graph never ran because a dependency failed or a `when` was false (H-28).
-  skipped: "–",
+  /** Each routine's name, by id, so a routine's run is called what the reader called it (UX-04). */
+  routineNames?: Record<string, string>
 }
 
 /** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */
 const going = (run: Run) => run.status === "running" || run.status === "awaiting"
 
 /**
- * The run's own report: how far its tasks got. What it cost is the ledger's (UL-06), drawn beside it
- * by `CostFigure` so the card, the Cost screen and the session show the same figure.
- *
- * This is where the summary of a run lives. The audit (§6.3) puts it in the run's session as a
- * message too, but the engine has no way to append one without running a turn — writing it would
- * mean paying a model to restate what the harness already knows exactly. The session stays the
- * thread that groups the work; the numbers are here.
+ * How far a run that is still going has got. What it cost is the ledger's (UL-06), drawn beside it
+ * by `CostFigure` so the card, the Cost screen and the session show the same figure; how each task
+ * stands is its node on the graph, so a finished run needs no count.
  */
-const totals = (run: Run) => {
+const progress = (run: Run) => {
   const tasks = run.tasks ?? []
+  if (!going(run) || tasks.length === 0) return []
   const done = tasks.filter((task) => task.status !== "queued" && task.status !== "running").length
-  return tasks.length ? [`${done}/${tasks.length}`] : []
+  return [`${done}/${tasks.length}`]
 }
 
 /** A task's own rows of its run's ledger report: a retry is a task of its own, so its own bill. */
 const taskUsage = (report: UsageRunReport | undefined, task: Task) => report?.byTask.find((group) => group.key === task.id)
-
-/** What a task is worth saying on one line, with the parts the engine did not report left out. */
-const facts = (task: Task) => {
-  const started = task.startedAt
-  return [
-    task.kind === "verify" ? t("verify") : task.kind === "external" ? t("external") : task.agent,
-    // Only from the second: saying "attempt 1" on every task is noise on the runs that went fine.
-    (task.attempt ?? 1) > 1 ? t("attempt {n}", { n: task.attempt! }) : undefined,
-    started ? elapsed(started, task.finishedAt) : undefined,
-  ].filter((value): value is string => !!value)
-}
 
 /** Stand for the whole list where a run's id would be. No run can be called either of these. */
 const ALL = "*"
 const ALL_RUNNING = "*running"
 
 /**
- * The supervisor (§6.4): a run and the tasks it is made of, as a tree.
+ * The supervisor (§6.4): a run and the tasks it is made of.
+ *
+ * Each run is one card that reads as one thing (UX-04): a header that says what ran, how it stands
+ * and what it cost, once each; its tasks on the workflow's graph in their live state, each opening
+ * its detail; and a footer with what it left behind — checkpoints, files and artifacts.
  *
  * It shows what the server actually knows. The audit's sketch also has files touched, tool counts and
  * a budget bar; none of those exist yet, and drawing them empty would say the harness knows something
  * it does not.
  */
 export const RunsPanel: Component<RunsPanelProps> = (props) => {
+  const title = (run: Run) =>
+    runTitle(run, run.source.type === "routine" ? props.routineNames?.[run.source.routineID] : undefined)
   // Which run has been asked about, or ALL for the whole finished list. The question is drawn where
   // the button is: the list scrolls, and a confirmation at the foot of it is one nobody sees.
   const [confirming, setConfirming] = createSignal<string>()
@@ -240,15 +208,11 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
               {(run) => (
                 <article class="fc-run-card" classList={{ "fc-run-running": going(run) }}>
                   <header class="fc-run-head">
-                    <span class="fc-run-mark" data-status={run.status}>
-                      {going(run) ? marks.running : marks[run.status as TaskStatus]}
-                    </span>
                     <Show when={props.attention[run.id]}>{(level) => <AttentionMark level={level()} />}</Show>
-                    <span class="fc-run-title">{runTitle(run)}</span>
-                    <Show when={run.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
-                    <span class="fc-run-meta">
-                      {[run.status, elapsed(run.startedAt, run.finishedAt), ...totals(run)].join(" · ")}
-                    </span>
+                    <span class="fc-run-title">{title(run)}</span>
+                    {/* How it stands, once: its verdict when it ended, never "success" beside it (P4). */}
+                    <StateBadge state={runState(run)} reason={runReason(run)} />
+                    <span class="fc-run-meta">{[elapsed(run.startedAt, run.finishedAt), ...progress(run)].join(" · ")}</span>
                     <span class="fc-run-cost">
                       <CostFigure bucket={props.usage?.[run.id]?.total} />
                     </span>
@@ -261,9 +225,6 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     </Show>
                     {/* A gate is a question: let it through, or stop it. There is no third answer. */}
                     <Show when={run.status === "awaiting"}>
-                      <Show when={run.paused === "budget"}>
-                        <span class="fc-run-meta">{t("Paused at its budget")}</span>
-                      </Show>
                       <button
                         class="fc-run-open"
                         type="button"
@@ -357,6 +318,25 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                   </Show>
                   <Show when={run.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
                   {/*
+                    Why its work was not done (RP-06), in the words of the task that decided it — whose
+                    node is drawn in the same colour — unless the error above already says it.
+                  */}
+                  <Show
+                    when={
+                      (run.verdict?.value === "failed" || run.verdict?.value === "needs-user") &&
+                      run.verdict.reason !== run.error
+                        ? run.verdict
+                        : undefined
+                    }
+                  >
+                    {(verdict) => <p class="fc-verdict-reason">{verdict().reason}</p>}
+                  </Show>
+                  {/* A task that failed before anything judged it (a tool over its ceiling, H-47) says
+                      why here, when the run itself has not said it yet. */}
+                  <Show when={!run.error && !run.verdict ? (run.tasks ?? []).find((task) => task.status === "failed")?.error : undefined}>
+                    {(error) => <p class="fc-run-error">{error()}</p>}
+                  </Show>
+                  {/*
                     What this run was allowed to do (H-47). Confinement is the default and says
                     nothing; reaching outside the project is unusual enough to be on the screen, and
                     a ceiling is worth reading before wondering why a task stopped. A run that
@@ -380,158 +360,13 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       </Show>
                     </p>
                   </Show>
-                  {/* What ran at the same time as what (H-28), before the list that names it. */}
-                  <RunTimeline tasks={run.tasks ?? []} />
-                  <ol class="fc-run-tasks">
-                    <For each={run.tasks ?? []}>
-                      {(task) => (
-                        <li class="fc-run-task" data-status={task.status}>
-                          <span class="fc-run-mark" data-status={task.status}>
-                            {marks[task.status]}
-                          </span>
-                          <span class="fc-run-task-name">{task.name}</span>
-                          <Show when={task.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
-                          <span class="fc-run-meta">{facts(task).join(" · ")}</span>
-                          <Show when={taskUsage(props.usage?.[run.id], task)}>
-                            {(spent) => (
-                              <span class="fc-run-cost">
-                                <span class="fc-run-meta">
-                                  {t("{n} tokens", { n: formatTokens(tokenCount(spent().tokens)) })}
-                                </span>
-                                <CostFigure bucket={spent()} />
-                              </span>
-                            )}
-                          </Show>
-                          {/*
-                            What it is doing right now, and for how long. Without this a call that
-                            never returns is indistinguishable from work getting done.
-                          */}
-                          <Show when={props.activity[task.id]}>
-                            {(doing) => (
-                              <span
-                                class="fc-run-doing"
-                                classList={{ "fc-run-doing-long": doing().waitingMs >= LONG_MS }}
-                                title={doing().detail}
-                              >
-                                <span class="fc-run-doing-tool">{doing().tool ?? t("working")}</span>
-                                <Show when={doing().detail}>
-                                  <span class="fc-run-doing-detail">{doing().detail}</span>
-                                </Show>
-                                <span class="fc-run-doing-since">{elapsed(Date.now() - doing().waitingMs, undefined)}</span>
-                              </span>
-                            )}
-                          </Show>
-                          <Show when={task.sessionID}>
-                            {(id) => (
-                              <button class="fc-run-open" type="button" onClick={() => props.onOpenSession(id())}>
-                                {t("Open")}
-                              </button>
-                            )}
-                          </Show>
-                          <button
-                            class="fc-run-open"
-                            classList={{ "fc-run-open-active": selectedTask() === task.id }}
-                            type="button"
-                            onClick={() => setSelectedTask(task.id)}
-                          >
-                            {t("Details")}
-                          </button>
-                          <Show when={task.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
-                          {/*
-                            Why the goal was not met (RP-06), in the agent's own words when it gave
-                            up or asked, unless the error above already says it. A verified or an
-                            unverified verdict keeps its reason in the badge's tooltip.
-                          */}
-                          <Show
-                            when={
-                              (task.verdict?.value === "failed" || task.verdict?.value === "needs-user") &&
-                              task.verdict.reason !== task.error
-                                ? task.verdict
-                                : undefined
-                            }
-                          >
-                            {(verdict) => <p class="fc-verdict-reason">{verdict().reason}</p>}
-                          </Show>
-                        {/*
-                          The evidence (H-22). It lives on the task because H-14's artifact store
-                          does not exist yet; folded away because a passing check is read as one
-                          line and a failing one is read in full.
-                        */}
-                        {/*
-                          The point taken after this task (H-15): the marker the audit asked for,
-                          with the step's own summary so it says what the point was for, and a way
-                          to the folder's checkpoints to restore it.
-                        */}
-                        <Show when={props.touched[task.id]}>
-                          {(changed) => (
-                            <div class="fc-run-checkpoint">
-                              <span class="fc-run-checkpoint-mark" aria-hidden="true">
-                                ◆
-                              </span>
-                              <span class="fc-run-checkpoint-title">{changed().title}</span>
-                              <Show when={changed().summary}>
-                                {(summary) => (
-                                  <details class="fc-run-checkpoint-summary">
-                                    <summary>{t("What this point holds")}</summary>
-                                    <pre>{summary()}</pre>
-                                  </details>
-                                )}
-                              </Show>
-                              <Show when={props.onOpenChanges}>
-                                <button
-                                  class="fc-run-open"
-                                  type="button"
-                                  // The task's tree, when it had one of its own (H-29): a worktree
-                                  // task's points are anchored there, not in the run's folder (H-32).
-                                  onClick={() => props.onOpenChanges?.(task.directory ?? run.directory)}
-                                >
-                                  {t("Checkpoints")}
-                                </button>
-                              </Show>
-                            </div>
-                          )}
-                        </Show>
-                        {/*
-                          What this task changed on disk (H-12), from the checkpoints around it —
-                          which catches a file written by a shell command as well as one edited by a
-                          tool. A task that changed nothing says so rather than showing nothing.
-                        */}
-                        <Show when={props.touched[task.id]}>
-                          {(changed) => (
-                            <Show
-                              when={changed().files.length > 0}
-                              fallback={<p class="fc-run-files-none">{t("Changed no files")}</p>}
-                            >
-                              <details class="fc-run-files">
-                                <summary>{t("{n} files", { n: changed().files.length })}</summary>
-                                <ul>
-                                  <For each={changed().files}>
-                                    {(file) => (
-                                      <li data-status={file.status}>
-                                        <span class="fc-run-file-mark">
-                                          {file.status === "added" ? "+" : file.status === "deleted" ? "−" : "~"}
-                                        </span>
-                                        {file.path}
-                                      </li>
-                                    )}
-                                  </For>
-                                </ul>
-                              </details>
-                            </Show>
-                          )}
-                        </Show>
-                        <Show when={task.kind === "verify" && task.output}>
-                          {(evidence) => (
-                            <details class="fc-run-evidence" open={task.status === "failed"}>
-                              <summary>{t("Evidence")}</summary>
-                              <pre>{evidence()}</pre>
-                            </details>
-                          )}
-                        </Show>
-                        </li>
-                      )}
-                    </For>
-                  </ol>
+                  <RunGraph
+                    tasks={run.tasks ?? []}
+                    title={title(run)}
+                    activity={props.activity}
+                    selected={selectedTask()}
+                    onSelect={setSelectedTask}
+                  />
                   {/* What the run spent beyond its tasks (§8.4): handoffs and other purposes apart. */}
                   <Show when={(props.usage?.[run.id]?.byPurpose ?? []).some((group) => group.key !== "run-task")}>
                     <p class="fc-run-cost-breakdown">
@@ -545,6 +380,13 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       </For>
                     </p>
                   </Show>
+                  <RunFooter
+                    run={run}
+                    tasks={run.tasks ?? []}
+                    touched={(run.tasks ?? []).flatMap((task) => props.touched[task.id] ?? [])}
+                    artifacts={props.artifacts?.[run.id] ?? []}
+                    onOpenChanges={props.onOpenChanges}
+                  />
                 </article>
               )}
             </For>
@@ -568,7 +410,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     activity={props.activity[picked().task.id]}
                     touched={props.touched[picked().task.id]}
                     tools={props.tools?.[picked().task.id]}
-                    artifacts={props.artifacts?.[picked().run.id] ?? []}
+                    artifacts={(props.artifacts?.[picked().run.id] ?? []).filter((artifact) => artifact.taskID === picked().task.id)}
                     cost={taskUsage(props.usage?.[picked().run.id], picked().task)}
                     models={props.models}
                     serverAvailable={props.serverAvailable}
@@ -585,6 +427,85 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
           )}
         </Show>
       </section>
+    </Show>
+  )
+}
+
+/**
+ * What a run left behind (UX-04): the checkpoints taken after its tasks (H-15), the files they
+ * changed (H-12) and its artifacts (H-14), counted by kind. Each task's own point, files and
+ * artifacts are in its detail, where its name is not said again.
+ */
+const RunFooter: Component<{
+  run: Run
+  tasks: Task[]
+  touched: TouchedFiles[]
+  artifacts: Artifact[]
+  onOpenChanges?: (directory?: string) => void
+}> = (props) => {
+  // A file two tasks changed is one file the run changed; the last change says what happened to it.
+  const files = createMemo(() => [
+    ...new Map(props.touched.flatMap((point) => point.files).map((file) => [file.path, file])).values(),
+  ])
+  // Where the points live: a worktree task's are in its own tree (H-29, H-32), so when every point
+  // was taken in one tree that is the one opened; a run spread over several opens its folder, and
+  // each task's detail opens its own.
+  const directory = () => {
+    const trees = new Set(
+      props.touched.map((point) => props.tasks.find((task) => task.id === point.taskID)?.directory ?? props.run.directory),
+    )
+    return trees.size === 1 ? [...trees][0] : props.run.directory
+  }
+  const kinds = createMemo(() =>
+    [...new Set(props.artifacts.map((artifact) => artifact.kind))].map((kind) => ({
+      kind,
+      count: props.artifacts.filter((artifact) => artifact.kind === kind).length,
+    })),
+  )
+  return (
+    <Show when={props.touched.length > 0 || props.artifacts.length > 0}>
+      <footer class="fc-run-foot">
+        <Show when={props.touched.length > 0}>
+          <Show when={props.onOpenChanges}>
+            <button class="fc-run-open" type="button" onClick={() => props.onOpenChanges?.(directory())}>
+              {t("Checkpoints")} <span class="fc-run-count">{props.touched.length}</span>
+            </button>
+          </Show>
+          {/* A run that changed nothing says so rather than showing nothing. */}
+          <Show when={files().length > 0} fallback={<span class="fc-run-files-none">{t("Changed no files")}</span>}>
+            <details class="fc-run-files">
+              <summary>{t("{n} files", { n: files().length })}</summary>
+              <ul>
+                <For each={files()}>
+                  {(file) => (
+                    <li data-status={file.status}>
+                      <span class="fc-run-file-mark">
+                        {file.status === "added" ? "+" : file.status === "deleted" ? "−" : "~"}
+                      </span>
+                      {file.path}
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </details>
+          </Show>
+        </Show>
+        <Show when={kinds().length > 0}>
+          <span class="fc-run-artifacts">
+            <span class="fc-run-meta">{t("Artifacts")}</span>
+            <For each={kinds()}>
+              {(entry) => (
+                <span class="fc-artifact-kind">
+                  {t(entry.kind)}
+                  <Show when={entry.count > 1}>
+                    <span class="fc-run-count">{entry.count}</span>
+                  </Show>
+                </span>
+              )}
+            </For>
+          </span>
+        </Show>
+      </footer>
     </Show>
   )
 }

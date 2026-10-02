@@ -99,33 +99,38 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
 
   const run1 = page.locator(".fc-run-card")
   await expect(run1).toHaveCount(1)
-  await expect(run1.locator(".fc-run-task")).toHaveCount(2)
-  await expect(run1.locator(".fc-run-task-name").first()).toHaveText("plan it")
+  await expect(run1.locator(".fc-run-node")).toHaveCount(2)
+  await expect(run1.locator(".fc-run-node-name").first()).toHaveText("plan it")
 
   // What the run was allowed to do: no shell is unusual, so it is stated (H-47).
   await expect(run1.locator(".fc-run-rules")).toContainText("No shell commands")
 
-  // The event moved it, and the card reads what it cost from the ledger (UL-06).
-  const second = run1.locator(".fc-run-task").nth(1)
-  await expect(second).toHaveAttribute("data-status", "success", { timeout: 15_000 })
-  await expect(second.locator(".fc-run-cost")).toContainText("2.4k tokens")
-  // A small cost reads as what it is, not as $0.00 (TI-05), and as an estimate at list price.
-  await expect(second.locator(".fc-cost-figure")).toHaveText("~$0.0043")
-  // A task the ledger has nothing for carries no figure at all rather than a $0.
-  await expect(run1.locator(".fc-run-task").first().locator(".fc-run-cost")).toHaveCount(0)
+  // The event moved its node on the graph (UX-04).
+  const second = run1.locator(".fc-run-node").nth(1)
+  await expect(second).toHaveAttribute("data-state", "succeeded", { timeout: 15_000 })
 
-  // The run's header says how far it got, and its cost is the ledger's run total: the same figure,
-  // the same string, as on the task.
+  // The run's header says how far it got, and its cost is the ledger's run total (UL-06). A small
+  // cost reads as what it is, not as $0.00 (TI-05), and as an estimate at list price.
   await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("2/2")
   await expect(run1.locator(".fc-run-head .fc-cost-figure")).toHaveText("~$0.0043")
+  // One cost on the card: a task's is in its detail, drawn by the same figure, the same string.
+  await expect(run1.locator(".fc-cost")).toHaveCount(1)
+  await second.click()
+  const detail = page.getByRole("complementary", { name: /Task detail|Detalle/ })
+  await expect(detail).toContainText("2.4k tokens")
+  await expect(detail.locator(".fc-cost-figure")).toHaveText("~$0.0043")
+  await detail.getByRole("button", { name: /^(Close|Cerrar)$/ }).click()
+  // A task the ledger has nothing for carries a dash rather than a $0.
+  await run1.locator(".fc-run-node").first().click()
+  await expect(detail.locator(".fc-cost-unknown")).toHaveCount(1)
 
   // And nothing was re-read to learn it.
   expect(listReads).toBeLessThanOrEqual(2)
 })
 
-// H-28: the run on a time axis. Two tasks that were in flight at once are two rows, so the
-// parallelism the graph allows is a picture rather than something read off two timestamps.
-test("the timeline draws overlapping tasks on separate lanes, and a skipped one apart", async ({ page }) => {
+// UX-04: the run on its workflow's graph. Tasks that can run together share a column, and a task the
+// graph skipped is drawn where it would have run, as skipped.
+test("the graph draws parallel tasks in one column, and a skipped one as skipped", async ({ page }) => {
   const parallelRun = { id: "run_p", source: { type: "manual" }, status: "success", startedAt: now, finishedAt: now + 6000 }
   const parallelTasks = [
     { id: "p1", runID: "run_p", position: 0, name: "left", prompt: "l", status: "success", startedAt: now, finishedAt: now + 4000, dependsOn: [] },
@@ -164,13 +169,18 @@ test("the timeline draws overlapping tasks on separate lanes, and a skipped one 
   await page.goto("/")
   await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
 
-  const timeline = page.locator(".fc-run-card .fc-run-timeline")
-  await expect(timeline).toHaveCount(1)
-  await expect(timeline.locator(".fc-run-lane")).toHaveCount(2)
-  await expect(timeline.locator(".fc-run-bar")).toHaveCount(2)
-  // A task the graph skipped has no place on a time axis, so it is named apart, struck through.
-  await expect(timeline.locator(".fc-run-bar-pending")).toHaveText("ship")
-  await expect(timeline.locator('.fc-run-bar-pending[data-status="skipped"]')).toHaveCount(1)
+  const graph = page.locator(".fc-run-card .fc-run-graph")
+  await expect(graph).toHaveCount(1)
+  const nodes = graph.locator(".fc-run-node")
+  await expect(nodes).toHaveCount(3)
+  const left = async (index: number) => (await nodes.nth(index).boundingBox())!.x
+  // The two roots share the first column; what waited for one of them is to their right.
+  expect(await left(0)).toBe(await left(1))
+  expect(await left(2)).toBeGreaterThan(await left(1))
+  await expect(graph.locator(".fc-workflow-edge")).toHaveCount(1)
+  // Skipped is its state, with the reason as its tooltip.
+  await expect(nodes.nth(2)).toHaveAttribute("data-state", "skipped")
+  await expect(nodes.nth(2)).toHaveAttribute("title", /Not run: right did not succeed/)
 })
 
 // A finished run can be forgotten from the list it clutters, and the question is asked inside the
@@ -311,7 +321,7 @@ test("the header clears every finished run in one request", async ({ page }) => 
 // H-22: a verify task is the harness checking the work, so the supervisor shows what it checked and
 // what the commands printed — a run that says "success" because a model stopped talking is not
 // evidence of anything.
-test("a verify task shows its evidence, open when it failed", async ({ page }) => {
+test("a verify task says so on its node, and its evidence is in its detail", async ({ page }) => {
   const failed = {
     id: "run_v",
     source: { type: "manual" },
@@ -367,21 +377,22 @@ test("a verify task shows its evidence, open when it failed", async ({ page }) =
   await page.goto("/")
   await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
 
-  const task = page.locator(".fc-run-task")
+  const task = page.locator(".fc-run-node")
   await expect(task).toHaveCount(1)
+  await expect(task).toHaveAttribute("data-state", "failed")
   // It says it was the harness that ran, not an agent.
-  await expect(task.locator(".fc-run-meta")).toContainText(/verify|verificación/)
+  await expect(task.locator(".fc-run-node-fact")).toContainText(/verify|verificación/)
 
-  // A failure is read, not clicked open: the evidence is already unfolded.
-  const evidence = task.locator(".fc-run-evidence")
-  await expect(evidence).toHaveAttribute("open", "")
-  await expect(evidence.locator("pre")).toContainText("expected 1, got 2")
-  await expect(evidence.locator("pre")).toContainText("- test (bun test) — exit 1")
+  // The evidence is in its detail, one click from the node (UX-04).
+  await task.click()
+  const evidence = page.locator(".fc-run-detail .fc-run-detail-pre")
+  await expect(evidence).toContainText("expected 1, got 2")
+  await expect(evidence).toContainText("- test (bun test) — exit 1")
 })
 
 // RP-06: each task carries a verdict from something other than the agent, and the run its worst
 // one. "Not verified" must not read as a quieter "Verified", and a give-up is read in the agent's words.
-test("a task's verdict is a badge with its reason, and the run's is its worst task's", async ({ page }) => {
+test("a task's verdict is its node's state, and the run's is its worst task's, said once", async ({ page }) => {
   const judged = {
     id: "run_j",
     source: { type: "routine", routineID: "nightly" },
@@ -427,27 +438,31 @@ test("a task's verdict is a badge with its reason, and the run's is its worst ta
   await page.goto("/")
   await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
 
-  await expect(page.locator(".fc-run-head .fc-verdict")).toHaveAttribute("data-verdict", "failed")
-  const tasks = page.locator(".fc-run-task")
+  // The run says how it ended once: its verdict, not "success" beside it (UX-04), and why.
+  const card = page.locator(".fc-run-card")
+  await expect(card.locator(".fc-run-head .fc-verdict")).toHaveAttribute("data-verdict", "failed")
+  await expect(card.locator(".fc-run-head")).not.toContainText("success")
+  await expect(card.locator(".fc-verdict-reason")).toHaveText("I cannot do this without the API key, so I stop here.")
+  await expect(card.locator(".fc-verdict-reason")).toHaveCount(1)
+  // Each task's verdict is its node's state, with the word as its name and the reason as its tooltip.
+  const tasks = card.locator(".fc-run-node")
   await expect(tasks).toHaveCount(3)
-  await expect(tasks.nth(0).locator(".fc-verdict")).toHaveText(/Failed|Fallida/)
-  await expect(tasks.nth(0).locator(".fc-verdict-reason")).toHaveText("I cannot do this without the API key, so I stop here.")
-  await expect(tasks.nth(1).locator(".fc-verdict")).toHaveText(/Verified|Verificada/)
-  await expect(tasks.nth(2).locator(".fc-verdict")).toHaveText(/Not verified|Sin verificar/)
-  // The reason of a clean verdict is the tooltip, not a line under every task.
-  await expect(tasks.nth(2).locator(".fc-verdict")).toHaveAttribute("title", "Nothing checked this answer")
-  await expect(tasks.nth(2).locator(".fc-verdict-reason")).toHaveCount(0)
+  await expect(tasks.nth(0)).toHaveAttribute("data-state", "failed")
+  await expect(tasks.nth(0)).toHaveAccessibleName(/Failed|Fallida/)
+  await expect(tasks.nth(1)).toHaveAttribute("data-state", "verified")
+  await expect(tasks.nth(2)).toHaveAttribute("data-state", "unverified")
+  await expect(tasks.nth(2)).toHaveAttribute("title", /Not verified|Sin verificar/)
   // Drawn apart: an outline, not a paler fill.
   const style = (index: number) =>
-    tasks.nth(index).locator(".fc-verdict").evaluate((badge) => {
-      const computed = getComputedStyle(badge)
+    tasks.nth(index).evaluate((node) => {
+      const computed = getComputedStyle(node)
       return { border: computed.borderTopStyle, background: computed.backgroundColor }
     })
   expect((await style(2)).border).toBe("dashed")
   expect((await style(1)).border).not.toBe("dashed")
   expect((await style(1)).background).not.toBe((await style(2)).background)
 
-  await tasks.nth(0).getByRole("button", { name: /Details|Detalles/ }).click()
+  await tasks.nth(0).click()
   const detail = page.getByRole("complementary", { name: /Task detail|Detalle/ })
   await expect(detail).toContainText("I cannot do this without the API key, so I stop here.")
   await expect(detail).toContainText(/Judged by a rule over the agent's answer|Lo decidió una regla/)
@@ -510,12 +525,12 @@ test("an external task shows its command and what it printed", async ({ page }) 
   await page.goto("/")
   await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
 
-  const task = page.locator(".fc-run-task")
+  const task = page.locator(".fc-run-node")
   await expect(task).toHaveCount(1)
   // It says who executed, not that an agent did.
-  await expect(task.locator(".fc-run-meta")).toContainText(/external|externo/)
+  await expect(task.locator(".fc-run-node-fact")).toContainText(/external|externo/)
 
-  await task.getByRole("button", { name: /Details|Detalles/ }).click()
+  await task.click()
   const detail = page.locator(".fc-run-detail")
   // The detail opens as a dialog now, not as a column beside the task list.
   await expect(page.locator('[role="dialog"] .fc-run-detail')).toHaveCount(1)
@@ -659,11 +674,11 @@ test("artifacts are listed by kind, read in place, and the session's files keep 
     {
       id: "a2",
       kind: "report",
-      title: "Run success",
+      title: "Run not verified",
       producer: "harness",
       mime: "text/markdown",
       createdAt: now - 1000,
-      content: "Run success in 4s",
+      content: "Run not verified in 4s",
     },
   ]
 
@@ -717,7 +732,7 @@ test("artifacts are listed by kind, read in place, and the session's files keep 
   // Filtering by kind narrows the list.
   await page.locator(".fc-artifact-kinds").getByRole("button", { name: /^(report|informe)$/ }).click()
   await expect(page.locator(".fc-artifact-card")).toHaveCount(1)
-  await expect(page.locator(".fc-artifact-card")).toContainText("Run success")
+  await expect(page.locator(".fc-artifact-card")).toContainText("Run not verified")
 
   await page.locator(".fc-artifact-kinds").getByRole("button", { name: /^(All|Todo)$/ }).click()
   await page
@@ -790,10 +805,116 @@ test("a worktree task opens the tree it ran in", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
 
-  const task = page.locator(".fc-run-task")
-  await expect(task).toHaveCount(1)
-  await task.getByRole("button", { name: /Checkpoints/ }).click()
+  // The run's footer opens its points, in the tree they were taken in (UX-04).
+  await expect(page.locator(".fc-run-node")).toHaveCount(1)
+  await page.locator(".fc-run-foot").getByRole("button", { name: /Checkpoints|Puntos de retorno/ }).click()
 
   // The Changes screen opened for the worktree folder, not for the run's: the kicker names it.
   await expect(page.locator(".fc-routines-kicker").first()).toHaveText("review")
+})
+
+// UX-04: a run card reads as one thing. A running workflow shows each task's state on the workflow's
+// graph and moves as the server's task events arrive; the card says its name, how it stands and what
+// it cost once each; and a routine's one task does not repeat the routine's name.
+test("a running workflow's graph shows each task's state, and no label repeats on a card", async ({ page }) => {
+  const workflow = { name: "ship", scope: "project", hash: "h", inputs: { goal: "add a lexer cache" } }
+  const going = { id: "run_s", source: { type: "manual" }, workflow, status: "running", startedAt: now, sessionID: "ses_s", directory: "/work/demo" }
+  const unverified = { value: "unverified", reason: "Nothing checked this answer", source: "rule" }
+  const shipTasks = [
+    { id: "s1", runID: "run_s", position: 0, name: "plan", prompt: "p", status: "success", startedAt: now, finishedAt: now + 1000, agent: "plan", verdict: unverified },
+    { id: "s2", runID: "run_s", position: 1, name: "build", prompt: "b", status: "running", startedAt: now + 1000, agent: "build" },
+    { id: "s3", runID: "run_s", position: 2, name: "docs", prompt: "d", status: "queued", dependsOn: ["plan"] },
+    { id: "s4", runID: "run_s", position: 3, name: "check", prompt: "", kind: "verify", status: "queued", dependsOn: ["build", "docs"] },
+  ]
+  const routineRun = { id: "run_r", source: { type: "routine", routineID: "rt_1" }, status: "success", startedAt: now - 60_000, finishedAt: now - 59_000, verdict: { ...unverified, taskID: "r1" } }
+  const routineTasks = [
+    { id: "r1", runID: "run_r", position: 0, name: "Nightly parser fix", prompt: "f", status: "success", startedAt: now - 60_000, finishedAt: now - 59_000, verdict: unverified },
+  ]
+  const routine = { id: "rt_1", name: "Nightly parser fix", description: "", prompt: "f", enabled: true, schedule: { type: "manual" }, createdAt: now, runs: [] }
+  const points = [{ taskID: "s1", checkpointID: "cp1", title: "plan", summary: "Two steps.", files: [{ path: "PLAN.md", status: "added" }] }]
+  const left = [
+    { id: "a1", kind: "handoff", title: "plan — handoff", producer: "harness", mime: "text/markdown", createdAt: now, runID: "run_s", taskID: "s1" },
+    { id: "a2", kind: "verdict", title: "plan — unverified", producer: "harness", mime: "text/markdown", createdAt: now, runID: "run_s", taskID: "s1" },
+  ]
+  let release: () => void = () => undefined
+  const held = new Promise<void>((resolve) => (release = resolve))
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [routine] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [going, routineRun] } })
+    if (url.pathname === "/harness/runs/run_s/tasks") return route.fulfill({ json: { data: shipTasks } })
+    if (url.pathname === "/harness/runs/run_r/tasks") return route.fulfill({ json: { data: routineTasks } })
+    if (url.pathname === "/harness/runs/run_s/files") return route.fulfill({ json: { data: points } })
+    if (url.pathname === "/harness/artifacts" && url.searchParams.get("runID") === "run_s") return route.fulfill({ json: { data: left } })
+    if (url.pathname === "/harness/events") {
+      // Held until the test has read the run as it was: then build fails its verdict and docs starts.
+      await held
+      return route.fulfill({
+        headers: { "content-type": "text/event-stream" },
+        body: [
+          { type: "task.changed", task: { ...shipTasks[1], status: "success", finishedAt: now + 5000, verdict: { value: "failed", reason: "I cannot do this, so I stop here.", source: "rule" } } },
+          { type: "task.changed", task: { ...shipTasks[2], status: "running", startedAt: now + 5000 } },
+        ]
+          .map((event, index) => `id: ${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
+          .join(""),
+      })
+    }
+    return route.fulfill({ json: { data: [] } })
+  })
+  await page.goto("/runs")
+
+  const card = page.locator(".fc-run-card").filter({ hasText: "goal: add a lexer cache" })
+  const node = (name: string) => card.locator(".fc-run-node").filter({ has: page.locator(".fc-run-node-name", { hasText: new RegExp(`^${name}$`) }) })
+  await expect(card.locator(".fc-run-node")).toHaveCount(4)
+  await expect(node("plan")).toHaveAttribute("data-state", "unverified")
+  await expect(node("build")).toHaveAttribute("data-state", "running")
+  await expect(node("docs")).toHaveAttribute("data-state", "queued")
+  await expect(node("check")).toHaveAttribute("data-state", "queued")
+  await expect(card.locator(".fc-run-head .fc-verdict")).toHaveAttribute("data-verdict", "running")
+  await expect(card.locator(".fc-run-head .fc-run-meta")).toContainText("1/4")
+
+  // The events move the nodes, nothing else asked.
+  release()
+  await expect(node("build")).toHaveAttribute("data-state", "failed")
+  await expect(node("docs")).toHaveAttribute("data-state", "running")
+  await expect(card.locator(".fc-run-head .fc-run-meta")).toContainText("2/4")
+
+  // What it left behind is its footer: its checkpoints, the files they changed and its artifacts.
+  const foot = card.locator(".fc-run-foot")
+  await expect(foot.getByRole("button", { name: /Checkpoints|Puntos de retorno/ })).toContainText("1")
+  await expect(foot.locator(".fc-run-files summary")).toHaveText(/1 files|1 archivos/)
+  await expect(foot.locator(".fc-artifact-kind")).toHaveText([/handoff|traspaso/, /verdict|veredicto/])
+
+  // No label repeats within a card: its name, its state, its tasks and what it left are each said once.
+  const labels = async (scope: typeof card) =>
+    (
+      await scope
+        .locator(".fc-run-title, .fc-run-head .fc-verdict, .fc-run-node-name, .fc-run-foot .fc-artifact-kind, .fc-run-foot button, .fc-run-artifacts > .fc-run-meta")
+        .allTextContents()
+    ).map((text) => text.replace(/\d+$/, "").trim().toLowerCase())
+  const shipLabels = await labels(card)
+  expect(shipLabels).toContain("ship")
+  expect(new Set(shipLabels).size).toBe(shipLabels.length)
+
+  // A routine's run is named after the routine, and its one task by what does it, not that name again.
+  const routineCard = page.locator(".fc-run-card").filter({ hasText: "Nightly parser fix" })
+  await expect(routineCard.locator(".fc-run-title")).toHaveText("Nightly parser fix")
+  await expect(routineCard.locator(".fc-run-node-name")).toHaveText(/^(Task|Tarea)$/)
+  const routineLabels = await labels(routineCard)
+  expect(new Set(routineLabels).size).toBe(routineLabels.length)
+  await expect(routineCard.getByText("Nightly parser fix")).toHaveCount(1)
 })

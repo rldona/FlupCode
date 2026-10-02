@@ -1,4 +1,4 @@
-import type { Workflow } from "./types"
+import type { Task, Workflow } from "./types"
 
 /**
  * The workflow as a graph (H-28), laid out in columns by depth.
@@ -77,5 +77,29 @@ export function workflowGraph(tasks: GraphTask[]): WorkflowGraph {
     edges,
     columns: nodes.reduce((max, node) => Math.max(max, node.depth), -1) + 1,
     rows: Math.max(1, ...rows.values()),
+  }
+}
+
+/**
+ * A run's tasks on its workflow's graph (UX-04): the same layout the editor draws, so the run reads
+ * as the process it executed. One node per task name — a retry or a plan's steps share their name —
+ * standing for the instance going now, or else the newest one, so the node follows the run's events.
+ * Dependencies come from the first instance, which is what the runner reads them from.
+ */
+export function runGraph(tasks: Task[]) {
+  const ordered = [...tasks].sort((left, right) => left.position - right.position)
+  const names = [...new Set(ordered.map((task) => task.name))]
+  const instances = (name: string) => ordered.filter((task) => task.name === name)
+  const graph = workflowGraph(
+    names.map((name) => {
+      const task = instances(name)[0]!
+      return { id: name, kind: task.kind, dependsOn: task.dependsOn, when: task.when, foreach: task.foreach, gate: task.gate }
+    }),
+  )
+  return {
+    ...graph,
+    tasks: Object.fromEntries(
+      names.map((name) => [name, instances(name).find((task) => task.status === "running") ?? instances(name).at(-1)!]),
+    ),
   }
 }

@@ -228,8 +228,10 @@ test("the same run costs the same on its card, in the Center and in its session"
   await page.goto("/runs")
   const card = page.locator(".fc-run-card").filter({ hasText: "feature" })
   await expect(card.locator(".fc-run-head .fc-cost-figure")).toHaveText(figure)
-  // The task line carries the same bill: the run had one task and nothing else.
-  await expect(card.locator(".fc-run-task .fc-cost-figure")).toHaveText(figure)
+  // The task's detail carries the same bill: the run had one task and nothing else.
+  await card.locator(".fc-run-node").click()
+  await expect(page.locator(".fc-run-detail .fc-cost-figure")).toHaveText(figure)
+  await page.locator(".fc-run-detail").getByRole("button", { name: /^(Close|Cerrar)$/ }).click()
 
   await page.goto("/")
   await page.locator(".fc-context-button").click()
