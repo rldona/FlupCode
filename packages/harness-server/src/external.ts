@@ -18,7 +18,21 @@ import { OUTPUT_LIMIT } from "./verify"
  * the CLI rejecting valid input.
  */
 export function externalCommand(command: string, prompt: string) {
-  return command.replace(/\{\{\s*prompt\s*\}\}/g, shellQuote(prompt))
+  return fillCommand(command, { prompt })
+}
+
+/**
+ * A command with its `{{name}}` placeholders filled, every value quoted as one shell word (TI-06).
+ *
+ * A command runs under `sh -lc`, and what fills it is text nobody vetted as shell: a step of a plan
+ * a model wrote, an input a routine was saved with. Quoted, `a; rm -rf ~` is an argument. A
+ * placeholder with no value is left for a later fill (`{{item}}` until the plan is read,
+ * `{{prompt}}` until the task runs).
+ */
+export function fillCommand(command: string, values: Record<string, string>) {
+  return command.replace(/\{\{\s*(\w+)\s*\}\}/g, (whole, name: string) =>
+    values[name] === undefined ? whole : shellQuote(values[name]),
+  )
 }
 
 /** One POSIX word, whatever the text: `'…'` with the apostrophes closed and escaped. */

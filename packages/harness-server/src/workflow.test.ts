@@ -511,10 +511,30 @@ describe("a task an external command runs (H-38)", () => {
       "file",
     )
     expect(workflow?.tasks[0]).toMatchObject({ kind: "external", command: "codex exec {{goal}}: {{prompt}}" })
+    // Quoted, like the prompt: an input is text a person or a routine typed, not shell (TI-06).
     expect(tasksFor(workflow!, { goal: "search" })[0]).toMatchObject({
       kind: "external",
-      command: "codex exec search: {{prompt}}",
+      command: "codex exec 'search': {{prompt}}",
     })
+    expect(tasksFor(workflow!, { goal: "x; rm -rf ~" })[0]!.command).toBe("codex exec 'x; rm -rf ~': {{prompt}}")
+  })
+
+  test("an input's default reaches the command as it reaches the prompt", () => {
+    const workflow = parseWorkflow(
+      [
+        "name: vendors",
+        "inputs:",
+        "  - name: goal",
+        "    default: tidy up",
+        "tasks:",
+        "  - id: codex",
+        "    kind: external",
+        "    command: codex exec {{goal}}",
+        "    prompt: do {{goal}}",
+      ].join("\n"),
+      "file",
+    )
+    expect(tasksFor(workflow!, {})[0]).toMatchObject({ prompt: "do tidy up", command: "codex exec 'tidy up'" })
   })
 
   test("a command that is not there is refused rather than run as nothing", () => {

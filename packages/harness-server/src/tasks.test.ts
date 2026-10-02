@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
@@ -639,6 +639,42 @@ describe("a task an external command runs", () => {
     ])
     await new TaskRunner(repository, neverEngine).execute(run, { directory })
     expect(repository.listTasks(run.id)[0]!.output).toBe("don't stop")
+    repository.close()
+  })
+
+  // TI-06: a plan's steps are model text. Substituted raw into a command run by `sh -lc`, one step
+  // could run anything; quoted, each is one argument whatever it contains.
+  test("a step of a plan reaches the command as one argument, never as shell syntax", async () => {
+    const repository = open()
+    const directory = scratchDirectory()
+    const marker = join(directory, "pwned")
+    const steps = [
+      `a; touch ${marker}`,
+      `$(touch ${marker})`,
+      `\`touch ${marker}\``,
+      `line\ntouch ${marker}`,
+      `it's "quoted"`,
+    ]
+    const plan = `\`\`\`json\n${JSON.stringify(steps)}\n\`\`\``
+    const planning = {
+      createSession: async () => ({ id: "ses_plan" }),
+      prompt: async () => undefined,
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: plan }),
+    } as never
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "plan", prompt: "Plan it" },
+      { name: "step", prompt: "", kind: "external", command: "printf '%s|' {{item}}", foreach: "plan" },
+    ])
+    expect(await new TaskRunner(repository, planning).execute(run, { directory })).toBe("done")
+
+    expect(existsSync(marker)).toBe(false)
+    const outputs = repository
+      .listTasks(run.id)
+      .filter((task) => task.name === "step" && task.kind === "external" && !task.foreach)
+      .map((task) => task.output)
+    expect(outputs).toEqual(steps.map((step) => `${step}|`))
     repository.close()
   })
 

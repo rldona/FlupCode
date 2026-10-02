@@ -387,7 +387,7 @@ tasks:
 | `prompt` | a task | what it is asked; a `verify` or `external` task has none for a model |
 | `kind: verify` | a task | the harness runs your commands instead of a model |
 | `kind: external` | a task | another vendor's CLI runs it instead of a model (H-38) |
-| `command` | an `external` task | the command it runs; `{{prompt}}` is the task's prompt, quoted |
+| `command` | an `external` task | the command it runs; `{{prompt}}` is the task's prompt, and `{{item}}` and `{{input}}` are filled the same way: each value goes in quoted as one shell word, so do not wrap a placeholder in quotes of your own |
 | `onFail: { max: N }` | a `verify` task | attempt the work before it again, up to N times |
 | `gate: human` | a task | hold the run here until somebody lets it through |
 | `limits: { tool: 10m }` | the workflow | stop a task whose single tool call runs longer than that |

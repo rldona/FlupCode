@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { externalCommand, runExternal, shellQuote } from "./external"
+import { externalCommand, fillCommand, runExternal, shellQuote } from "./external"
 
 describe("an external command (H-38)", () => {
   test("quotes a prompt as one shell word, whatever is in it", () => {
@@ -14,6 +14,12 @@ describe("an external command (H-38)", () => {
     expect(externalCommand("first {{ prompt }} then {{prompt}}", "x")).toBe("first 'x' then 'x'")
     // A command that does not ask for it runs without it: appending would be inventing a convention.
     expect(externalCommand("bun run check", "ignored")).toBe("bun run check")
+  })
+
+  test("fills every placeholder it has a value for, quoted, and leaves the rest for later (TI-06)", () => {
+    expect(fillCommand("run {{goal}} on {{item}} with {{prompt}}", { goal: "x; rm -rf ~", item: "$(id)" })).toBe(
+      "run 'x; rm -rf ~' on '$(id)' with {{prompt}}",
+    )
   })
 
   test("a prompt with an apostrophe reaches the command whole", async () => {
