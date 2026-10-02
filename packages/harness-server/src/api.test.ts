@@ -2443,6 +2443,8 @@ describe("a run's workflow identity (RP-01)", () => {
     const runs = (await batch.json()).data as Array<{ id: string }>
     expect(runs.length).toBe(2)
     for (const run of runs) expect(repository.getRun(run.id)?.workflow).toBeUndefined()
+    // Closed only once they have finished: a run still being driven writes its end to the store.
+    for (const run of runs) await settled(repository, run.id)
     repository.close()
   })
 })
