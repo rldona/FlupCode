@@ -1,6 +1,7 @@
 import { ErrorBoundary, type JSX, type Component } from "solid-js"
 import { t } from "../i18n"
 import { errorDetail } from "../error-text"
+import { hostsHarnessToken } from "../transport"
 
 /**
  * A region that fails on its own. Without one of these, a render error anywhere — a malformed tool
@@ -46,6 +47,8 @@ export const PanelFailure: Component<{ title: string; error: Error; onRetry: () 
  */
 export function failureDetail(error: Error) {
   if ("code" in error && error.code === "invalid_token")
-    return t("The harness server refused this page: it needs the desktop app or a paired device.")
+    return hostsHarnessToken()
+      ? t("The harness server refused this page: it needs the desktop app or a paired device.")
+      : t("The harness server refused this page: pair this tab under Runs with the code flupcode pair prints.")
   return errorDetail(error.message)
 }

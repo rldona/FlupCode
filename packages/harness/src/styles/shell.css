@@ -12358,3 +12358,70 @@ button.fc-status {
   color: var(--fc-text-muted);
   font-size: 13px;
 }
+
+/* Pairing a web app tab with the harness on this computer (HE-01). */
+.fc-pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 1120px;
+  margin: 28px auto 0;
+  padding: 16px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  background: var(--fc-bg-elevated);
+}
+
+.fc-pairing-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fc-text);
+}
+
+.fc-pairing-text,
+.fc-pairing-note,
+.fc-pairing-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.fc-pairing-text {
+  color: var(--fc-text-muted);
+}
+
+.fc-pairing-note {
+  color: var(--fc-text-muted);
+  font-size: 12px;
+}
+
+.fc-pairing-error {
+  color: var(--fc-danger);
+}
+
+.fc-pairing-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fc-pairing-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fc-text);
+}
+
+.fc-pairing-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fc-pairing-input {
+  flex: 1 1 160px;
+  max-width: 220px;
+  font-family: var(--fc-font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

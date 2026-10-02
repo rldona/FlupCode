@@ -126,6 +126,11 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
         <p class="fc-onboarding-text">
           {t("It answers at http://localhost:4096. Use another port with --port and change the server below.")}
         </p>
+        <p class="fc-onboarding-text">
+          {t(
+            "It also prints a pairing code: type it under Runs and this tab sees your runs, routines and artifacts. Chrome may ask to let this site access apps and devices on your local network; allow it.",
+          )}
+        </p>
         <label class="fc-settings-row">
           <span>{t("Server")}</span>
           <input

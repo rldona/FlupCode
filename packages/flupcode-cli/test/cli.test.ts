@@ -77,6 +77,11 @@ Bun.serve({
     if (path === "/api/info")
       return Response.json({ version: "2.0.20", db: process.env.OPENCODE_DB, user: process.env.OPENCODE_SERVER_USERNAME ?? null })
     if (path === "/api/experimental/migration/v1") return Response.json({ status: "completed" })
+    if (path === "/test/env")
+      return Response.json({
+        harness: process.env.FLUPCODE_HARNESS_SERVER_URL ?? null,
+        secrets: Object.keys(process.env).filter((name) => /^FLUPCODE_(BROWSER_TOKEN|PLUGIN_TOKEN|ENGINE_AUTH|VAULT_KEY)$/.test(name)),
+      })
     return Response.json({ _tag: "NotFound" }, { status: 404 })
   },
 })
@@ -314,10 +319,12 @@ describe("flupcode serve", () => {
     const port = freePort()
     try {
       const served = cliWith(
-        { FLUPCODE_OPENCODE: binary, XDG_DATA_HOME: data, OPENCODE_SERVER_PASSWORD: undefined },
+        { FLUPCODE_OPENCODE: binary, XDG_DATA_HOME: data, HOME: data, OPENCODE_SERVER_PASSWORD: undefined },
         "serve",
         "--port",
         String(port),
+        "--harness-port",
+        String(freePort()),
       )
       const out = reader(served.stdout)
       await out.wait(/OpenCode 2\.0\.20 for FlupCode's web app at http:\/\/127\.0\.0\.1:\d+/)
@@ -340,13 +347,107 @@ describe("flupcode serve", () => {
   }, 60_000)
 })
 
+describe("flupcode serve hosts the harness (HE-01)", () => {
+  test("starts the harness beside the engine, prints a pairing code a web app tab trades for a token", async () => {
+    const { bin, binary } = fakeOpenCodeV2()
+    const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
+    const config = mkdtempSync(join(tmpdir(), "flupcode-cli-config-"))
+    const harnessPort = freePort()
+    const harness = `http://127.0.0.1:${harnessPort}`
+    const env = {
+      FLUPCODE_OPENCODE: binary,
+      XDG_DATA_HOME: data,
+      HOME: data,
+      FLUPCODE_CONFIG_DIR: config,
+      FLUPCODE_BROWSER_TOKEN: undefined,
+    }
+    try {
+      const port = freePort()
+      const served = cliWith(env, "serve", "--port", String(port), "--harness-port", String(harnessPort))
+      const out = reader(served.stdout)
+      await out.wait(new RegExp(`Harness .* at ${harness}`))
+      const [, code] = await out.wait(/Pairing code ([A-Z2-9]{4}-[A-Z2-9]{4})/)
+      expect(out.output).toContain("local network")
+
+      // The engine knows where the harness is, and holds none of its secrets.
+      const signedIn = await fetch(`http://127.0.0.1:${port}/test/env`, { headers: { origin: "https://app.flupcode.com" } })
+      expect(await signedIn.json()).toEqual({ harness, secrets: [] })
+
+      // A hosted tab reads nothing until it pairs.
+      const origin = "https://app.flupcode.com"
+      expect((await fetch(`${harness}/harness/runs`, { headers: { origin } })).status).toBe(403)
+      const paired = await fetch(`${harness}/harness/pair`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify({ code }),
+      })
+      expect(paired.status).toBe(200)
+      const token = ((await paired.json()) as { data: { token: string } }).data.token
+      const runs = await fetch(`${harness}/harness/runs`, { headers: { origin, authorization: `Bearer ${token}` } })
+      expect(runs.status).toBe(200)
+      expect(runs.headers.get("access-control-allow-origin")).toBe(origin)
+      expect(await runs.json()).toEqual({ data: [] })
+
+      // `flupcode pair` asks the running harness for another code; `pair revoke` unpairs every tab.
+      const again = cliWith(env, "pair", "--harness-port", String(harnessPort))
+      expect(await new Response(again.stdout).text()).toMatch(/Pairing code [A-Z2-9]{4}-[A-Z2-9]{4}/)
+      expect(await again.exited).toBe(0)
+      const revoked = cliWith(env, "pair", "revoke", "--harness-port", String(harnessPort))
+      expect(await new Response(revoked.stdout).text()).toContain("Unpaired 1 tab(s)")
+      expect((await fetch(`${harness}/harness/runs`, { headers: { origin, authorization: `Bearer ${token}` } })).status).toBe(403)
+
+      // Kept alive like the engine, with its own log.
+      const pidFile = join(data, "flupcode", "harness.pid")
+      const first = JSON.parse(readFileSync(pidFile, "utf8")).pid as number
+      process.kill(first, "SIGKILL")
+      await out.wait(/harness stopped \(was stopped by SIGKILL\), restarting/)
+      await out.wait(/harness is back/, 30_000)
+      expect((await fetch(`${harness}/harness/health`)).status).toBe(200)
+      expect(existsSync(join(data, "flupcode", "logs", "harness.log"))).toBe(true)
+
+      served.kill("SIGINT")
+      expect(await served.exited).toBe(0)
+      expect(existsSync(pidFile)).toBe(false)
+      expect(await fetch(`${harness}/harness/health`).catch(() => undefined)).toBeUndefined()
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+      rmSync(data, { recursive: true, force: true })
+      rmSync(config, { recursive: true, force: true })
+    }
+  }, 90_000)
+
+  test("refuses to start beside a harness that already answers (the desktop app)", async () => {
+    const taken = Bun.serve({ port: 0, fetch: () => Response.json({ healthy: true }) })
+    try {
+      const run = cliWith({}, "serve", "--port", String(freePort()), "--harness-port", String(taken.port))
+      expect(await new Response(run.stderr).text()).toContain("a harness already answers")
+      expect(await run.exited).toBe(1)
+    } finally {
+      taken.stop(true)
+    }
+  })
+
+  test("pair says what is missing when no harness runs", async () => {
+    const run = cliWith({ FLUPCODE_BROWSER_TOKEN: "x" }, "pair", "--harness-port", String(freePort()))
+    expect(await new Response(run.stderr).text()).toContain("start it with flupcode serve")
+    expect(await run.exited).toBe(1)
+  })
+})
+
 describe("flupcode serve supervises its engine (HE-03)", () => {
   test("an engine that stops is started again behind the same address, and its output is kept", async () => {
     const { bin, binary } = fakeOpenCodeV2()
     const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
     const port = freePort()
     try {
-      const served = cliWith({ FLUPCODE_OPENCODE: binary, XDG_DATA_HOME: data }, "serve", "--port", String(port))
+      const served = cliWith(
+        { FLUPCODE_OPENCODE: binary, XDG_DATA_HOME: data, HOME: data },
+        "serve",
+        "--port",
+        String(port),
+        "--harness-port",
+        String(freePort()),
+      )
       const out = reader(served.stdout)
       await out.wait(/for FlupCode's web app at/)
       const pidFile = join(data, "flupcode", "engine.pid")
@@ -391,6 +492,9 @@ describe("flupcode serve --install", () => {
       const written = readFileSync(file, "utf8")
       expect(written).toContain("serve")
       expect(written).toContain("4111")
+      // The harness port goes with it: the service hosts both (HE-01).
+      expect(written).toContain("--harness-port")
+      expect(written).toContain("4097")
       expect(written).toContain(process.platform === "darwin" ? "<key>KeepAlive</key>" : "Restart=always")
 
       const removed = cliWith(env, "serve", "--uninstall")

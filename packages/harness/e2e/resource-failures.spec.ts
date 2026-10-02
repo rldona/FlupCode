@@ -156,7 +156,7 @@ test("a refused token on Cost says it needs the desktop app or pairing, not that
 
   const alert = page.getByRole("alert").filter({ hasText: "The cost report could not be read" })
   await expect(alert).toBeVisible()
-  await expect(alert).toContainText("needs the desktop app or a paired device")
+  await expect(alert).toContainText("pair this tab under Runs")
   await expect(alert).not.toContainText("Forbidden")
   await expect(page.getByText("The harness server is not reachable")).toHaveCount(0)
 })
@@ -168,7 +168,7 @@ test("a harness that refuses this page's token says so on Cost, and trying again
   await openApp(page, failing, "/usage")
 
   const alert = page.getByRole("alert").filter({ hasText: "The cost report could not be read" })
-  await expect(alert).toContainText("needs the desktop app or a paired device")
+  await expect(alert).toContainText("pair this tab under Runs")
   await expect(page.getByText("The harness server is not reachable")).toHaveCount(0)
   // Nothing was read, so nothing is claimed about the window either.
   await expect(page.getByText("Nothing recorded in this period.")).toHaveCount(0)
@@ -184,6 +184,6 @@ test("a harness that refuses this page's token says so on Changes, and the diff 
 
   await expect(page.locator(".fc-diff-file").filter({ hasText: "server.ts" })).toBeVisible()
   const alert = page.getByRole("alert").filter({ hasText: "Commits and checkpoints are not available here" })
-  await expect(alert).toContainText("needs the desktop app or a paired device")
+  await expect(alert).toContainText("pair this tab under Runs")
   await expect(alert.getByRole("button", { name: "Try again" })).toBeVisible()
 })

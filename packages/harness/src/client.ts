@@ -2,7 +2,7 @@ import { createV2Domains, reachabilityUrl } from "./engine/v2"
 import type { EngineClient } from "./engine/contract"
 import { subscribeEvents } from "./event-stream"
 import { readStorage, STORAGE_KEYS } from "./storage"
-import { anonymousFetch, engineFetch, harnessBrowserToken } from "./transport"
+import { anonymousFetch, engineFetch, harnessBrowserToken, pairingRestored } from "./transport"
 import type {
   ActionCatalog,
   BrowserGrant,
@@ -149,6 +149,7 @@ export function resolveHarnessServerUrl() {
  * without it (AH-A05). Without a token — a plain browser tab — the request goes out as it always did.
  */
 async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestInit) {
+  await pairingRestored()
   const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     ...init,
     headers: harnessHeaders(init),
@@ -172,6 +173,7 @@ async function harnessRequestEnvelope<T>(
   path: string,
   init?: RequestInit,
 ): Promise<{ data: T; warnings: string[] }> {
+  await pairingRestored()
   const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     ...init,
     headers: harnessHeaders(init),
@@ -219,6 +221,7 @@ function harnessHeaders(init?: RequestInit) {
  * to reach the port. Without a token — a plain browser tab — the request goes out as it always did.
  */
 async function harnessAuthorizedRequest(baseUrl: string, path: string, init?: RequestInit) {
+  await pairingRestored()
   const token = harnessBrowserToken()
   return anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     ...init,

@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component, type JSX } from "solid-js"
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
@@ -27,6 +27,8 @@ type RoutinesPanelProps = {
   busyRoutineID?: string
   serverAvailable: boolean
   serverLoading: boolean
+  /** Shown instead of "unavailable" when the harness refused a tab that can pair (HE-01). */
+  pairing?: JSX.Element
   projects: Array<{ directory: string; name: string }>
   models: ModelInfo[]
   agents: AgentInfo[]
@@ -393,16 +395,23 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
           </div>
         </div>
 
-        <div class="fc-routines-notice">
-          <span class="fc-routines-notice-icon">◷</span>
-          <span>{props.serverLoading ? t("Connecting to the routines server…") : props.serverAvailable ? t("Routines are managed by the harness server and continue when this window is closed.") : t("The routines server is unavailable. Start FlupCode's harness server to manage routines.")}</span>
-        </div>
+        <Show
+          when={!props.serverAvailable && !props.serverLoading && props.pairing}
+          fallback={
+            <div class="fc-routines-notice">
+              <span class="fc-routines-notice-icon">◷</span>
+              <span>{props.serverLoading ? t("Connecting to the routines server…") : props.serverAvailable ? t("Routines are managed by the harness server and continue when this window is closed.") : t("The routines server is unavailable. Start FlupCode's harness server to manage routines.")}</span>
+            </div>
+          }
+        >
+          {props.pairing}
+        </Show>
 
         <div class="fc-routines-toolbar">
           <input class="fc-question-custom fc-routines-search" value={search()} placeholder={t("Search routines")} aria-label={t("Search routines")} onInput={(event) => setSearch(event.currentTarget.value)} />
         </div>
 
-        <Show when={visible().length > 0} fallback={<div class="fc-routines-empty"><div class="fc-routines-empty-icon">◷</div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
+        <Show when={visible().length > 0} fallback={(!props.pairing || props.serverAvailable) && <div class="fc-routines-empty"><div class="fc-routines-empty-icon">◷</div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
             <div class="fc-routines-layout">
               <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small><Show when={lastSettled(routine)}>{(run) => <span class="fc-routine-card-last"><StateBadge state={runState(run())} reason={run().verdict?.reason ?? run().error} /><Show when={routine.failedInARow > 0}><small>{t("{count} failed in a row", { count: routine.failedInARow })}</small></Show></span>}</Show></span><Show when={props.routineAttention[routine.id]}>{(level) => <AttentionMark level={level()} />}</Show><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
             </div>

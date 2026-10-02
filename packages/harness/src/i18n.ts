@@ -238,6 +238,28 @@ const ES: Record<string, string> = {
   "{name} could not be read": "No se pudo leer: {name}",
   "The harness server refused this page: it needs the desktop app or a paired device.":
     "El servidor del harness rechazó esta página: necesita la app de escritorio o un dispositivo emparejado.",
+  "The harness server refused this page: pair this tab under Runs with the code flupcode pair prints.":
+    "El servidor del harness rechazó esta página: empareja esta pestaña en Ejecuciones con el código que imprime flupcode pair.",
+  // Pairing a web app tab with the harness (HE-01)
+  "Pair this tab with your computer": "Empareja esta pestaña con tu ordenador",
+  "The harness on this computer answered, but this tab is not paired with it, so runs, routines and artifacts stay hidden here.":
+    "El harness de este ordenador respondió, pero esta pestaña no está emparejada con él, así que aquí no se ven ejecuciones, rutinas ni artefactos.",
+  "Run flupcode serve in a terminal, or flupcode pair while it runs, and type the code it prints.":
+    "Ejecuta flupcode serve en un terminal, o flupcode pair mientras está en marcha, y escribe el código que imprime.",
+  "Pairing code": "Código de emparejamiento",
+  Pair: "Emparejar",
+  "Pairing…": "Emparejando…",
+  "That code is wrong, used or expired. flupcode pair prints a new one.":
+    "Ese código es incorrecto, ya se usó o caducó. flupcode pair imprime uno nuevo.",
+  "Too many wrong codes. Wait a minute and try again.":
+    "Demasiados códigos incorrectos. Espera un minuto y vuelve a intentarlo.",
+  "The harness on this computer did not answer. Is flupcode serve running?":
+    "El harness de este ordenador no respondió. ¿Está en marcha flupcode serve?",
+  "Chrome may ask to let this site access apps and devices on your local network. Allow it: that is how this tab reaches the harness on this computer.":
+    "Chrome puede pedir permiso para que este sitio acceda a apps y dispositivos de tu red local. Permítelo: así llega esta pestaña al harness de este ordenador.",
+  "This tab is paired with your computer": "Esta pestaña está emparejada con tu ordenador",
+  "It also prints a pairing code: type it under Runs and this tab sees your runs, routines and artifacts. Chrome may ask to let this site access apps and devices on your local network; allow it.":
+    "También imprime un código de emparejamiento: escríbelo en Ejecuciones y esta pestaña verá tus ejecuciones, rutinas y artefactos. Chrome puede pedir permiso para que este sitio acceda a apps y dispositivos de tu red local; permítelo.",
   "The changes": "los cambios",
   "Commits and checkpoints are not available here": "Los commits y los puntos de retorno no están disponibles aquí",
   "The cost report": "el informe de coste",

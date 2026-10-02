@@ -131,6 +131,9 @@ import { needsOAuth } from "./components/McpManager"
 import { RoutinesPanel } from "./components/RoutinesPanel"
 import { ActionsPanel } from "./components/ActionsPanel"
 import { RunsPanel, metPerson, type RunRequests } from "./components/RunsPanel"
+import { PairingCard } from "./components/PairingCard"
+import { pairingEpoch, restorePairing } from "./pairing"
+import { hostsHarnessToken } from "./transport"
 import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
@@ -205,6 +208,8 @@ export const App: Component = () => {
     return host ? remoteBaseUrl(host.hostId) : localServerUrl()
   }
   const harnessServerUrl = () => localHarnessServerUrl()
+  // A tab paired earlier trades its refresh cookie for a token before the first harness read (HE-01).
+  void restorePairing(harnessServerUrl())
   const [selected, setSelected] = createSignal<string | undefined>(
     // Phones controlling a computer always start on the sessions home, not the last open session.
     touchDevice && !desktopRemote() && remote.activeHost()
@@ -579,6 +584,14 @@ export const App: Component = () => {
    * down, and saying "not reachable" sent people looking for a server that was running (TI-14).
    */
   const [harnessRefusal, setHarnessRefusal] = createSignal<HarnessError>()
+  /** A browser tab the harness refused can pair with a code (HE-01); the desktop hands its own token. */
+  const pairingCard = () =>
+    harnessRefusal() && !hostsHarnessToken() ? (
+      <PairingCard
+        serverUrl={harnessServerUrl()}
+        onPaired={() => toast(t("This tab is paired with your computer"), "success")}
+      />
+    ) : undefined
   /** The web actions the server knows (WA-7), for the routine editor's action preset. */
   const [actionProfiles, setActionProfiles] = createSignal<ActionProfileSummary[]>([])
   createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
@@ -3891,6 +3904,8 @@ export const App: Component = () => {
 
     createEffect(() => {
       const url = harnessServerUrl()
+      // Pairing or losing it reconnects with the token this tab now holds.
+      pairingEpoch()
       const controller = new AbortController()
       onCleanup(() => controller.abort())
       // Untracked: everything below reads and writes the routine state, and the first stretch of it
@@ -5325,6 +5340,7 @@ export const App: Component = () => {
             attention={runsAttention()}
             routineNames={Object.fromEntries(routines().map((routine) => [routine.id, routine.name]))}
             serverAvailable={routinesServerAvailable()}
+            pairing={pairingCard()}
             onStop={stopRun}
             onRemove={removeRun}
             onClear={clearRuns}
@@ -5451,6 +5467,7 @@ export const App: Component = () => {
             busyRoutineID={routineBusyID()}
             serverAvailable={routinesServerAvailable()}
             serverLoading={routinesServerLoading()}
+            pairing={pairingCard()}
             projects={routineProjects()}
             models={modelList()}
             agents={agents()?.data ?? []}

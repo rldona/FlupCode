@@ -15,7 +15,8 @@
     "./v1-import": "./src/v1-import.ts",
     "./secret-patterns": "./src/secret-patterns.ts",
     "./supervisor": "./src/supervisor.ts",
-    "./diagnostics": "./src/diagnostics.ts"
+    "./diagnostics": "./src/diagnostics.ts",
+    "./harness-host": "./src/harness-host.ts"
   },
   "scripts": {
     "test": "bun test",
