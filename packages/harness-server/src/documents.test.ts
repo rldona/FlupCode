@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
@@ -67,6 +67,17 @@ describe("documents the agent produced (H-14)", () => {
 
     const [document] = discoverDocuments(root)
     expect(document!.path).toBe(join(".flupcode", "artifacts", "nested", "shot.png"))
+  })
+
+  test("a documents folder that is a link out of the project is not read (TI-11)", () => {
+    const outside = mkdtempSync(join(tmpdir(), "flupcode-docs-outside-"))
+    roots.push(outside)
+    writeFileSync(join(outside, "private.md"), "# Private\n")
+    const root = mkdtempSync(join(tmpdir(), "flupcode-docs-"))
+    roots.push(root)
+    mkdirSync(join(root, ".flupcode"))
+    symlinkSync(outside, join(root, ".flupcode", "artifacts"))
+    expect(discoverDocuments(root)).toEqual([])
   })
 
   test("a missing folder is empty, not an error", () => {

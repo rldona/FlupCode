@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { branch, commit, currentBranch, discard, isRepository, mergeBranch } from "./git"
@@ -115,6 +115,19 @@ describe("discard", () => {
     write("new.txt", "hi\n")
     await discard({ directory, path: "new.txt" })
     expect(existsSync(join(directory, "new.txt"))).toBe(false)
+  })
+
+  test("removes an untracked link and leaves what it points at alone (TI-11)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "flupcode-git-outside-"))
+    writeFileSync(join(outside, "target.txt"), "keep\n")
+    symlinkSync(join(outside, "target.txt"), join(directory, "link.txt"))
+    try {
+      await discard({ directory, path: "link.txt" })
+      expect(lstatSync(join(directory, "link.txt"), { throwIfNoEntry: false })).toBeUndefined()
+      expect(readFileSync(join(outside, "target.txt"), "utf8")).toBe("keep\n")
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 
   test("discards only the chosen hunk from the working tree", async () => {

@@ -1,9 +1,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
 import { allowedHarnessHost, allowedHarnessOrigin } from "./cors"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { projectRoots } from "./project-roots"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 import { ActionRunError } from "./action-runner"
@@ -42,7 +43,13 @@ const input = {
 const open = () => {
   const repository = new SqliteRoutineRepository(":memory:")
   const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
-  return { repository, scheduler, handler: createHarnessHandler(repository, scheduler) }
+  // There is no engine here, so the folders it would know as projects are the ones these tests made
+  // (TI-11); `harness-server.engine.test.ts` asks a real one.
+  return {
+    repository,
+    scheduler,
+    handler: createHarnessHandler(repository, scheduler, { projectRoots: projectRoots(async () => made) }),
+  }
 }
 
 describe("harness routines API", () => {
@@ -98,6 +105,132 @@ describe("harness routines API", () => {
     const removed = await handler(new Request(`http://localhost/harness/routines/${routine.id}`, { method: "DELETE" }))
     expect(removed.status).toBe(200)
     repository.close()
+  })
+})
+
+describe("folders a caller names are confined to the projects (TI-11)", () => {
+  const project = () => {
+    const root = mkdtempSync(join(tmpdir(), "flupcode-roots-api-"))
+    made.push(root)
+    writeFileSync(join(root, "a.txt"), "a\n")
+    return root
+  }
+  const stranger = () => {
+    // A real folder that is not a project: made, but not in the list the engine would answer.
+    const root = mkdtempSync(join(tmpdir(), "flupcode-roots-stranger-"))
+    writeFileSync(join(root, "secret.txt"), "secret\n")
+    return root
+  }
+
+  test("files/read answers 403 for the filesystem root and any folder that is not a project", async () => {
+    const { handler, repository } = open()
+    const outside = stranger()
+    const read = (directory: string, path: string) =>
+      handler(
+        new Request(`http://x/harness/files/read?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`),
+      )
+    try {
+      expect((await read("/", "etc/hosts")).status).toBe(403)
+      expect((await read("/etc", "hosts")).status).toBe(403)
+      expect((await read(outside, "secret.txt")).status).toBe(403)
+      expect((await read(project(), "a.txt")).status).toBe(200)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+      repository.close()
+    }
+  })
+
+  test("a link in a project that points out of it is refused", async () => {
+    const { handler, repository } = open()
+    const root = project()
+    const outside = stranger()
+    symlinkSync(join(outside, "secret.txt"), join(root, "leak.txt"))
+    try {
+      const read = await handler(
+        new Request(`http://x/harness/files/read?directory=${encodeURIComponent(root)}&path=leak.txt`),
+      )
+      expect(read.status).toBe(400)
+      expect(await read.text()).not.toContain("secret")
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+      repository.close()
+    }
+  })
+
+  test("git and checkpoint routes answer 403 for a folder that is not a project", async () => {
+    const { handler, repository } = open()
+    const outside = stranger()
+    const post = (path: string, body: unknown) =>
+      handler(new Request(`http://x/harness/${path}`, { method: "POST", body: JSON.stringify(body) }))
+    const get = (path: string) => handler(new Request(`http://x/harness/${path}`))
+    const encoded = encodeURIComponent(outside)
+    try {
+      for (const response of [
+        await post("git/commit", { directory: outside, message: "m", paths: ["secret.txt"] }),
+        await post("git/discard", { directory: outside, path: "secret.txt" }),
+        await post("git/message", { directory: outside, paths: ["secret.txt"] }),
+        await post("git/branch", { directory: outside, name: "x" }),
+        await post("git/pr", { directory: outside, title: "x" }),
+        await get(`git/branch?directory=${encoded}`),
+        await get(`git/pr?directory=${encoded}`),
+        await get(`git/pr/log?directory=${encoded}&job=1`),
+        await post("checkpoints", { directory: outside }),
+      ]) {
+        expect(response.status).toBe(403)
+      }
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+      repository.close()
+    }
+  })
+
+  test("an artifact kept by path needs a project, and is served only from inside it", async () => {
+    const { handler, repository } = open()
+    const root = project()
+    const outside = stranger()
+    const create = (body: Record<string, unknown>) =>
+      handler(
+        new Request("http://x/harness/artifacts", {
+          method: "POST",
+          body: JSON.stringify({ kind: "document", title: "t", ...body }),
+        }),
+      )
+    try {
+      expect((await create({ path: "etc/hosts", directory: "/" })).status).toBe(403)
+      expect((await create({ path: "secret.txt", directory: outside })).status).toBe(403)
+      expect((await create({ path: "/etc/hosts" })).status).toBe(403)
+
+      const kept = await create({ path: "a.txt", directory: root, mime: "text/plain" })
+      expect(kept.status).toBe(201)
+      const id = ((await kept.json()) as { data: { id: string } }).data.id
+      expect(await (await handler(new Request(`http://x/harness/artifacts/${id}/raw`))).text()).toBe("a\n")
+
+      // Kept before this guard existed, with a folder of the caller's choosing: not served.
+      const old = repository.addArtifact({ kind: "document", title: "old", producer: "user", path: "secret.txt", directory: outside })
+      expect((await handler(new Request(`http://x/harness/artifacts/${old.id}/raw`))).status).toBe(403)
+
+      // The file swapped for a link out of the project after it was kept: refused.
+      rmSync(join(root, "a.txt"))
+      symlinkSync(join(outside, "secret.txt"), join(root, "a.txt"))
+      expect((await handler(new Request(`http://x/harness/artifacts/${id}/raw`))).status).toBe(400)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+      repository.close()
+    }
+  })
+
+  test("listing a folder's artifacts indexes its documents only when it is a project", async () => {
+    const { handler, repository } = open()
+    const outside = stranger()
+    mkdirSync(join(outside, ".flupcode", "artifacts"), { recursive: true })
+    writeFileSync(join(outside, ".flupcode", "artifacts", "report.md"), "# Private\n")
+    try {
+      const listed = await handler(new Request(`http://x/harness/artifacts?directory=${encodeURIComponent(outside)}`))
+      expect((await listed.json()).data).toEqual([])
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+      repository.close()
+    }
   })
 })
 

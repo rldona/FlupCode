@@ -11,8 +11,9 @@
  */
 
 import { rmSync } from "node:fs"
-import { join, resolve, sep } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { selectHunks } from "./patch"
+import { confinedPath } from "./project-roots"
 
 export type GitCommit = { sha: string; subject: string; branch: string }
 
@@ -224,11 +225,12 @@ export async function discard(input: { directory: string; path: string; hunks?: 
 
   if (!input.hunks || input.hunks.length === 0) {
     if (entry.status === "??") {
-      const absolute = resolve(input.directory, input.path)
-      if (!(absolute === join(input.directory, input.path) || absolute.startsWith(resolve(input.directory) + sep))) {
-        throw new GitError("That path is outside the folder")
-      }
-      rmSync(absolute)
+      // Git listed it, but under a folder that is a link out of the tree it would be removed there:
+      // the folder it is in has to stay inside through every link (TI-11). The file itself is not
+      // followed, so an untracked link is removed and what it points at is left alone.
+      const parent = confinedPath(input.directory, dirname(input.path))
+      if (!parent) throw new GitError("That path is outside the folder")
+      rmSync(join(parent, basename(input.path)))
     } else {
       await expect(input.directory, ["restore", "--staged", "--worktree", "--", input.path], "Could not discard the change")
     }

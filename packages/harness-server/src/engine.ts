@@ -225,6 +225,11 @@ export class Engine {
     return (await this.v2()).removeWorktree(input)
   }
 
+  /** The folders the engine knows as projects, with their worktrees: what the harness may read (TI-11). */
+  async projectRoots() {
+    return (await this.v2()).projectRoots()
+  }
+
   /**
    * Bring up every MCP server of a project before a run creates its session.
    *

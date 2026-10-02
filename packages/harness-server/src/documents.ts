@@ -17,6 +17,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { basename, extname, join, relative } from "node:path"
+import { confinedPath } from "./project-roots"
 import { artifactHash, type ArtifactRepository } from "./repository"
 import type { Artifact } from "./types"
 
@@ -131,6 +132,9 @@ function walk(root: string, at: string, out: LocalDocument[]) {
 export function discoverDocuments(directory: string): LocalDocument[] {
   const root = join(directory, DOCUMENTS_DIRECTORY)
   const out: LocalDocument[] = []
+  // The walk skips links, but the folder itself could be one: a `.flupcode/artifacts` pointing out
+  // of the project would index whatever it points at (TI-11).
+  if (!confinedPath(directory, DOCUMENTS_DIRECTORY)) return out
   walk(root, root, out)
   return out
 }

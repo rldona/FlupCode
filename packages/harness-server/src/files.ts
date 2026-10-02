@@ -7,7 +7,7 @@
  */
 
 import { readFileSync, statSync } from "node:fs"
-import { resolve, sep } from "node:path"
+import { confinedPath } from "./project-roots"
 
 export type FileText = {
   path: string
@@ -33,12 +33,10 @@ export class FileError extends Error {
 }
 
 export function readProjectFile(input: { directory: string; path: string; maxBytes?: number }): FileText {
-  const root = resolve(input.directory)
-  const absolute = resolve(root, input.path)
-  // The path arrives from a browser. A `..` or an absolute path is refused before anything is read.
-  if (!(absolute === root || absolute.startsWith(root + sep))) {
-    throw new FileError("That path is outside the folder")
-  }
+  // The path arrives from a browser. A `..`, an absolute path or a link out of the folder is refused
+  // before anything is read (TI-11).
+  const absolute = confinedPath(input.directory, input.path)
+  if (!absolute) throw new FileError("That path is outside the folder")
   let size: number
   try {
     const stat = statSync(absolute)
