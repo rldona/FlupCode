@@ -891,6 +891,12 @@ export class TaskRunner {
           cost: answer?.cost,
         })
         this.repository.setTaskVerdict(task.id, { value: "failed", reason: overBudget, source: "rule" })
+        // The folder as the stopped turn left it, possibly mid-edit: kept as a way back to that work,
+        // never as what a resume restores (that is the last task that succeeded).
+        if (directory)
+          await take({ directory, title: `${task.name} — stopped at its budget`, summary: overBudget, runID: run.id, taskID: task.id })
+            .then((checkpoint) => this.repository.addCheckpoint(checkpoint))
+            .catch(() => undefined)
         this.pauseForBudget(run, context)
         return
       }

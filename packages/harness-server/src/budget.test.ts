@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { dayStart, runStandings, standingBudgets } from "./budget"
 import { SqliteRoutineRepository } from "./repository"
@@ -128,6 +131,34 @@ describe("a run's budget, step by step (UL-08)", () => {
     expect(repository.getRun(run.id)).toMatchObject({ budgetApproved: true })
     expect(repository.getRun(run.id)?.overBudget).toBeUndefined()
     repository.close()
+  })
+
+  test("the folder a stopped turn left, mid-edit, is kept as a checkpoint of its task", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-budget-cp-"))
+    const git = (args: string[]) => Bun.spawnSync(["git", ...args], { cwd: directory })
+    git(["init", "-q", "-b", "main"])
+    git(["config", "user.email", "test@example.com"])
+    git(["config", "user.name", "Test"])
+    writeFileSync(join(directory, "kept.txt"), "one\n")
+    git(["add", "-A"])
+    git(["commit", "-qm", "first"])
+    const fake = busyEngine()
+    const scheduler = schedulerWith(repository, fake.engine)
+    const run = await scheduler.runTasks({ tasks: [{ name: "busy", prompt: "go" }], directory, policy: { budget: { cost: 1 } } })
+    await until(() => repository.listTasks(run.id)[0]?.sessionID === "ses_1")
+    // Half an edit, when the step that crosses the budget lands.
+    writeFileSync(join(directory, "half.txt"), "half of it")
+    spend(repository, "ses_1", { usd: 1 })
+    scheduler.checkBudgets(["ses_1"])
+    await until(() => statusOf(repository, run.id) === "awaiting")
+
+    const [task] = repository.listTasks(run.id)
+    expect(repository.listCheckpoints({ runID: run.id })).toEqual([
+      expect.objectContaining({ taskID: task!.id, title: "busy — stopped at its budget", summary: "Reached the run's cost budget ($1)" }),
+    ])
+    repository.close()
+    rmSync(directory, { recursive: true, force: true })
   })
 
   test("a token budget counts input, output and reasoning, not the cache, and counts unpriced steps", async () => {
