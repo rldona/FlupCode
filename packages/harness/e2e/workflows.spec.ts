@@ -61,6 +61,17 @@ async function open(page: Page, onSave: (body: unknown, name: string) => void, o
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
     if (url.pathname === "/harness/workflows" && method === "GET")
       return route.fulfill({ json: { data: [workflow] } })
+    // Its runs (RP-01): one of this version and one of an earlier one.
+    if (url.pathname === "/harness/workflows/feature/runs" && method === "GET")
+      return route.fulfill({
+        json: {
+          data: [
+            { id: "run_new", source: { type: "manual" }, status: "success", startedAt: 2_000, workflow: { name: "feature", scope: "project", hash: "now", inputs: { goal: "search" } } },
+            { id: "run_old", source: { type: "manual" }, status: "failed", startedAt: 1_000, workflow: { name: "feature", scope: "project", hash: "old", inputs: { goal: "login" } } },
+          ],
+        },
+      })
+    if (url.pathname.endsWith("/runs") && method === "GET") return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/harness/workflows/feature" && method === "GET")
       return route.fulfill({
         json: { data: { name: "feature", scope: "project", path: "/work/demo/.flupcode/workflows/feature.yaml", source, workflow } },
@@ -112,6 +123,14 @@ test("a workflow is read as a file, drawn as a graph, and saved back", async ({ 
   const graph = page.locator(".fc-workflow-graph")
   await expect(graph.locator(".fc-workflow-node")).toHaveCount(3)
   await expect(graph.locator(".fc-workflow-edge")).toHaveCount(2)
+
+  // What it has run (RP-01): each run with its inputs; neither hash is the file's, so both are of an
+  // earlier version.
+  const runs = page.locator(".fc-workflow-run")
+  await expect(runs).toHaveCount(2)
+  await expect(runs.nth(0)).toContainText("goal: search")
+  await expect(runs.nth(1)).toContainText("goal: login")
+  await expect(runs.nth(1)).toContainText(/an earlier version|una versión anterior/)
 
   // The file as written is what is edited, not a form derived from it.
   const editor = page.getByLabel(/Workflow source|Fuente del flujo/)
