@@ -4149,8 +4149,8 @@ button.fc-status {
 }
 
 .fc-routine-run-dot-failed { background: var(--fc-danger); }
-.fc-routine-run-dot-running { background: var(--fc-accent); }
-.fc-routine-run-dot-awaiting { background: var(--fc-warning); }
+/* A run going, or held at a gate, is drawn with the attention mark (UX-02). */
+.fc-routine-card > .fc-attention { margin-top: 6px; }
 .fc-routine-run-dot-stopped { background: var(--fc-text-muted); }
 
 .fc-routine-editor {
@@ -6225,17 +6225,6 @@ button.fc-status {
   background: transparent;
 }
 
-.fc-remote-dot-busy {
-  border-color: var(--fc-accent);
-  background: var(--fc-accent);
-  animation: fc-remote-pulse 1.4s ease-in-out infinite;
-}
-
-.fc-remote-dot-waiting {
-  border-color: var(--fc-warning);
-  background: var(--fc-warning);
-}
-
 .fc-remote-dot-online {
   border-color: var(--fc-success-soft);
   background: var(--fc-success-soft);
@@ -6253,12 +6242,6 @@ button.fc-status {
 @keyframes fc-remote-pulse {
   50% {
     opacity: 0.4;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-remote-dot-busy {
-    animation: none;
   }
 }
 
@@ -7775,6 +7758,92 @@ button.fc-status {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The attention indicator (UX-02): one mark per level, the same on a session, a run, a routine or a
+ * collapsed group. Shape changes with colour so no level rests on colour alone: a gate or a
+ * permission is a square, a question a disc, both with a halo; "not verified" is a dashed ring, the
+ * verdict badge's own outline, never a quieter "failed". Only "running" moves.
+ */
+.fc-attention {
+  --fc-attention-color: var(--fc-text);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--fc-attention-color);
+  border-radius: 50%;
+  background: var(--fc-attention-color);
+  color: var(--fc-bg);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-attention[data-attention="approval"],
+.fc-attention[data-attention="answer"] {
+  --fc-attention-color: var(--fc-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fc-warning) 26%, transparent);
+}
+
+.fc-attention[data-attention="approval"] {
+  border-radius: 2px;
+}
+
+.fc-attention[data-attention="failed"] {
+  --fc-attention-color: var(--fc-danger);
+}
+
+.fc-attention[data-attention="unverified"] {
+  border-style: dashed;
+  background: transparent;
+  color: var(--fc-attention-color);
+}
+
+.fc-attention[data-attention="running"] {
+  --fc-attention-color: var(--fc-accent);
+  animation: fc-remote-pulse 1.4s ease-in-out infinite;
+}
+
+/* With a count it grows into a pill that holds the number. */
+.fc-attention-count {
+  width: auto;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--fc-radius-pill);
+}
+
+.fc-attention-count[data-attention="approval"] {
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-attention[data-attention="running"] {
+    animation: none;
+  }
+}
+
+/* Where the sidebar puts a tally: at the end of a nav item, and after a collapsed project's name. */
+.fc-nav-item {
+  position: relative;
+}
+
+.fc-nav-attention {
+  position: absolute;
+  top: 50%;
+  right: var(--fc-space-3);
+  display: inline-flex;
+  transform: translateY(-50%);
+}
+
+.fc-project-toggle .fc-attention {
+  margin-right: 2px;
+}
+
 /* Sessions in the sidebar: a small ring like Claude Code's, blue and pulsing while working. */
 .fc-session-dot {
   flex-shrink: 0;
@@ -7792,16 +7861,6 @@ button.fc-status {
 .fc-session-dot-blocked {
   background: var(--fc-warning);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fc-warning) 26%, transparent);
-}
-
-/* A question waiting on an answer (QH-1): a yellow hand instead of any dot. */
-.fc-session-hand {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  font-size: 12px;
-  line-height: 16px;
-  text-align: center;
 }
 
 .fc-session-dot-running {

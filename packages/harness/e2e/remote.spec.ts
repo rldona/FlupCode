@@ -248,7 +248,8 @@ test.describe("on a phone", () => {
     await expect(home.getByRole("button", { name: /e2e-mac/ })).toBeVisible()
     const card = home.getByRole("button", { name: /Fix the login flow/ })
     await expect(card).toContainText("flupcode · main")
-    await expect(card.getByRole("img", { name: "Needs your input" })).toBeVisible()
+    // A permission is an approval, drawn as it is on the desk's sidebar (UX-02).
+    await expect(card.getByRole("img", { name: "Needs approval" })).toBeVisible()
     await expect(page.locator(".fc-sidebar")).toHaveCount(0)
 
     // The fake engine answers 404 for the transcript: the session screen must still open.

@@ -8,11 +8,15 @@ import { VerdictBadge } from "./VerdictBadge"
 import { CostFigure } from "./CostFigure"
 import { purposeName, tokenCount } from "../cost"
 import { formatTokens } from "../metrics"
+import { AttentionMark } from "./AttentionMark"
+import type { Attention } from "../attention"
 import { runInputs, runTitle } from "../run-title"
 
 type RunsPanelProps = {
   open: boolean
   runs: Run[]
+  /** What each run needs from the reader (UX-02), by run id: the sidebar's mark, on its card. */
+  attention: Record<string, Attention | undefined>
   serverAvailable: boolean
   /** Resolves once the server has interrupted the run's sessions; rejects when it could not. */
   onStop: (id: string) => Promise<void>
@@ -239,6 +243,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     <span class="fc-run-mark" data-status={run.status}>
                       {going(run) ? marks.running : marks[run.status as TaskStatus]}
                     </span>
+                    <Show when={props.attention[run.id]}>{(level) => <AttentionMark level={level()} />}</Show>
                     <span class="fc-run-title">{runTitle(run)}</span>
                     <Show when={run.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
                     <span class="fc-run-meta">

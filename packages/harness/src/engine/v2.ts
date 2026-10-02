@@ -296,6 +296,15 @@ export function createV2Domains(
     },
   }
 
+  // 2.x asks questions as forms (see `toQuestion`); this lists every session's open ones.
+  const question: EngineClient["question"] = {
+    pending: async (input) => {
+      const directory = input?.location?.directory
+      const pending = await call(client.form.list(directory ? { location: { directory } } : undefined))
+      return { data: pending.data.map(toQuestion) }
+    },
+  }
+
   const permission: EngineClient["permission"] = {
     pending: async (input) => {
       const directory = input?.location?.directory
@@ -760,7 +769,7 @@ export function createV2Domains(
       })),
   }
 
-  return { session, message, permission, mcp, model, provider, auth, integration, ...config, ...rest }
+  return { session, message, permission, question, mcp, model, provider, auth, integration, ...config, ...rest }
 }
 
 /**
