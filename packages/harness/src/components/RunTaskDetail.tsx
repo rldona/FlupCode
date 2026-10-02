@@ -6,7 +6,9 @@ import { tokenCount } from "../cost"
 import { formatTokens } from "../metrics"
 import { CostFigure } from "./CostFigure"
 import { duration } from "./UsagePanel"
-import { VerdictBadge } from "./VerdictBadge"
+import { StateBadge } from "./StateBadge"
+import { elapsed } from "./RunGraph"
+import { taskState } from "../run-state"
 
 type RunTaskDetailProps = {
   run: Run
@@ -17,7 +19,7 @@ type RunTaskDetailProps = {
   touched?: TouchedFiles
   /** The calls it made, timed by FlupCode's engine plugin (H-16). */
   tools?: TaskTools
-  /** What the run left behind, for the task that produced it (H-14). */
+  /** What this task left behind (H-14). The run's own, like its report, are on the run's card. */
   artifacts: Artifact[]
   /** What the task spent, from the usage ledger (UL-06); undefined draws a dash. */
   cost?: UsageBucket
@@ -29,21 +31,6 @@ type RunTaskDetailProps = {
   onCancel: (taskID: string) => void
   onOpenChanges: (directory?: string) => void
   onClose: () => void
-}
-
-const marks: Record<Task["status"], string> = {
-  queued: "○",
-  running: "◐",
-  success: "●",
-  failed: "✕",
-  stopped: "■",
-  skipped: "–",
-}
-
-const elapsed = (from: number, to: number | undefined) => {
-  const seconds = Math.max(0, Math.round(((to ?? Date.now()) - from) / 1000))
-  if (seconds < 60) return `${seconds}s`
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`
 }
 
 /** Who judged a verdict (RP-06), so a rule's reading of the answer is not mistaken for a check. */
@@ -101,11 +88,9 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
   return (
     <aside class="fc-run-detail" aria-label={t("Task detail")}>
       <header class="fc-run-detail-head">
-        <span class="fc-run-mark" data-status={props.task.status}>
-          {marks[props.task.status]}
-        </span>
         <span class="fc-run-detail-title">{props.task.name}</span>
-        <Show when={props.task.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
+        {/* Where it stands, once, as its node on the card says it (UX-04). */}
+        <StateBadge state={taskState(props.task)} reason={props.task.verdict?.reason} />
         <button class="fc-icon-button" type="button" aria-label={t("Close")} title={t("Close")} onClick={props.onClose}>
           ×
         </button>
@@ -212,8 +197,9 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
       <Show when={props.touched}>
         {(changed) => (
           <section class="fc-run-detail-section">
+            {/* The point is named after the task, which the heading above already says: what it
+                holds is the step's own summary (H-15), under the section that says it is a checkpoint. */}
             <h3>{t("Checkpoint")}</h3>
-            <p class="fc-run-detail-note">{changed().title}</p>
             <Show when={changed().summary}>
               {(summary) => <pre class="fc-run-detail-pre">{summary()}</pre>}
             </Show>
@@ -270,7 +256,15 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
             {(artifact) => (
               <div class="fc-run-detail-artifact">
                 <span class="fc-artifact-kind">{t(artifact.kind)}</span>
-                <span class="fc-run-detail-note">{artifact.title}</span>
+                {/* The harness titles a task's artifacts after the task, which this panel is about, and
+                    a handoff by its kind: what is left is said, and the rest is not said twice. */}
+                <Show when={artifact.title.replace(`${props.task.name} — `, "")}>
+                  {(rest) => (
+                    <Show when={rest() !== artifact.kind}>
+                      <span class="fc-run-detail-note">{rest()}</span>
+                    </Show>
+                  )}
+                </Show>
               </div>
             )}
           </For>

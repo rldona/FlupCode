@@ -2,6 +2,8 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { Run, Workflow, WorkflowFile } from "../types"
 import { runInputs } from "../run-title"
+import { runReason, runState } from "../run-state"
+import { StateBadge } from "./StateBadge"
 import { workflowGraph, type WorkflowGraphNode } from "../workflow-graph"
 
 type WorkflowsPanelProps = {
@@ -352,9 +354,8 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
                     <For each={runs().slice(0, 10)}>
                       {(run) => (
                         <li class="fc-workflow-run">
-                          <span class="fc-run-mark" data-status={run.status}>
-                            {run.status}
-                          </span>
+                          {/* How it ended in the run card's word (UX-04), not the raw status. */}
+                          <StateBadge state={runState(run)} reason={runReason(run)} />
                           <span class="fc-run-meta">
                             {[new Date(run.startedAt).toLocaleString(), runInputs(run)].filter(Boolean).join(" · ")}
                           </span>

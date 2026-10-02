@@ -432,10 +432,36 @@ describe("what a run keeps", () => {
     await settledAt(repository, run.id, "success")
 
     const [report] = repository.listArtifacts({ runID: run.id, kind: "report" })
-    expect(report?.title).toBe("Run success")
+    // How it ended is its verdict (UX-04): nothing checked the answer, so it is not "success".
+    expect(report?.title).toBe("Run not verified")
+    expect(report?.content).toContain("Run not verified in")
     expect(report?.content).toContain("- build — success")
     // The totals §6.3 wanted in the run's session, which the engine cannot be asked for free.
     expect(report?.content).toContain("1 tasks, 120 tokens, $0.0200")
+    repository.close()
+  })
+
+  // UX-04: the report of a run whose work failed is not titled "success" next to a failed verdict.
+  test("a run whose agent gave up is reported as failed, in the agent's words", async () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    const reason = "I cannot do this without the vendor API key, so I stop here."
+    Object.assign(scheduler, {
+      engine: {
+        createSession: async () => ({ id: "ses_a" }),
+        prompt: async () => undefined,
+        waitForIdle: async () => undefined,
+        lastAnswer: async () => ({ text: `I read the parser.\n\n${reason}`, tokens: 120, cost: 0.02 }),
+      },
+    })
+
+    const run = await scheduler.runTasks({ tasks: [{ name: "build", prompt: "Do it" }] })
+    await settledAt(repository, run.id, "success")
+
+    expect(repository.getRun(run.id)?.verdict?.value).toBe("failed")
+    const [report] = repository.listArtifacts({ runID: run.id, kind: "report" })
+    expect(report?.title).toBe("Run failed")
+    expect(report?.content).toContain(`build: ${reason}`)
     repository.close()
   })
 })

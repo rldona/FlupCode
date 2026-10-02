@@ -5176,6 +5176,7 @@ export const App: Component = () => {
             open={runsOpen()}
             runs={runs()}
             attention={runsAttention()}
+            routineNames={Object.fromEntries(routines().map((routine) => [routine.id, routine.name]))}
             serverAvailable={routinesServerAvailable()}
             onStop={stopRun}
             onRemove={removeRun}

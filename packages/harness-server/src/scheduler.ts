@@ -6,7 +6,7 @@ import { isDue } from "./schedule"
 import { readWorkflow, tasksFor } from "./workflow"
 import type { WorkflowFile } from "./workflow"
 import { restore } from "./checkpoint"
-import type { BrowserAllowRule, Run, RunPolicy, RunSource, RunWorkflow, TaskInput } from "./types"
+import type { BrowserAllowRule, Run, RunPolicy, RunSource, RunVerdict, RunWorkflow, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 import type { ActionRunner } from "./action-runner"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
@@ -410,9 +410,16 @@ export class RoutineScheduler {
     const tokens = tasks.reduce((sum, task) => sum + (task.tokens ?? 0), 0)
     const cost = tasks.reduce((sum, task) => sum + (task.cost ?? 0), 0)
     const seconds = Math.round(((run.finishedAt ?? Date.now()) - run.startedAt) / 1000)
+    const ending = runEnding(status, run.verdict?.value)
+    // The task that decided the verdict, in its own words, unless the run's error already says it.
+    const decided =
+      run.verdict && run.verdict.value !== "verified" && run.verdict.reason !== error
+        ? `${tasks.find((task) => task.id === run.verdict!.taskID)?.name ?? "A task"}: ${run.verdict.reason}`
+        : undefined
     const lines = [
-      `Run ${status} in ${seconds}s`,
+      `Run ${ending} in ${seconds}s`,
       ...(error ? ["", error] : []),
+      ...(decided ? ["", decided] : []),
       "",
       ...tasks.map((task) => {
         const marks = [task.status, task.agent, task.tokens ? `${task.tokens} tokens` : undefined]
@@ -423,7 +430,7 @@ export class RoutineScheduler {
     ]
     this.repository.addArtifact({
       kind: "report",
-      title: `Run ${status}`,
+      title: `Run ${ending}`,
       producer: "harness",
       content: lines.join("\n"),
       directory: run.directory,
@@ -607,4 +614,14 @@ export class RoutineScheduler {
     if (run.source.type === "routine") this.repository.release(routineLockKey(run.source.routineID), this.owner)
     this.stopping.delete(run.id)
   }
+}
+
+/**
+ * How a run ended, said once (UX-04): a run whose turns all finished ended the way its verdict says
+ * (RP-06), so a report of a run whose work failed is never titled "success" (P4). A run that failed
+ * or was stopped says that; one with nothing judged says it succeeded, which is all that is known.
+ */
+function runEnding(status: string, verdict: RunVerdict["value"] | undefined) {
+  if (status !== "success" || !verdict) return status === "success" ? "succeeded" : status
+  return { verified: "verified", unverified: "not verified", "needs-user": "needs your input", failed: "failed" }[verdict]
 }

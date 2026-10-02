@@ -8923,11 +8923,6 @@ button.fc-status {
   gap: var(--fc-space-3);
 }
 
-.fc-run-open-active {
-  border-color: var(--fc-accent);
-  color: var(--fc-accent);
-}
-
 .fc-run-detail {
   position: sticky;
   top: var(--fc-space-4);
@@ -9125,23 +9120,6 @@ button.fc-status {
 
 .fc-workflow-run .fc-run-meta {
   margin-inline-end: auto;
-}
-
-.fc-run-mark[data-status="running"] {
-  color: var(--fc-accent);
-}
-
-.fc-run-mark[data-status="success"] {
-  color: #2f9e44;
-}
-
-.fc-run-mark[data-status="failed"] {
-  color: var(--fc-danger);
-}
-
-.fc-run-mark[data-status="queued"],
-.fc-run-mark[data-status="stopped"] {
-  color: var(--fc-text-muted);
 }
 
 .fc-run-open {
@@ -9399,28 +9377,6 @@ button.fc-status {
   font-size: var(--fc-text-xs);
 }
 
-.fc-run-evidence {
-  width: 100%;
-  margin-top: var(--fc-space-1);
-  font-size: 12px;
-  color: var(--fc-text-muted);
-}
-
-.fc-run-evidence summary {
-  cursor: pointer;
-}
-
-.fc-run-evidence pre {
-  margin: var(--fc-space-1) 0 0;
-  padding: var(--fc-space-2);
-  border: 1px solid var(--fc-border);
-  border-radius: var(--fc-radius-sm);
-  overflow: auto;
-  max-height: 260px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* Skills (H-27): the ones that are not loaded are the point, so they are the ones that are marked. */
 .fc-skill-ignored {
   border-left: 3px solid var(--fc-warning, #c98a00);
@@ -9673,6 +9629,183 @@ button.fc-status {
   color: var(--fc-danger);
 }
 
+/*
+ * The rest of where a run or a task can stand (UX-04): what is still going in the accent, what waits
+ * for a person in the warning colour, and the plain states as outlines. "Succeeded" — a turn ended
+ * that nothing judged — is an outline too, never the verified green.
+ */
+.fc-verdict[data-verdict="running"] {
+  background: color-mix(in srgb, var(--fc-accent) 14%, transparent);
+  color: var(--fc-accent);
+}
+
+.fc-verdict[data-verdict="approval"],
+.fc-verdict[data-verdict="budget"] {
+  background: color-mix(in srgb, var(--fc-warning) 18%, transparent);
+  color: var(--fc-warning);
+}
+
+.fc-verdict[data-verdict="queued"],
+.fc-verdict[data-verdict="skipped"],
+.fc-verdict[data-verdict="stopped"],
+.fc-verdict[data-verdict="succeeded"] {
+  border-color: var(--fc-border);
+  color: var(--fc-text-muted);
+}
+
+/*
+ * A run's tasks on its workflow's graph (UX-04). Nodes are buttons laid on the editor's layout, with
+ * the edges drawn underneath; the canvas keeps its size and scrolls sideways on a narrow screen
+ * rather than shrinking the names past reading. A node's edge colour is where it stands.
+ */
+.fc-run-graph {
+  overflow-x: auto;
+  margin: var(--fc-space-2) 0 0;
+  padding: var(--fc-space-2);
+  background: var(--fc-bg-subtle);
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-run-graph-canvas {
+  position: relative;
+}
+
+.fc-run-graph-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.fc-run-node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 10px;
+  border: 1px solid var(--fc-border);
+  border-inline-start-width: 4px;
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-run-node:focus-visible,
+.fc-run-node-selected {
+  outline: 2px solid var(--fc-accent);
+  outline-offset: 1px;
+}
+
+.fc-run-node-name,
+.fc-run-node-fact {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-run-node-name {
+  font-size: var(--fc-text-sm);
+  font-weight: 600;
+}
+
+.fc-run-node-fact {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-run-node[data-state="running"] {
+  border-color: var(--fc-accent);
+  background: color-mix(in srgb, var(--fc-accent) 10%, var(--fc-bg-elevated));
+}
+
+.fc-run-node[data-state="verified"] {
+  border-color: color-mix(in srgb, var(--fc-success) 45%, var(--fc-border));
+  border-inline-start-color: var(--fc-success);
+  background: color-mix(in srgb, var(--fc-success) 8%, var(--fc-bg-elevated));
+}
+
+.fc-run-node[data-state="unverified"] {
+  border-style: dashed;
+  border-inline-start-style: solid;
+  border-inline-start-color: var(--fc-text-muted);
+}
+
+.fc-run-node[data-state="needs-user"] {
+  border-inline-start-color: var(--fc-warning);
+  background: color-mix(in srgb, var(--fc-warning) 10%, var(--fc-bg-elevated));
+}
+
+.fc-run-node[data-state="failed"] {
+  border-color: color-mix(in srgb, var(--fc-danger) 45%, var(--fc-border));
+  border-inline-start-color: var(--fc-danger);
+  background: color-mix(in srgb, var(--fc-danger) 8%, var(--fc-bg-elevated));
+}
+
+.fc-run-node[data-state="succeeded"] {
+  border-inline-start-color: var(--fc-text-muted);
+}
+
+.fc-run-node[data-state="queued"] {
+  border-style: dotted;
+  border-inline-start-width: 1px;
+  color: var(--fc-text-muted);
+  background: transparent;
+}
+
+.fc-run-node[data-state="skipped"],
+.fc-run-node[data-state="stopped"] {
+  color: var(--fc-text-muted);
+  background: transparent;
+}
+
+.fc-run-node[data-state="skipped"] .fc-run-node-name {
+  text-decoration: line-through;
+}
+
+/* Past the point where a single tool call stops looking like work getting done. */
+.fc-run-node-long .fc-run-node-fact {
+  color: var(--fc-warning);
+}
+
+/* What a run left behind (UX-04): its checkpoints, the files they changed and its artifacts. */
+.fc-run-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fc-space-2) var(--fc-space-3);
+  margin-top: var(--fc-space-2);
+  padding-top: var(--fc-space-2);
+  border-top: 1px solid var(--fc-border);
+}
+
+.fc-run-foot .fc-run-files[open] {
+  flex-basis: 100%;
+}
+
+.fc-run-foot .fc-run-files,
+.fc-run-foot .fc-run-files-none {
+  margin: 0;
+}
+
+.fc-run-artifacts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-run-count {
+  margin-inline-start: 4px;
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .fc-verdict-reason {
   flex-basis: 100%;
   margin: var(--fc-space-1) 0 0;
@@ -9684,107 +9817,6 @@ button.fc-status {
   margin: var(--fc-space-1) 0 0;
   color: var(--fc-danger);
   font-size: 13px;
-}
-
-.fc-run-tasks {
-  list-style: none;
-  margin: var(--fc-space-2) 0 0;
-  padding: 0 0 0 var(--fc-space-2);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border-inline-start: 1px solid var(--fc-border);
-}
-
-.fc-run-task {
-  display: flex;
-  align-items: center;
-  gap: var(--fc-space-2);
-  flex-wrap: wrap;
-  padding: 4px var(--fc-space-2);
-}
-
-.fc-run-task-name {
-  min-width: 10ch;
-}
-
-.fc-run-task .fc-run-meta {
-  margin-inline-end: auto;
-}
-
-/*
- * The run on a time axis (H-28): one row per set of tasks that overlapped. The axis follows the
- * writing direction, so in RTL the same bars read right to left.
- */
-.fc-run-timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin: var(--fc-space-2) 0 0;
-}
-
-.fc-run-lane {
-  position: relative;
-  height: 18px;
-  background: var(--fc-bg-subtle);
-  border-radius: var(--fc-radius-sm);
-}
-
-.fc-run-bar {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  border-radius: var(--fc-radius-sm);
-  background: var(--fc-accent-soft, rgba(127, 127, 127, 0.25));
-  color: var(--fc-text);
-  font-size: var(--fc-text-xs);
-  white-space: nowrap;
-}
-
-.fc-run-bar-name {
-  padding-inline: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.fc-run-bar[data-status="running"] {
-  background: var(--fc-accent);
-  color: var(--fc-on-accent);
-}
-
-.fc-run-bar[data-status="success"] {
-  background: rgba(47, 158, 68, 0.35);
-}
-
-.fc-run-bar[data-status="failed"] {
-  background: var(--fc-danger);
-  color: #fff;
-}
-
-.fc-run-bar[data-status="stopped"] {
-  background: rgba(127, 127, 127, 0.3);
-}
-
-.fc-run-pending {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-.fc-run-bar-pending {
-  padding: 1px 6px;
-  border: 1px dashed var(--fc-border);
-  border-radius: var(--fc-radius-sm);
-  color: var(--fc-text-muted);
-  font-size: var(--fc-text-xs);
-}
-
-.fc-run-bar-pending[data-status="skipped"] {
-  text-decoration: line-through;
 }
 
 /* ── The workflow editor (H-28) ───────────────────────────────────────────── */
@@ -11653,47 +11685,6 @@ button.fc-status {
   margin: 4px 0 0;
   color: var(--fc-text-muted);
   font-size: var(--fc-text-xs);
-}
-
-/* A run's checkpoint marker (H-15): the point taken after a task, with what it held. */
-.fc-run-checkpoint {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--fc-space-2);
-  align-items: center;
-  grid-column: 1 / -1;
-  margin-top: 4px;
-  font-size: var(--fc-text-xs);
-}
-
-.fc-run-checkpoint-mark {
-  color: var(--fc-text-muted);
-}
-
-.fc-run-checkpoint-title {
-  color: var(--fc-text-muted);
-}
-
-.fc-run-checkpoint-summary {
-  flex-basis: 100%;
-  margin: 0;
-}
-
-.fc-run-checkpoint-summary summary {
-  color: var(--fc-text-muted);
-  cursor: pointer;
-}
-
-.fc-run-checkpoint-summary pre {
-  max-height: 240px;
-  padding: var(--fc-space-2);
-  border: 1px solid var(--fc-border);
-  border-radius: var(--fc-radius-sm);
-  margin: 4px 0 0;
-  background: var(--fc-bg);
-  font-size: var(--fc-text-xs);
-  overflow: auto;
-  white-space: pre-wrap;
 }
 
 /* ── A review's points, on the diff (H-32) ────────────────────────────────── */
