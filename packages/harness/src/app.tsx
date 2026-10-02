@@ -1861,7 +1861,15 @@ export const App: Component = () => {
   const blockedSessions = () => [...new Set((blocked()?.data ?? []).map((request) => request.sessionID))]
   const blockedElsewhere = () => blockedSessions().filter((id) => id !== selected())
   /** Sessions with a question to answer, told apart from plain blocked ones (QH-1). */
-  const questionSessions = () => findQuestionSessions((blocked()?.questions ?? []) as PendingRequest[])
+  const questionSessions = () =>
+    findQuestionSessions((blocked()?.questions ?? []).filter((request) => !request.browser) as PendingRequest[])
+  // A browser approval (BU-01) reaches the app as a form, but it asks for leave, not for an answer.
+  const approvalSessions = () => [
+    ...new Set([
+      ...blockedSessions(),
+      ...(blocked()?.questions ?? []).filter((request) => request.browser).map((request) => request.sessionID),
+    ]),
+  ]
 
   /*
    * One attention scale for sessions, runs and routines (UX-02), computed here once and drawn by
@@ -1891,7 +1899,7 @@ export const App: Component = () => {
   onCleanup(() => document.removeEventListener("visibilitychange", seeOpenSession))
   const sessionAttentionOf = (sessionID: string) =>
     sessionAttention({
-      approval: blockedSessions().includes(sessionID),
+      approval: approvalSessions().includes(sessionID),
       answer: questionSessions().includes(sessionID),
       running: runState()[sessionID] === true,
       failed: runOutcomes()[sessionID]?.kind === "failed",
@@ -1908,7 +1916,7 @@ export const App: Component = () => {
   const runAttentionOf = (run: Run | RoutineRun) =>
     runAttention(
       run,
-      { approval: blockedSessions(), answer: questionSessions() },
+      { approval: approvalSessions(), answer: questionSessions() },
       (run.finishedAt ?? 0) <= runsSeenAt(),
     )
   const runsAttention = createMemo(() => Object.fromEntries(runs().map((run) => [run.id, runAttentionOf(run)])))
