@@ -256,6 +256,8 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
       : {}),
     ...(conditionFrom(input.when) ? { when: conditionFrom(input.when) } : {}),
     ...(typeof input.foreach === "string" && input.foreach.trim() ? { foreach: input.foreach.trim() } : {}),
+    // Wait for verified work (RP-06); anything else is not a requirement this server knows.
+    ...(input.require === "verified" ? { require: "verified" as const } : {}),
   }
 }
 

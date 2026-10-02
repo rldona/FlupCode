@@ -51,6 +51,8 @@ export type WorkflowTask = {
   when?: TaskCondition
   /** The task whose plan is split into one task per step (H-28). */
   foreach?: string
+  /** `require: verified` — run only when the tasks this one depends on were verified (RP-06). */
+  require?: "verified"
 }
 
 export type Workflow = {
@@ -210,6 +212,7 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
     ...(task.parallel === true ? { parallel: true as const } : {}),
     ...(conditionFrom(task.when) ? { when: conditionFrom(task.when) } : {}),
     ...(typeof task.foreach === "string" && task.foreach.trim() ? { foreach: task.foreach.trim() } : {}),
+    ...(task.require === "verified" ? { require: "verified" as const } : {}),
   }
 }
 
@@ -311,6 +314,7 @@ export function tasksFor(workflow: Workflow, inputs: Record<string, string>, unt
     ...(task.dependsOn ? { dependsOn: task.dependsOn } : task.parallel ? { dependsOn: [] } : {}),
     ...(task.when ? { when: task.when } : {}),
     ...(task.foreach ? { foreach: task.foreach } : {}),
+    ...(task.require ? { require: task.require } : {}),
   }))
 }
 

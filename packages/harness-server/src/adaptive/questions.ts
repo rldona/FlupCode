@@ -29,7 +29,14 @@ type QuestionPlanner = {
 
 const questionPlans: QuestionPlanner = {
   completion: (state) => [
-    { id: "verdict", type: "binary", prompt: `Is this episode complete? Objective: ${state.objective}` },
+    {
+      id: "verdict",
+      type: "binary",
+      prompt:
+        state.answer === undefined
+          ? `Is this episode complete? Objective: ${state.objective}`
+          : `Did the agent meet this objective? Objective: ${state.objective}\nThe agent's final answer: ${state.answer}`,
+    },
   ],
   // A gate per candidate skill: the answer is the set of names above the gate, which the service
   // then thresholds again. A state with no candidates asks nothing.

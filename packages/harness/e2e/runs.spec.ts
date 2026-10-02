@@ -359,6 +359,80 @@ test("a verify task shows its evidence, open when it failed", async ({ page }) =
   await expect(evidence.locator("pre")).toContainText("- test (bun test) — exit 1")
 })
 
+// RP-06: each task carries a verdict from something other than the agent, and the run its worst
+// one. "Not verified" must not read as a quieter "Verified", and a give-up is read in the agent's words.
+test("a task's verdict is a badge with its reason, and the run's is its worst task's", async ({ page }) => {
+  const judged = {
+    id: "run_j",
+    source: { type: "routine", routineID: "nightly" },
+    status: "success",
+    startedAt: now,
+    finishedAt: now + 5000,
+    verdict: { value: "failed", reason: "I cannot do this without the API key, so I stop here.", source: "rule", taskID: "j1" },
+  }
+  const judgedTasks = [
+    { id: "j1", runID: "run_j", position: 0, name: "fix", prompt: "f", status: "success", startedAt: now, finishedAt: now + 1000, verdict: { value: "failed", reason: "I cannot do this without the API key, so I stop here.", source: "rule" } },
+    { id: "j2", runID: "run_j", position: 1, name: "build", prompt: "b", status: "success", startedAt: now, finishedAt: now + 1000, verdict: { value: "verified", reason: "Verification passed: test", source: "check" } },
+    { id: "j3", runID: "run_j", position: 2, name: "notes", prompt: "n", status: "success", startedAt: now, finishedAt: now + 1000, verdict: { value: "unverified", reason: "Nothing checked this answer", source: "rule" } },
+  ]
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+    if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [judged] } })
+    if (url.pathname === "/harness/runs/run_j/tasks") return route.fulfill({ json: { data: judgedTasks } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
+
+  await expect(page.locator(".fc-run-head .fc-verdict")).toHaveAttribute("data-verdict", "failed")
+  const tasks = page.locator(".fc-run-task")
+  await expect(tasks).toHaveCount(3)
+  await expect(tasks.nth(0).locator(".fc-verdict")).toHaveText(/Failed|Fallida/)
+  await expect(tasks.nth(0).locator(".fc-verdict-reason")).toHaveText("I cannot do this without the API key, so I stop here.")
+  await expect(tasks.nth(1).locator(".fc-verdict")).toHaveText(/Verified|Verificada/)
+  await expect(tasks.nth(2).locator(".fc-verdict")).toHaveText(/Not verified|Sin verificar/)
+  // The reason of a clean verdict is the tooltip, not a line under every task.
+  await expect(tasks.nth(2).locator(".fc-verdict")).toHaveAttribute("title", "Nothing checked this answer")
+  await expect(tasks.nth(2).locator(".fc-verdict-reason")).toHaveCount(0)
+  // Drawn apart: an outline, not a paler fill.
+  const style = (index: number) =>
+    tasks.nth(index).locator(".fc-verdict").evaluate((badge) => {
+      const computed = getComputedStyle(badge)
+      return { border: computed.borderTopStyle, background: computed.backgroundColor }
+    })
+  expect((await style(2)).border).toBe("dashed")
+  expect((await style(1)).border).not.toBe("dashed")
+  expect((await style(1)).background).not.toBe((await style(2)).background)
+
+  await tasks.nth(0).getByRole("button", { name: /Details|Detalles/ }).click()
+  const detail = page.getByRole("complementary", { name: /Task detail|Detalle/ })
+  await expect(detail).toContainText("I cannot do this without the API key, so I stop here.")
+  await expect(detail).toContainText(/Judged by a rule over the agent's answer|Lo decidió una regla/)
+})
+
 // H-38: a task another CLI ran says so, and the command it ran and what it printed are what there is
 // to read — there is no session to open and no model to switch.
 test("an external task shows its command and what it printed", async ({ page }) => {

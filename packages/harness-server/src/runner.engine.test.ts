@@ -119,6 +119,28 @@ describe.skipIf(!run)("the task runner on an OpenCode 2 engine", () => {
     expect(task.cost).toBe(0)
   })
 
+  // RP-06: a turn that ends cleanly is not a goal met. An agent that gives up still leaves an idle
+  // session and a successful step, so the verdict comes from something other than the agent.
+  test("a task whose agent gives up carries a failed verdict with the agent's own reason", async () => {
+    const repository = open()
+    model.push({ type: "text", text: "I looked at the parser.\n\nI cannot do this without the vendor's API key, so I stop here." })
+    const run = repository.startRun(manual, Date.now(), contract.project)
+    repository.addTasks(run.id, [{ name: "gave-up", prompt: "Fix the parser" }])
+    expect(await new TaskRunner(repository, engine).execute(run, { directory: contract.project })).toBe("done")
+
+    const task = repository.listTasks(run.id)[0]!
+    expect(task.status).toBe("success")
+    expect(task.verdict).toEqual({
+      value: "failed",
+      reason: "I cannot do this without the vendor's API key, so I stop here.",
+      source: "rule",
+    })
+    expect(repository.getRun(run.id)?.verdict).toMatchObject({ value: "failed", taskID: task.id })
+    expect(repository.listArtifacts({ runID: run.id, kind: "verdict" }).map((artifact) => artifact.title)).toEqual([
+      "gave-up — failed",
+    ])
+  })
+
   test("a run stopped mid-turn finishes stopped, and the engine stops working on it", async () => {
     const repository = open()
     model.push({ type: "hang" })
@@ -230,6 +252,15 @@ describe.skipIf(!run)("the task runner on an OpenCode 2 engine", () => {
       "verify#2:success",
     ])
     expect(existsSync(join(directory, "broken"))).toBe(false)
+    // RP-06: the check that passed is what verifies the work, and the superseded attempt no longer
+    // speaks for the run.
+    expect(repository.listTasks(run.id).map((task) => task.verdict?.value)).toEqual([
+      "failed",
+      "failed",
+      "verified",
+      "verified",
+    ])
+    expect(repository.getRun(run.id)?.verdict).toMatchObject({ value: "verified", source: "check" })
   })
 
   test("a run with worktrees gives its task a tree of its own", async () => {

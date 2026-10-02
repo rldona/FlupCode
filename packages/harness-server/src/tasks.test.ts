@@ -1553,7 +1553,11 @@ describe("a run picked up again", () => {
     expect(prompts.find((prompt) => prompt.text.includes("Build it"))!.text).toContain(
       "Handoff from plan: change the parser",
     )
-    const verdict = repository.listArtifacts({ runID: run.id, kind: "verdict" })
+    // The check's own verdict (agent tasks keep one too since RP-06).
+    const checks = new Set(repository.listTasks(run.id).flatMap((task) => (task.kind === "verify" ? [task.id] : [])))
+    const verdict = repository
+      .listArtifacts({ runID: run.id, kind: "verdict" })
+      .filter((artifact) => checks.has(artifact.taskID ?? ""))
     expect(verdict.map((artifact) => artifact.directory)).toEqual([tree("plan")])
     repository.close()
   })
@@ -1585,8 +1589,213 @@ describe("a run picked up again", () => {
     const built = prompts.filter((prompt) => prompt.text.includes("Build it"))
     expect(built).toHaveLength(2)
     expect(built[1]!.text).toContain("Handoff from plan: change the parser")
-    const verdicts = repository.listArtifacts({ runID: run.id, kind: "verdict" })
+    // The checks' own verdicts (agent tasks keep one too since RP-06).
+    const checks = new Set(repository.listTasks(run.id).flatMap((task) => (task.kind === "verify" ? [task.id] : [])))
+    const verdicts = repository
+      .listArtifacts({ runID: run.id, kind: "verdict" })
+      .filter((artifact) => checks.has(artifact.taskID ?? ""))
     expect(verdicts.map((artifact) => artifact.directory)).toEqual([tree("implement"), tree("implement")])
     repository.close()
+  })
+})
+
+// RP-06: every agent task is judged by something other than the agent that did it, and the run's
+// verdict is its worst task's.
+describe("a task's verdict", () => {
+  /** An engine whose tasks answer in turn, from the list given. */
+  const answering = (answers: string[]) => {
+    let turn = 0
+    return {
+      createSession: async () => ({ id: `ses_${turn}` }),
+      prompt: async () => undefined,
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: answers[turn++] ?? "", tokens: 5, cost: 0.001 }),
+    } as never
+  }
+
+  const project = (verify: string) => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-verdict-"))
+    scratch.push(directory)
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), `verify:\n  test: ${verify}\n`)
+    return directory
+  }
+
+  test("an agent that gives up ends its task with a failed verdict in its own words, and the run with it", async () => {
+    const repository = open()
+    const run = repository.startRun({ type: "routine", routineID: "nightly" }, 1000)
+    repository.addTasks(run.id, [{ name: "fix", prompt: "Fix the parser" }])
+    expect(await new TaskRunner(repository, answering(["Tried twice. I stop here: the fixture is missing."])).execute(run)).toBe(
+      "done",
+    )
+
+    const [task] = repository.listTasks(run.id)
+    // The turn itself ended cleanly, so the task is not failed; the verdict says the goal was not met.
+    expect(task!.status).toBe("success")
+    expect(task!.verdict).toEqual({ value: "failed", reason: "I stop here: the fixture is missing.", source: "rule" })
+    expect(repository.getRun(run.id)?.verdict).toEqual({ ...task!.verdict!, taskID: task!.id })
+    // The routine's run reads the same, and so does the stream the app follows.
+    expect(repository.listRuns({ type: "routine", routineID: "nightly" })[0]?.verdict?.value).toBe("failed")
+    const changed = repository
+      .listEvents(0)
+      .flatMap((entry) => (entry.event.type === "run.changed" ? [entry.event.run.verdict?.value] : []))
+    expect(changed.at(-1)).toBe("failed")
+    const [artifact] = repository.listArtifacts({ runID: run.id, kind: "verdict" })
+    expect(artifact).toMatchObject({ title: "fix — failed", content: "I stop here: the fixture is missing.", taskID: task!.id })
+    repository.close()
+  })
+
+  test("an answer that ends asking the person needs the user", async () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [{ name: "migrate", prompt: "Migrate it" }])
+    await new TaskRunner(repository, answering(["Two databases are configured. Which one should I migrate?"])).execute(run)
+
+    expect(repository.listTasks(run.id)[0]!.verdict).toEqual({
+      value: "needs-user",
+      reason: "Which one should I migrate?",
+      source: "rule",
+    })
+    repository.close()
+  })
+
+  test("a passing check verifies itself and the work it checked", async () => {
+    const repository = open()
+    const directory = project("echo ok")
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "build", prompt: "Build it" },
+      { name: "check", prompt: "", kind: "verify" },
+    ])
+    await new TaskRunner(repository, answering(["Built it."])).execute(run, { directory })
+
+    const verdicts = repository.listTasks(run.id).map((task) => task.verdict)
+    expect(verdicts).toEqual([
+      { value: "verified", reason: "Verification passed: test", source: "check" },
+      { value: "verified", reason: "Verification passed: test", source: "check" },
+    ])
+    expect(repository.getRun(run.id)?.verdict?.value).toBe("verified")
+    // The rule's verdict is kept beside the check's, not overwritten by it.
+    const build = repository.listTasks(run.id)[0]!
+    const titles = repository
+      .listArtifacts({ runID: run.id, kind: "verdict" })
+      .filter((artifact) => artifact.taskID === build.id)
+      .map((artifact) => artifact.title)
+    expect(titles.sort()).toEqual(["build — unverified", "build — verified"])
+    repository.close()
+  })
+
+  test("a passing check does not turn an agent that gave up into verified work", async () => {
+    const repository = open()
+    const directory = project("echo ok")
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "build", prompt: "Build it" },
+      { name: "check", prompt: "", kind: "verify" },
+    ])
+    await new TaskRunner(repository, answering(["I cannot complete this without the API key."])).execute(run, { directory })
+
+    expect(repository.listTasks(run.id).map((task) => task.verdict?.value)).toEqual(["failed", "verified"])
+    expect(repository.getRun(run.id)?.verdict).toMatchObject({ value: "failed", source: "rule" })
+    repository.close()
+  })
+
+  test("a failed check fails the work, and a retry that passes leaves the run verified", async () => {
+    const repository = open()
+    const directory = project("test ! -f broken || { echo 'still broken' >&2; exit 1; }")
+    writeFileSync(join(directory, "broken"), "yes")
+    let turn = 0
+    const engine = {
+      createSession: async () => ({ id: `ses_${turn}` }),
+      prompt: async () => {
+        turn++
+        if (turn > 1) rmSync(join(directory, "broken"))
+      },
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "Fixed it." }),
+    } as never
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "build", prompt: "Make it work" },
+      { name: "check", prompt: "", kind: "verify", retries: 1 },
+    ])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    expect(repository.listTasks(run.id).map((task) => `${task.name}#${task.attempt}:${task.verdict?.value}`)).toEqual([
+      "build#1:failed",
+      "check#1:failed",
+      "build#2:verified",
+      "check#2:verified",
+    ])
+    expect(repository.listTasks(run.id)[0]!.verdict).toEqual({
+      value: "failed",
+      reason: "Verification failed: test",
+      source: "check",
+    })
+    expect(repository.getRun(run.id)?.verdict?.value).toBe("verified")
+    repository.close()
+  })
+
+  test("a turn the engine failed is a failed verdict", async () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [{ name: "plan", prompt: "Plan" }])
+    const engine = {
+      createSession: async () => ({ id: "ses_1" }),
+      prompt: async () => undefined,
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ error: "Invalid API key provided" }),
+    } as never
+    await expect(new TaskRunner(repository, engine).execute(run)).rejects.toThrow("Invalid API key")
+    expect(repository.getRun(run.id)?.verdict).toMatchObject({ value: "failed", reason: "Invalid API key provided" })
+    repository.close()
+  })
+
+  test("by default a verdict does not block what follows", async () => {
+    const repository = open()
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [
+      { name: "plan", prompt: "Plan" },
+      { name: "build", prompt: "Build" },
+    ])
+    await new TaskRunner(repository, answering(["I give up.", "Built it."])).execute(run)
+    expect(repository.listTasks(run.id).map((task) => `${task.status}:${task.verdict?.value}`)).toEqual([
+      "success:failed",
+      "success:unverified",
+    ])
+    repository.close()
+  })
+
+  test("`require: verified` runs a task only after verified work, and skips it otherwise", async () => {
+    const gated = async (verify: string) => {
+      const repository = open()
+      const directory = project(verify)
+      const run = repository.startRun(manual, 1000, directory)
+      repository.addTasks(run.id, [
+        { name: "build", prompt: "Build it" },
+        { name: "check", prompt: "", kind: "verify" },
+        { name: "unchecked", prompt: "Ship it", dependsOn: ["build"], require: "verified" },
+        { name: "ship", prompt: "Ship it", dependsOn: ["check"], require: "verified" },
+      ])
+      await new TaskRunner(repository, answering(["Built it.", "Shipped.", "Shipped."]))
+        .execute(run, { directory })
+        .catch(() => undefined)
+      const tasks = repository.listTasks(run.id)
+      repository.close()
+      return tasks
+    }
+
+    // `unchecked` is decided as soon as `build` is done, before the check has run on it: unverified.
+    const passing = await gated("echo ok")
+    expect(passing.map((task) => `${task.name}:${task.status}`)).toEqual([
+      "build:success",
+      "check:success",
+      "unchecked:skipped",
+      "ship:success",
+    ])
+    expect(passing[2]!.error).toBe("Not run: build was not verified")
+    // A failed check ends the run before anything behind it; `ship` never starts.
+    const failing = await gated("exit 1")
+    expect(failing.find((task) => task.name === "ship")!.status).not.toBe("success")
   })
 })

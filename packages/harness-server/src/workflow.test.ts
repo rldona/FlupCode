@@ -148,6 +148,28 @@ tasks:
     expect(workflow.tasks.map((task) => task.dependsOn)).toEqual([undefined, ["read"], ["read"], ["left", "right"]])
   })
 
+  // RP-06: a task may wait for verified work; anything else written there is not a requirement.
+  test("`require: verified` reaches the task, and nothing else is read as a requirement", () => {
+    const workflow = parseWorkflow(
+      `name: ship
+tasks:
+  - id: build
+    prompt: build it
+  - id: check
+    kind: verify
+  - id: ship
+    require: verified
+    prompt: ship it
+  - id: notes
+    require: approved
+    prompt: write notes
+`,
+      "x",
+    )!
+    expect(workflow.tasks.map((task) => task.require)).toEqual([undefined, undefined, "verified", undefined])
+    expect(tasksFor(workflow, {}).map((task) => task.require)).toEqual([undefined, undefined, "verified", undefined])
+  })
+
   test("`parallel: true` is an explicit no-dependency, and a task that says nothing follows the one above", () => {
     const workflow = parseWorkflow(
       `name: fan

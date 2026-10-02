@@ -228,7 +228,28 @@ export type Run = {
   allow?: BrowserAllowRule[]
   /** Present when the run was asked for by id; the list leaves them out. */
   tasks?: Task[]
+  /**
+   * How its work was judged (RP-06): the worst verdict among its tasks, naming the task. Derived by
+   * the server from the tasks on every read, so it follows `run.changed`. Absent until a task is judged.
+   */
+  verdict?: RunVerdict
 }
+
+/**
+ * Whether a task met its goal, judged by something other than the agent (RP-06), best to worst.
+ * `verified` only comes from a check that ran; a clean answer nothing checked is `unverified`.
+ */
+export type VerdictValue = "verified" | "unverified" | "needs-user" | "failed"
+
+export type TaskVerdict = {
+  value: VerdictValue
+  /** The agent's own words when it gave up or asked, or what the check or the auditor said. */
+  reason: string
+  /** A check that ran, the deterministic rule over the answer, or an auditor model. */
+  source: "check" | "rule" | "model"
+}
+
+export type RunVerdict = TaskVerdict & { taskID: string }
 
 export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped" | "skipped"
 
@@ -293,6 +314,10 @@ export type Task = {
   output?: string
   tokens?: number
   cost?: number
+  /** `verified`: it ran only after verified work (RP-06). */
+  require?: "verified"
+  /** Whether it met its goal (RP-06), once judged. Agent and verify tasks are. */
+  verdict?: TaskVerdict
 }
 
 export type RoutineRun = {

@@ -4,6 +4,7 @@ import type { ModelInfo } from "../engine-types"
 import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedFiles } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
 import { RunTimeline } from "./RunTimeline"
+import { VerdictBadge } from "./VerdictBadge"
 import { money } from "../metrics"
 import { runInputs, runTitle } from "../run-title"
 
@@ -242,6 +243,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       {going(run) ? marks.running : marks[run.status as TaskStatus]}
                     </span>
                     <span class="fc-run-title">{runTitle(run)}</span>
+                    <Show when={run.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
                     <span class="fc-run-meta">
                       {[run.status, elapsed(run.startedAt, run.finishedAt), ...totals(run)].join(" · ")}
                     </span>
@@ -383,6 +385,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                             {marks[task.status]}
                           </span>
                           <span class="fc-run-task-name">{task.name}</span>
+                          <Show when={task.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
                           <span class="fc-run-meta">{facts(task).join(" · ")}</span>
                           {/*
                             What it is doing right now, and for how long. Without this a call that
@@ -419,6 +422,21 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                             {t("Details")}
                           </button>
                           <Show when={task.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
+                          {/*
+                            Why the goal was not met (RP-06), in the agent's own words when it gave
+                            up or asked, unless the error above already says it. A verified or an
+                            unverified verdict keeps its reason in the badge's tooltip.
+                          */}
+                          <Show
+                            when={
+                              (task.verdict?.value === "failed" || task.verdict?.value === "needs-user") &&
+                              task.verdict.reason !== task.error
+                                ? task.verdict
+                                : undefined
+                            }
+                          >
+                            {(verdict) => <p class="fc-verdict-reason">{verdict().reason}</p>}
+                          </Show>
                         {/*
                           The evidence (H-22). It lives on the task because H-14's artifact store
                           does not exist yet; folded away because a passing check is read as one

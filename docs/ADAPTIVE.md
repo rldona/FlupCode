@@ -985,6 +985,12 @@ _AH-C04._ The global `small_model`, asked through the engine, as a second `Predi
   and the key is read again on every call. No kind is assigned to it by default: it answers only
   where `adaptive.models.<kind> = "small-llm"` and `egress.providers["small-llm"]` consents. It
   supports `skillRelevance`, `completion` and `failure`.
+- **The task auditor (RP-06).** `completion` is also asked, as an acting decision (`batch`, not
+  shadow, id `completion:<run>:<task>`), about every agent task of a run that ended cleanly: the
+  state carries the task's objective and the agent's final answer. A model answer of `not_complete`
+  turns the task's `unverified` verdict into `failed`; nothing a model says makes a task `verified`.
+  The call is bounded by `decisions.completion.timeoutMs` (400 ms by default), so a session-backed
+  model such as this one needs it raised to answer at all; otherwise the rule's verdict stands.
 - **Always remote.** Even a local-looking provider (ollama) may point at another host through the
   engine's provider config, which the harness does not read, so the model always needs its consent.
 - **One throwaway session per call**, created under `NO_TOOLS` in the project, prompted once with a

@@ -310,6 +310,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 6, name: "usage-reconciled", backup: join(dirname(path), backup!) },
       { version: 7, name: "usage-attribution", backup: join(dirname(path), backup!) },
       { version: 8, name: "usage-summary", backup: join(dirname(path), backup!) },
+      { version: 9, name: "task-verdict", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -324,7 +325,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -341,6 +342,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 6, backup: null },
       { version: 7, backup: null },
       { version: 8, backup: null },
+      { version: 9, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -348,7 +350,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }])
     repository.close()
   })
 
@@ -1527,6 +1529,44 @@ describe("the usage-reconciled migration (UL-03)", () => {
     expect(repository.usageReconciled("ses_1")).toBe(2_500)
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM usage_event").get() as { count: number }).count).toBe(1)
+    copy.close()
+    repository.close()
+  })
+})
+
+describe("the task-verdict migration (RP-06)", () => {
+  test("a database at version 7 is backed up and migrated with its runs and tasks intact and unjudged", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
+    const [task] = before.addTasks(run.id, [{ name: "plan", prompt: "Plan it" }])
+    before.finishTask(task!.id, "success", { output: "I give up.", tokens: 10, cost: 0.01 }, 1_500)
+    before.finishRun(run.id, "success", undefined, 2_000)
+    before.db.exec(`
+      DELETE FROM schema_version WHERE version >= 8;
+      ALTER TABLE tasks DROP COLUMN verdict;
+      ALTER TABLE tasks DROP COLUMN verdict_reason;
+      ALTER TABLE tasks DROP COLUMN verdict_source;
+      ALTER TABLE tasks DROP COLUMN require_verdict;
+    `)
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v7-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 9").all()).toEqual([
+      { version: 9, name: "task-verdict" },
+    ])
+    // Nobody judged the old task, and its answer is not read into a verdict after the fact.
+    expect(repository.getTask(task!.id)).toMatchObject({ status: "success", output: "I give up.", tokens: 10, cost: 0.01 })
+    expect(repository.getTask(task!.id)?.verdict).toBeUndefined()
+    expect(repository.getRun(run.id)).toMatchObject({ id: run.id, status: "success" })
+    expect(repository.getRun(run.id)?.verdict).toBeUndefined()
+    // New verdicts are kept, and the run's is derived from them.
+    repository.setTaskVerdict(task!.id, { value: "failed", reason: "I give up.", source: "rule" })
+    expect(repository.getRun(run.id)?.verdict).toEqual({ value: "failed", reason: "I give up.", source: "rule", taskID: task!.id })
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(1)
     copy.close()
     repository.close()
   })

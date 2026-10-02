@@ -123,6 +123,11 @@ export type SkillReflectionAnswer = {
 export type CompletionState = {
   episodeID: string
   objective: string
+  /**
+   * The agent's final answer, when a run task is judged (RP-06). An episode decision has none: it is
+   * asked about evidence, and the auditor of a task is asked about what the agent said it did.
+   */
+  answer?: string
   outcome: EpisodeOutcome
   toolCalls: number
   verifications: Array<{ step: string; ok: boolean }>
