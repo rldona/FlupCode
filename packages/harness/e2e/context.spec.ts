@@ -221,7 +221,8 @@ test("nothing recorded says so, and says when it will be", async ({ page }) => {
 
   const block = page.locator(".fc-usage-block").filter({ hasText: /The system prompt|El system prompt/ })
   await expect(block).toContainText(/Nothing recorded yet|Todavía no hay nada grabado/)
-  await expect(block).toContainText(/restart|reiniciarse/)
+  // Only an engine FlupCode started loads the plugin (HE-04).
+  await expect(block).toContainText(/in an engine FlupCode started|en un motor que haya arrancado FlupCode/)
   // The agents are listed either way: their own prompt is part of the system prompt.
   await expect(block).toContainText("build")
 })
