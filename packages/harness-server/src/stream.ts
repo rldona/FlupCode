@@ -28,8 +28,11 @@ const publicArtifact = (artifact: Artifact): Record<string, unknown> => {
   return view
 }
 
-/** A frame's event, with anything an artifact carries beyond what a reader needs stripped out. */
-const safeEvent = (event: ServerEvent): ServerEvent =>
+/**
+ * A frame's event, with anything an artifact carries beyond what a reader needs stripped out. The
+ * log is written in this shape too (RP-02): the artifact's content already lives in its own row.
+ */
+export const safeEvent = (event: ServerEvent): ServerEvent =>
   event.type === "artifact.created" || event.type === "artifact.changed"
     ? ({ type: event.type, artifact: publicArtifact(event.artifact) } as ServerEvent)
     : event
@@ -66,11 +69,20 @@ export function eventStream(repository: SqliteRoutineRepository, afterSeq: numbe
 
       let cursor = afterSeq ?? repository.lastSeq()
       // The catch-up is read before the subscription starts publishing, and anything that arrives
-      // while it runs is caught by the sequence check below rather than sent twice.
+      // while it runs is caught by the sequence check below rather than sent twice. A reader that
+      // missed more than one catch-up holds, or whose missed events were pruned, is told so instead
+      // of being handed part of what it missed as if it were all (RP-02): it re-reads its lists.
       if (afterSeq !== undefined) {
-        for (const entry of repository.listEvents(afterSeq, MAX_PENDING)) {
-          cursor = entry.seq
-          send(frame(entry))
+        const last = repository.lastSeq()
+        const pruned = afterSeq < last && repository.firstSeq() > afterSeq + 1
+        if (pruned || last - afterSeq > MAX_PENDING) {
+          cursor = last
+          send(`id: ${last}\ndata: ${JSON.stringify({ type: "stream.gap", after: afterSeq, resumeAt: last })}\n\n`)
+        } else {
+          for (const entry of repository.listEvents(afterSeq, MAX_PENDING)) {
+            cursor = entry.seq
+            send(frame(entry))
+          }
         }
       }
 

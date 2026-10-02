@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { dropAll } from "./checkpoint"
 import { runEngineDataCommand } from "./engine-data-command"
-import { SqliteRoutineRepository, defaultDatabasePath } from "./repository"
+import { EVENTS_KEPT, SqliteRoutineRepository, defaultDatabasePath } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 import { seedTemplates } from "./workflow"
 import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
@@ -92,6 +92,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // Forget what was told to expire (H-14). At startup, so a server that was away for a while acts
   // on it, and hourly after that. Pinned ones are never touched, and nothing expires by default.
   repository.removeExpiredArtifacts()
+  // The event log is bounded (RP-02); at startup, so one that grew while it was away is cut back.
+  repository.pruneEvents(EVENTS_KEPT)
   // Evidence beyond the total is evicted as it is written; a restart closes the gap a store carried
   // over from a build that did not (FH-006).
   const evicted = repository.evictEvidence()
@@ -454,6 +456,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   purge()
   const sweep = setInterval(() => {
     repository.removeExpiredArtifacts()
+    repository.pruneEvents(EVENTS_KEPT)
     // Checkpoints past their run's newest few, or of a run that is gone (TI-15), and the refs that kept
     // their commits. A folder that cannot be reached leaves its refs for git, never the server down.
     void dropAll(repository.removeStaleCheckpoints())

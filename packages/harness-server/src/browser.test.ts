@@ -779,11 +779,14 @@ describe("driving a real browser", () => {
       const server = fixture()
       const { runtime, repository } = open(server)
 
-      await runtime.start({ id: "s-scope", project: "proj", runID: "run_1", taskID: "task_1" })
+      // A real run and task: an artifact can only name ones that exist (RP-02).
+      const run = repository.startRun({ type: "manual" }, Date.now())
+      const [task] = repository.addTasks(run.id, [{ name: "look", prompt: "" }])
+      await runtime.start({ id: "s-scope", project: "proj", runID: run.id, taskID: task!.id })
       await runtime.navigate("s-scope", `http://127.0.0.1:${server.port}/`)
       const { artifactId } = await runtime.screenshot("s-scope", "scoped")
 
-      expect(repository.getArtifact(artifactId)).toMatchObject({ runID: "run_1", taskID: "task_1" })
+      expect(repository.getArtifact(artifactId)).toMatchObject({ runID: run.id, taskID: task!.id })
     },
     30_000,
   )

@@ -34,12 +34,15 @@ describe("what a run leaves behind", () => {
 
   test("is found by the project, the run, or what it is", () => {
     const repository = open()
-    repository.addArtifact({ kind: "report", title: "mine", producer: "harness", content: "a", directory: "/work/a", runID: "r1" })
-    repository.addArtifact({ kind: "verdict", title: "check", producer: "harness", content: "b", directory: "/work/a", runID: "r2" })
+    // Real runs: an artifact can only name a run that exists (RP-02).
+    const r1 = repository.startRun({ type: "manual" }, 1_000).id
+    const r2 = repository.startRun({ type: "manual" }, 2_000).id
+    repository.addArtifact({ kind: "report", title: "mine", producer: "harness", content: "a", directory: "/work/a", runID: r1 })
+    repository.addArtifact({ kind: "verdict", title: "check", producer: "harness", content: "b", directory: "/work/a", runID: r2 })
     repository.addArtifact({ kind: "report", title: "theirs", producer: "harness", content: "c", directory: "/work/b" })
 
     expect(repository.listArtifacts({ directory: "/work/a" }).map((e) => e.title).sort()).toEqual(["check", "mine"])
-    expect(repository.listArtifacts({ runID: "r2" }).map((e) => e.title)).toEqual(["check"])
+    expect(repository.listArtifacts({ runID: r2 }).map((e) => e.title)).toEqual(["check"])
     expect(repository.listArtifacts({ kind: "report" }).map((e) => e.title).sort()).toEqual(["mine", "theirs"])
     // Filters narrow together rather than replacing each other.
     expect(repository.listArtifacts({ directory: "/work/a", kind: "report" }).map((e) => e.title)).toEqual(["mine"])

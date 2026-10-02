@@ -207,6 +207,10 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
         <Show when={confirming() === ALL}>
           <div class="fc-confirm-inline">
             <span>{t("Delete every finished run?")}</span>
+            {/* What a delete takes and what it keeps (RP-02), said before it happens. */}
+            <span class="fc-run-meta">
+              {t("Their tasks, findings, checkpoints and the evidence they left go too. Pinned artifacts, and anything an agent or you made, are kept.")}
+            </span>
             <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
               {t("Cancel")}
             </button>
@@ -326,6 +330,9 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                   <Show when={confirming() === run.id}>
                     <div class="fc-confirm-inline">
                       <span>{t("Delete this run?")}</span>
+                      <span class="fc-run-meta">
+                        {t("Its tasks, findings, checkpoints and the evidence it left go too. Pinned artifacts, and anything an agent or you made, are kept.")}
+                      </span>
                       <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
                         {t("Cancel")}
                       </button>

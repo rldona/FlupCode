@@ -856,6 +856,10 @@ const ES: Record<string, string> = {
   "Delete this routine?": "¿Eliminar esta rutina?",
   "Delete this run?": "¿Eliminar esta ejecución?",
   "Delete every finished run?": "¿Eliminar todas las ejecuciones terminadas?",
+  "Their tasks, findings, checkpoints and the evidence they left go too. Pinned artifacts, and anything an agent or you made, are kept.":
+    "También se eliminan sus tareas, hallazgos, checkpoints y la evidencia que dejaron. Se conservan los artifacts fijados y todo lo que hayáis hecho tú o un agente.",
+  "Its tasks, findings, checkpoints and the evidence it left go too. Pinned artifacts, and anything an agent or you made, are kept.":
+    "También se eliminan sus tareas, hallazgos, checkpoints y la evidencia que dejó. Se conservan los artifacts fijados y todo lo que hayáis hecho tú o un agente.",
   "Clear finished": "Limpiar terminadas",
   "{count} runs deleted": "{count} ejecuciones eliminadas",
   "{count} runs stopped": "{count} ejecuciones detenidas",

@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite"
 import type { UsageRow } from "./usage"
+import { safeEvent } from "./stream"
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, sep } from "node:path"
@@ -1112,6 +1113,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
   constructor(private readonly path = process.env.FLUPCODE_HARNESS_DB ?? defaultDatabasePath()) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true })
     this.db = new Database(path, { create: true })
+    // A reader no longer waits behind the writer, and two processes on one file (the app and a dev
+    // copy, a CLI) wait for each other's lock instead of failing at once with SQLITE_BUSY (RP-02).
+    if (path !== ":memory:") this.db.exec("PRAGMA journal_mode = WAL")
+    this.db.exec("PRAGMA busy_timeout = 5000")
     // A database with no tables yet has no rows a migration could rewrite, so it needs no backup.
     const fresh = (this.db.query("SELECT COUNT(*) AS count FROM sqlite_master").get() as { count: number }).count === 0
     this.db.exec(schema)
@@ -1184,17 +1189,28 @@ export class SqliteRoutineRepository implements RoutineRepository {
         ? this.backup(current)
         : null
     for (const migration of pending) {
-      this.db.transaction(() => {
-        migration.up()
-        this.db
-          .query("INSERT INTO schema_version (version, name, applied_at, backup) VALUES (?1, ?2, ?3, ?4)")
-          .run(migration.version, migration.name, Date.now(), backup)
-      })()
+      // Rebuilding a table that others point at needs the keys off while it is swapped: SQLite only
+      // honours that pragma outside a transaction. They are checked before the migration commits.
+      if (migration.rebuildsTables) this.db.exec("PRAGMA foreign_keys = OFF")
+      try {
+        this.db.transaction(() => {
+          migration.up()
+          if (migration.rebuildsTables) {
+            const broken = this.db.query("PRAGMA foreign_key_check").all()
+            if (broken.length > 0) throw new Error(`Migration ${migration.name} left ${broken.length} broken references`)
+          }
+          this.db
+            .query("INSERT INTO schema_version (version, name, applied_at, backup) VALUES (?1, ?2, ?3, ?4)")
+            .run(migration.version, migration.name, Date.now(), backup)
+        })()
+      } finally {
+        if (migration.rebuildsTables) this.db.exec("PRAGMA foreign_keys = ON")
+      }
     }
   }
 
   /** The numbered migrations, oldest first. A version is never reused or edited once released. */
-  private migrations() {
+  private migrations(): Array<{ version: number; name: string; rewrites: boolean; rebuildsTables?: boolean; up: () => void }> {
     return [
       {
         version: 2,
@@ -1220,7 +1236,83 @@ export class SqliteRoutineRepository implements RoutineRepository {
           )`)
         },
       },
+      {
+        // Deleting a run has a defined effect on everything that hangs off it (RP-02). The rows a
+        // deleted run left behind are settled first, as decided for this migration: its tasks, which
+        // nothing shows, go; its findings and artifacts, which the app still lists, stay and stop
+        // pointing at it. Checkpoints keep no key: their git refs live outside the database, so the
+        // sweep that removes the refs (TI-15) is what takes them.
+        version: 4,
+        name: "referential-integrity",
+        rewrites: true,
+        rebuildsTables: true,
+        up: () => this.migrateReferentialIntegrity(),
+      },
     ]
+  }
+
+  private migrateReferentialIntegrity() {
+    this.db.exec(`
+      DELETE FROM tasks WHERE run_id NOT IN (SELECT id FROM runs);
+      UPDATE findings SET run_id = NULL WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT id FROM runs);
+      UPDATE findings SET task_id = NULL WHERE task_id IS NOT NULL AND task_id NOT IN (SELECT id FROM tasks);
+      UPDATE artifacts SET run_id = NULL WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT id FROM runs);
+      UPDATE artifacts SET task_id = NULL WHERE task_id IS NOT NULL AND task_id NOT IN (SELECT id FROM tasks);
+    `)
+    this.rebuildWithKeys("tasks", { run_id: "REFERENCES runs(id) ON DELETE CASCADE" })
+    this.rebuildWithKeys("findings", {
+      run_id: "REFERENCES runs(id) ON DELETE CASCADE",
+      task_id: "REFERENCES tasks(id) ON DELETE SET NULL",
+    })
+    this.rebuildWithKeys("artifacts", {
+      run_id: "REFERENCES runs(id) ON DELETE SET NULL",
+      task_id: "REFERENCES tasks(id) ON DELETE SET NULL",
+    })
+    // What the harness itself left on a run goes with the run, unless somebody pinned it; anything an
+    // agent or a person made stays, detached by the key above.
+    this.db.exec(`CREATE TRIGGER IF NOT EXISTS runs_take_harness_artifacts BEFORE DELETE ON runs BEGIN
+      DELETE FROM artifacts WHERE run_id = OLD.id AND producer = 'harness' AND COALESCE(pinned, 0) = 0;
+    END`)
+  }
+
+  /**
+   * A table recreated with foreign keys on some of its columns (RP-02): SQLite cannot add one to an
+   * existing table. Every column it has now — the ones `addColumn` added over the years included — is
+   * copied with its type, default and constraints, and so are its indexes.
+   */
+  private rebuildWithKeys(table: string, keys: Record<string, string>) {
+    const columns = this.db.query(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string
+      type: string
+      notnull: number
+      dflt_value: string | null
+      pk: number
+    }>
+    const indexes = (
+      this.db
+        .query("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL")
+        .all(table) as Array<{ sql: string }>
+    ).map((row) => row.sql)
+    const definitions = columns.map((column) =>
+      [
+        column.name,
+        column.type,
+        column.pk ? "PRIMARY KEY" : "",
+        column.notnull ? "NOT NULL" : "",
+        column.dflt_value !== null ? `DEFAULT ${column.dflt_value}` : "",
+        keys[column.name] ?? "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    )
+    const names = columns.map((column) => column.name).join(", ")
+    this.db.exec(`
+      CREATE TABLE ${table}_rebuilt (${definitions.join(", ")});
+      INSERT INTO ${table}_rebuilt (${names}) SELECT ${names} FROM ${table};
+      DROP TABLE ${table};
+      ALTER TABLE ${table}_rebuilt RENAME TO ${table};
+    `)
+    for (const sql of indexes) this.db.exec(sql)
   }
 
   /**
@@ -1353,9 +1445,16 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   list() {
     const rows = this.db.query("SELECT * FROM routines ORDER BY created_at DESC").all() as RoutineRow[]
+    // The newest of each routine's runs, as `get` reads them: the scheduler lists routines on every
+    // tick, and loading every run a routine ever had made that tick grow with history (RP-02).
     const runs = this.db
-      .query("SELECT * FROM runs WHERE source_type = 'routine' ORDER BY started_at DESC")
-      .all() as RunRow[]
+      .query(
+        `SELECT * FROM (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY started_at DESC) AS rank
+           FROM runs WHERE source_type = 'routine'
+         ) WHERE rank <= ?1 ORDER BY started_at DESC`,
+      )
+      .all(ROUTINE_RUNS_LISTED) as RunRow[]
     const byRoutine = new Map<string, Run[]>()
     for (const run of runs) {
       const key = run.source_id ?? ""
@@ -3516,7 +3615,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
   append(event: ServerEvent, now = Date.now()): StoredEvent {
     const result = this.db
       .query("INSERT INTO events (created_at, payload_json) VALUES (?1, ?2)")
-      .run(now, JSON.stringify(event))
+      .run(now, JSON.stringify(safeEvent(event)))
     const entry: StoredEvent = { seq: Number(result.lastInsertRowid), createdAt: now, event }
     for (const listener of this.listeners) {
       // One slow listener must not take the writer down with it.
@@ -3535,6 +3634,23 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return row?.seq ?? 0
   }
 
+  /** The oldest sequence still in the log, or 0 when it is empty. */
+  firstSeq(): number {
+    const row = this.db.query("SELECT MIN(seq) as seq FROM events").get() as { seq: number | null } | null
+    return row?.seq ?? 0
+  }
+
+  /**
+   * Bounds the log (RP-02): the newest `keep` events, none older than `maxAgeMs`. Nothing a live
+   * client needs is lost — it is sent each event as it is written — and a client catching up past
+   * what was pruned is told it has a gap. Answers how many were dropped.
+   */
+  pruneEvents(bounds: { keep: number; maxAgeMs: number }, now = Date.now()) {
+    return this.db
+      .query("DELETE FROM events WHERE seq <= (SELECT MAX(seq) FROM events) - ?1 OR created_at < ?2")
+      .run(bounds.keep, now - bounds.maxAgeMs).changes
+  }
+
   listEvents(afterSeq: number, limit = 200): StoredEvent[] {
     const rows = this.db
       .query("SELECT * FROM events WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2")
@@ -3546,6 +3662,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.db.close()
   }
 }
+
+/** How many of a routine's newest runs come with it, in the list as in `get` (`listRuns`' default). */
+const ROUTINE_RUNS_LISTED = 50
+
+/** How much of the event log is kept (RP-02): enough for any reconnect, bounded whatever the history. */
+export const EVENTS_KEPT = { keep: 10_000, maxAgeMs: 7 * 24 * 60 * 60 * 1000 }
 
 /** One routine runs one at a time; the key says which. */
 export const routineLockKey = (routineID: string) => `routine:${routineID}`
