@@ -64,7 +64,7 @@ export function harnessServerEnv(input: {
  * the harness answers, which the actions plugin asks for its profiles. The plugins read their own
  * scoped token from its file (TI-10).
  */
-export function engineEnvBesideHarness(env: NodeJS.ProcessEnv, harnessUrl: string) {
+export function engineEnvBesideHarness(env: NodeJS.ProcessEnv, harnessUrl: string): NodeJS.ProcessEnv {
   return { ...withoutHarnessSecrets(env), FLUPCODE_HARNESS_SERVER_URL: harnessUrl }
 }
 
