@@ -306,6 +306,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 2, name: "decision-audit-v2", backup: join(dirname(path), backup!) },
       { version: 3, name: "workflow-identity", backup: join(dirname(path), backup!) },
       { version: 4, name: "referential-integrity", backup: join(dirname(path), backup!) },
+      { version: 5, name: "usage-ledger", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -320,7 +321,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -333,6 +334,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 2, backup: null },
       { version: 3, backup: null },
       { version: 4, backup: null },
+      { version: 5, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -340,7 +342,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }])
     repository.close()
   })
 
@@ -1387,7 +1389,7 @@ const v3Fixture = (path: string) => {
   const checkpoint = { id: "cp_gone", directory: "/work/demo", sha: "abc", title: "Before", runID: gone.run.id, createdAt: 3_500 }
   repository.addCheckpoint(checkpoint)
   repository.db.exec(`
-    DELETE FROM schema_version WHERE version = 4;
+    DELETE FROM schema_version WHERE version >= 4;
     DROP TRIGGER IF EXISTS runs_take_harness_artifacts;
     PRAGMA foreign_keys = OFF;
   `)

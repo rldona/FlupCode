@@ -410,6 +410,7 @@ import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
 import { registerDocuments } from "./documents"
 import { summarise } from "./usage"
+import { handleUsageIngest } from "./usage-ledger"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./context"
 
@@ -538,6 +539,12 @@ export const createHarnessHandler = (
       const body = (await request.json().catch(() => ({}))) as { sessionID?: unknown }
       if (typeof body.sessionID !== "string" || !body.sessionID) return error("A session is required", 400)
       return json({ data: await options.planExit(body.sessionID) })
+    }
+    // The usage ledger's ingest (UL-01): only the engine's plugins report what the engine spent, so
+    // the route takes their token and not the app's. Without a plugin token it is an ordinary 404.
+    if (path[1] === "usage" && path[2] === "events" && path.length === 3 && request.method === "POST" && options.pluginToken) {
+      if (!pluginCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleUsageIngest(request, repository)
     }
     // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
     // needs the profile id and the shape the form wrote.
