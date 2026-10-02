@@ -54,16 +54,7 @@ import { customProviderPayload, type CustomProviderResult } from "./custom-provi
 import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, INSTRUCTION_NOTES, INSTRUCTION_SYSTEM, sessionChatClass, type AppView, type ChatClass } from "./chat"
 import { messageID } from "./ids"
 import { sessionTitle } from "./session-title"
-import {
-  applyDelta,
-  applyMessage,
-  applyTranscriptChange,
-  applyPart,
-  removeMessage,
-  removePart,
-  type LegacyInfo,
-  type LegacyPart,
-} from "./transcript"
+import { applyTranscriptChange } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "./pending-questions"
 import { runOutcome, type RunOutcome } from "./run-outcome"
@@ -163,6 +154,7 @@ import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
 import { closeTab, cycleTab, keepTabs, openTab, tabAfterClose } from "./tabs"
 import { publishSessionEvent } from "./session-events"
+import { reachabilityUrl } from "./engine/v2"
 import { createV2Transcript } from "./engine/v2-events"
 import { annotateLocalNetwork, askLocalNetwork, engineFetch } from "./transport"
 import {
@@ -257,22 +249,9 @@ export const App: Component = () => {
   // carry (one before any answer), or a stop the reader did not ask for. Cleared when the next starts.
   const [runOutcomes, setRunOutcomes] = createSignal<Record<string, RunOutcome>>({})
   const [activityTick, setActivityTick] = createSignal(0)
-  // Whether the engine's event streams are carrying this session's run right now. The health check
-  // is a separate question: it can answer while a stream is a dead socket nobody noticed. There is
-  // one state per stream — the global one and one per folder being followed — because a folder
-  // stream that died takes the transcript with it while the global one goes on looking healthy.
-  type StreamState = "connecting" | "live" | "reconnecting"
-  const [streamStates, setStreamStates] = createSignal<Record<string, StreamState>>({})
-  const setStreamState = (source: string, state: StreamState) =>
-    setStreamStates((current) => (current[source] === state ? current : { ...current, [source]: state }))
-  const forgetStreamState = (source: string) => setStreamStates(({ [source]: _dropped, ...rest }) => rest)
-  /** The worst state of them all: the reader is told the app is behind if any stream is. */
-  const streamState = (): StreamState => {
-    const states = Object.values(streamStates())
-    if (states.includes("reconnecting")) return "reconnecting"
-    if (states.length === 0 || states.includes("connecting")) return "connecting"
-    return "live"
-  }
+  // Whether the engine's event stream is carrying this session's run right now. The health check
+  // is a separate question: it can answer while the stream is a dead socket nobody noticed.
+  const [streamState, setStreamState] = createSignal<"connecting" | "live" | "reconnecting">("connecting")
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /**
    * The folder every session was last seen in. The session list is one page and a session opened from
@@ -349,32 +328,24 @@ export const App: Component = () => {
           reason?: string
         }
       | undefined,
-    knownDirectory?: string,
   ) => {
     const sessionID = data?.sessionID
     if (!sessionID) return
     const outcome = runOutcome(type, data)
     if (type === "session.execution.started" || outcome)
       setRunOutcomes(({ [sessionID]: _previous, ...rest }) => (outcome ? { ...rest, [sessionID]: outcome } : rest))
-    if (
-      type === "session.next.prompted" ||
-      type === "session.next.step.started" ||
-      type === "session.execution.started"
-    ) {
+    if (type === "session.execution.started") {
       setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
       return watchRun(sessionID, 2000)
     }
-    if (type === "session.next.step.ended" || type === "session.next.step.failed") return watchRun(sessionID, 700)
     // 2.x says when a whole execution is over, every step and queued prompt included.
     if (type.startsWith("session.execution.")) return setRunning(sessionID, false)
-    // Legacy runs (chats) report their own status, which already spans every step.
+    // `session.status` reports busy, retry and idle, which already spans every step.
     const status = data?.status?.type
     if (status === "busy" || status === "retry") {
       setRunning(sessionID, true)
-      // The turn's end arrives as `session.idle` on a stream; when that is lost, this poll notices.
-      // A folder stream names the folder it came from, which is what clears a run in a folder the
-      // list does not carry.
-      const directory = knownDirectory ?? sessionDirectory(sessionID)
+      // The turn's end arrives as `session.idle`; when that is lost, this poll notices.
+      const directory = sessionDirectory(sessionID)
       if (directory) watchRun(sessionID, 2000, directory)
     }
     // The engine only says why it is waiting while it retries, so the notice is kept until the turn
@@ -666,7 +637,7 @@ export const App: Component = () => {
     if (!engine) return
     setAllowingLocalNetwork(true)
     try {
-      const asked = await askLocalNetwork(`${serverUrl().replace(/\/$/, "")}/global/health`, engine)
+      const asked = await askLocalNetwork(reachabilityUrl(serverUrl()), engine)
       if (asked) annotateLocalNetwork(engine)
       setLocalNetwork(await queryLocalNetworkPermission(localNetworkPermissions(engine)))
     } finally {
@@ -1367,10 +1338,6 @@ export const App: Component = () => {
     () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
     async (url) => createClient(url).globalConfig(),
   )
-  const [providerAuth] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).provider.auth(),
-  )
   // The reload counter is part of the key so the list is asked for again when the engine reloads:
   // a command (or a whole skill set) added on disk only shows up after the engine re-reads it.
   const [commands] = createResource(
@@ -1389,23 +1356,6 @@ export const App: Component = () => {
     void refetchProviderDirectory()
     void refetchIntegrations()
   })
-  // Providers whose key lives in the engine's configuration but is not a v2 credential yet. Copying
-  // them used to happen on its own on every load, which sent every key through the page (and, while
-  // remote-controlling, to the phone). Now the providers panel offers it and the reader asks for it.
-  const [unlinkedProviders, { refetch: refetchUnlinkedProviders }] = createResource(
-    () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
-    async (url) => createClient(url).provider.unlinked(),
-  )
-  const linkConfiguredKeys = () =>
-    void run(async (current) => {
-      await current.provider.linkConfiguredKeys()
-      void refetchUnlinkedProviders()
-      void refetchProviderDirectory()
-      void refetchIntegrations()
-      void refetchModels()
-      return undefined
-    })
-
   /** The Console org behind providers, when the engine has one (CO-1). */
   const [consoleActive, { refetch: refetchConsoleActive }] = createResource(
     () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
@@ -1837,74 +1787,53 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  // Blocked work is read from the runtime that raised it: every turn runs on the legacy runner, and
-  // the v2 registries answer empty for it, which is what left an agent waiting on a question no dock
-  // could show. Sessions that still hold a v2 request from before are merged in by id.
-  //
   // A string, not an object. The session list is refetched all through a turn and hands back fresh
   // objects every time, so a source built out of `selectedSession()` changed identity on each one
-  // and both registries, in both runtimes, were asked again. Measured against a running turn: 93
-  // requests for permissions and questions in thirty seconds, for events nobody had raised.
+  // and both lists were asked again. Measured against a running turn: 93 requests for permissions
+  // and questions in thirty seconds, for events nobody had raised.
   const blockedSource = () => {
     const sessionID = selected()
     if (!ready() || !sessionID) return undefined
-    return `${serverUrl()}\n${sessionID}\n${selectedSession()?.location?.directory ?? ""}`
+    return `${serverUrl()}\n${sessionID}`
   }
   const blockedTarget = (key: string) => {
-    const [url = "", sessionID = "", directory = ""] = key.split("\n")
-    return { url, sessionID, directory: directory || undefined }
+    const [url = "", sessionID = ""] = key.split("\n")
+    return { url, sessionID }
   }
   const [permissions, { refetch: refetchPermissions }] = createResource(blockedSource, async (key) => {
     const source = blockedTarget(key)
-    const engine = createClient(source.url)
-    const [legacy, v2] = await Promise.all([
-      engine.blocked.permissions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
-      engine.session.permission.list({ sessionID: source.sessionID }).then(
-        (result) => result.data ?? [],
-        () => [],
-      ),
-    ])
-    const seen = new Set(legacy.map((request) => request.id))
-    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+    return {
+      data: await createClient(source.url)
+        .session.permission.list({ sessionID: source.sessionID })
+        .then(
+          (result) => result.data ?? [],
+          () => [],
+        ),
+    }
   })
   const [questions, { refetch: refetchQuestions }] = createResource(blockedSource, async (key) => {
     const source = blockedTarget(key)
-    const engine = createClient(source.url)
-    const [legacy, v2] = await Promise.all([
-      engine.blocked.questions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
-      engine.session.question.list({ sessionID: source.sessionID }).then(
-        (result) => result.data ?? [],
-        () => [],
-      ),
-    ])
-    const seen = new Set(legacy.map((request) => request.id))
-    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+    return {
+      data: await createClient(source.url)
+        .session.question.list({ sessionID: source.sessionID })
+        .then(
+          (result) => result.data ?? [],
+          () => [],
+        ),
+    }
   })
   // Every session's pending permissions, not just the open one's. An agent waiting on one is silent
   // and looks idle, so without this the reader has no way to know another session is stuck.
   const [blocked, { refetch: refetchBlocked }] = createResource(
-    // A string again: `watchedDirectories()` builds a new array every time the session list moves.
-    () => (ready() ? [serverUrl(), ...watchedDirectories()].join("\n") : undefined),
-    async (key) => {
-      const [url = "", ...folders] = key.split("\n")
-      const source = { url, folders }
-      const engine = createClient(source.url)
-      // Both runtimes again, and the legacy registry is per folder: a question counts as blocked work
-      // just as much as a permission does, and both were invisible from anywhere but their session.
-      const perFolder = await Promise.all(
-        source.folders.map((directory) =>
-          Promise.all([
-            engine.blocked.permissions({ directory }).catch(() => []),
-            engine.blocked.questions({ directory }).catch(() => []),
-          ]),
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => ({
+      data: await createClient(url)
+        .permission.pending()
+        .then(
+          (result) => result.data ?? [],
+          () => [],
         ),
-      )
-      const v2 = await engine.permission.pending().then(
-        (result) => result.data ?? [],
-        () => [],
-      )
-      return { data: [...perFolder.flat(2), ...v2] }
-    },
+    }),
   )
   const blockedSessions = () => [...new Set((blocked()?.data ?? []).map((request) => request.sessionID))]
   const blockedElsewhere = () => blockedSessions().filter((id) => id !== selected())
@@ -2498,7 +2427,7 @@ export const App: Component = () => {
       onCleanup(() => controller.abort())
       void (async () => {
         for (let attempt = 0; !controller.signal.aborted; attempt++) {
-          setStreamState("global", attempt === 0 ? "connecting" : "reconnecting")
+          setStreamState(attempt === 0 ? "connecting" : "reconnecting")
           // Reconnecting means the socket was lost, and an engine that came back under a new process
           // may carry a new configuration: ask the cached lists again. A restart the health poll did
           // not catch still lands here.
@@ -2526,7 +2455,7 @@ export const App: Component = () => {
             const v2Transcript = createV2Transcript()
             for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
               attempt = 0
-              setStreamState("global", "live")
+              setStreamState("live")
               if (!synced) {
                 synced = true
                 resync()
@@ -2566,26 +2495,9 @@ export const App: Component = () => {
                   }
                 }
                 if (v2.stale) scheduleRefetch(true, false)
-                // The end of a turn reconciles against the engine's own copy, as `session.idle` does
-                // for a folder stream.
+                // The end of a turn reconciles against the engine's own copy.
                 const ended = type.startsWith("session.execution.") && type !== "session.execution.started"
                 if (ended || type === "session.revert.committed") scheduleRefetch(true, true)
-                continue
-              }
-              if (type === "session.next.step.started") {
-                if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
-                if (payload?.sessionID === selected()) {
-                  setStreamedChars(0)
-                }
-                scheduleRefetch(true, false)
-              } else if (type.endsWith(".delta")) {
-                // A v2 delta names no part, so there is nothing to apply it to; only a session started
-                // on the v2 runner before this build still produces them, and its step events below
-                // reload the transcript. All that is taken from here is the size of the turn so far.
-                const delta = payload?.delta
-                if (payload?.sessionID === selected() && typeof delta === "string") {
-                  setStreamedChars((value) => value + delta.length)
-                }
                 continue
               }
               // The engine rebuilds its catalog from models.dev on its own schedule (and when an
@@ -2613,40 +2525,20 @@ export const App: Component = () => {
                 void refetchModels()
                 continue
               }
-              // 2.x asks its questions as forms (`form.*`), and drops the `v2` from its event names.
-              const question = type.startsWith("question.") || type.startsWith("form.")
+              // 2.x asks its questions as forms (`form.*`).
+              const question = type.startsWith("form.")
               if (type.startsWith("permission.") || question) {
                 setActivityTick((value) => value + 1)
                 publishSessionEvent({ kind: "requests" })
               }
               if (type.startsWith("permission.")) {
-                if (type === "permission.v2.asked" || type === "permission.asked") notify(t("Permission needed"), "")
+                if (type === "permission.asked") notify(t("Permission needed"), "")
                 void refetchPermissions()
                 void refetchBlocked()
               } else if (question) {
-                if (type === "question.v2.asked" || type === "form.created") notify(t("Question asked"), "")
+                if (type === "form.created") notify(t("Question asked"), "")
                 void refetchQuestions()
                 void refetchBlocked()
-              } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
-                const changed = event as {
-                  data?: {
-                    sessionID?: string
-                    agent?: string
-                    info?: { sessionID?: string }
-                    part?: { sessionID?: string }
-                  }
-                }
-                // An agent switch from the engine (the Plan agent's plan_exit) moves the dock at once.
-                const switchedAgent =
-                  type.startsWith("session.next.agent.switched") && changed.data?.sessionID === selected()
-                    ? changed.data?.agent
-                    : undefined
-                if (switchedAgent) setAgent(switchedAgent)
-                publishSessionEvent({
-                  kind: "changed",
-                  sessionID: changed.data?.sessionID ?? changed.data?.info?.sessionID ?? changed.data?.part?.sessionID,
-                })
-                scheduleRefetch(true, type === "session.next.step.ended")
               } else if (type.startsWith("session.")) {
                 scheduleRefetch(false, true)
               }
@@ -2662,28 +2554,16 @@ export const App: Component = () => {
             scheduleRefetch(true, true)
             publishSessionEvent({ kind: "changed" })
           }
-          setStreamState("global", "reconnecting")
+          setStreamState("reconnecting")
           await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
         }
       })()
     })
 
     /**
-     * Folders whose event stream this window follows. A legacy run — every chat, and every Code
-     * session — streams its deltas and its status only on its own folder's stream, so a window that
-     * wants them live has to hold one connection open per folder.
-     *
-     * How many it may hold is not a matter of taste. A browser allows six connections to one origin
-     * over HTTP/1.1, and a stream holds one for as long as it lives. Measured against the engine on
-     * 2026-09-16: with five streams open a request still answered in 8ms; with six, nothing answered
-     * at all and the page never recovered — closing the tab was the only way out, which is exactly
-     * what this looked like in use. Following four folders plus the global stream left a single
-     * connection for every fetch the app makes, so one reconnection overlapping its own socket was
-     * enough to deadlock the window.
-     *
-     * Two folders keeps the total at three and leaves half the budget free. A run in a folder nobody
-     * is following is not lost: it still shows up in the periodic `session.active()` check and in the
-     * refetch at the end of a turn — it just stops streaming live.
+     * Folders whose runs the resync asks about: what is on screen first, then the code project and
+     * the chats. Every event, transcript included, arrives on the one global stream (V2-21); 1.x's
+     * per-folder streams are gone (TI-12).
      */
     const WATCHED_DIRECTORIES = 2
     // A plain accessor, not a memo: a memo computes as soon as it is created, and the split panes it
@@ -2719,153 +2599,6 @@ export const App: Component = () => {
       const directories = listedDirectories()
       if (!directories || !ready()) return
       void resyncRuns(createClient(serverUrl()), directories.split("\n")).catch(() => undefined)
-    })
-
-    /**
-     * One legacy message event as a change to a transcript. The part types are remembered because a
-     * delta only names its part, while `field` says "text" for reasoning too, so the part's own type
-     * is the only way to tell them apart.
-     */
-    const partTypesByID = new Map<string, string>()
-    const transcriptChange = (
-      type: string,
-      data:
-        | {
-            delta?: string
-            partID?: string
-            messageID?: string
-            info?: { id?: string; role?: string }
-            part?: { id?: string; type?: string; messageID?: string }
-          }
-        | undefined,
-    ) => {
-      if (type === "message.part.delta") {
-        const delta = data?.delta
-        if (typeof delta !== "string" || !data?.partID) return undefined
-        const kind = partTypesByID.get(data.partID)
-        if (kind !== "text" && kind !== "reasoning") return undefined
-        const input = { messageID: data.messageID, partID: data.partID, delta }
-        return {
-          apply: (current: SessionMessageInfo[]) => applyDelta(current, input),
-          chars: delta.length,
-          ...(data.messageID ? { delta: { messageID: data.messageID, partID: data.partID, text: delta } } : {}),
-        }
-      }
-      if (type === "message.part.updated" && data?.part?.id) {
-        const part = data.part as LegacyPart
-        if (part.type) partTypesByID.set(part.id, part.type)
-        return { apply: (current: SessionMessageInfo[]) => applyPart(current, part), chars: 0 }
-      }
-      if (type === "message.part.removed" && data?.part?.id) {
-        const input = { messageID: data.part.messageID ?? data.messageID, partID: data.part.id }
-        return { apply: (current: SessionMessageInfo[]) => removePart(current, input), chars: 0 }
-      }
-      if (type === "message.updated" && data?.info?.id) {
-        const info = data.info as LegacyInfo
-        return { apply: (current: SessionMessageInfo[]) => applyMessage(current, info), chars: 0 }
-      }
-      if (type === "message.removed" && data?.messageID) {
-        const messageID = data.messageID
-        return { apply: (current: SessionMessageInfo[]) => removeMessage(current, messageID), chars: 0 }
-      }
-      return undefined
-    }
-
-    /** One folder's legacy event stream, reconnecting on its own backoff until the signal aborts. */
-    const followDirectory = async (url: string, directory: string, signal: AbortSignal) => {
-      // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
-      const lastUserMessage = new Map<string, string>()
-      for (let attempt = 0; !signal.aborted; attempt++) {
-        setStreamState(directory, attempt === 0 ? "connecting" : "reconnecting")
-        try {
-          const stream = createClient(url).event.subscribeDirectory(directory, { signal })
-          for await (const event of stream) {
-            attempt = 0
-            setStreamState(directory, "live")
-            const type = event.type ?? ""
-            const data = (
-              event as {
-                data?: {
-                  sessionID?: string
-                  field?: string
-                  delta?: string
-                  status?: { type?: string; message?: string; attempt?: number }
-                  partID?: string
-                  info?: { id?: string; sessionID?: string; role?: string }
-                  part?: { id?: string; sessionID?: string; type?: string }
-                }
-              }
-            ).data
-            trackActivity(type, data, directory)
-            const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
-            // This stream names its folder: any session heard here lives in it, listed or not.
-            rememberDirectory(sessionID, directory)
-            if (type.startsWith("message.")) {
-              // Every message event is applied to the transcript instead of triggering a refetch of
-              // the whole history. A refetch per event meant two full requests every 300ms for the
-              // length of a turn, and a `<For>` rebuilt from new objects each time.
-              const change = transcriptChange(type, data)
-              if (sessionID && change) {
-                publishSessionEvent({ kind: "message", sessionID, apply: change.apply, chars: change.chars })
-                if (sessionID === selected()) {
-                  setStreamedChars((value) => value + change.chars)
-                  applyTranscriptChange(setMessageData, change)
-                }
-              }
-              // A new user message starts a turn: what streamed before it is stale.
-              const newTurn =
-                type === "message.updated" &&
-                data?.info?.role === "user" &&
-                !!sessionID &&
-                !!data.info.id &&
-                lastUserMessage.get(sessionID) !== data.info.id
-              if (newTurn && sessionID && data?.info?.id) {
-                lastUserMessage.set(sessionID, data.info.id)
-                publishSessionEvent({ kind: "turn", sessionID })
-                if (sessionID === selected()) setStreamedChars(0)
-              }
-            } else if (type === "session.idle") {
-              // The end of a turn is where the applied events are reconciled against the engine's own
-              // copy: one refetch per turn instead of one every 300ms.
-              scheduleRefetch(true, true)
-            } else if (type.startsWith("session.")) {
-              scheduleRefetch(false, true)
-            }
-          }
-        } catch {
-          if (signal.aborted) break
-        }
-        if (signal.aborted) break
-        // Not following this folder until the stream is back, and the pill says so.
-        setStreamState(directory, "reconnecting")
-        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
-      }
-      forgetStreamState(directory)
-    }
-
-    // Streams are kept per folder across changes: switching session must not drop the chats stream,
-    // which is what carries a chat answering in the background.
-    const directoryStreams = new Map<string, AbortController>()
-    onCleanup(() => {
-      directoryStreams.forEach((controller) => controller.abort())
-      directoryStreams.clear()
-    })
-    createEffect(() => {
-      const url = ready() ? serverUrl() : undefined
-      const wanted = url ? watchedDirectories() : []
-      for (const [directory, controller] of directoryStreams) {
-        if (wanted.includes(directory)) continue
-        controller.abort()
-        directoryStreams.delete(directory)
-        forgetStreamState(directory)
-      }
-      if (!url) return
-      for (const directory of wanted) {
-        if (directoryStreams.has(directory)) continue
-        const controller = new AbortController()
-        directoryStreams.set(directory, controller)
-        void followDirectory(url, directory, controller.signal)
-      }
     })
 
     createEffect(() => {
@@ -4307,25 +4040,13 @@ export const App: Component = () => {
     setAttachments([])
   }
 
-  // An answer goes back to the runtime that asked. The legacy one owns every request a running turn
-  // raises today, and only it can unblock that turn; v2 is tried after it for requests left from
-  // before, so an old session is still answerable.
   const sessionDirectory = (sessionID: string) =>
     sessionList()?.find((session) => session.id === sessionID)?.location?.directory ??
     sessionDirectories.get(sessionID)
 
   const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     run(async (current) => {
-      await current.blocked
-        .answerPermission({
-          requestID: request.id,
-          directory: sessionDirectory(request.sessionID),
-          reply,
-          message,
-        })
-        .catch(() =>
-          current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message }),
-        )
+      await current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message })
       void refetchPermissions()
       void refetchBlocked()
       return undefined
@@ -4333,18 +4054,14 @@ export const App: Component = () => {
 
   const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
     run(async (current) => {
-      await current.blocked
-        .answerQuestion({ requestID: request.id, directory: sessionDirectory(request.sessionID), answers })
-        .catch(() => current.session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers }))
+      await current.session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
       void refetchQuestions()
       return undefined
     })
 
   const rejectQuestion = (request: QuestionV2Request) =>
     run(async (current) => {
-      await current.blocked
-        .rejectQuestion({ requestID: request.id, directory: sessionDirectory(request.sessionID) })
-        .catch(() => current.session.question.reject({ sessionID: request.sessionID, requestID: request.id }))
+      await current.session.question.reject({ sessionID: request.sessionID, requestID: request.id })
       void refetchQuestions()
       return undefined
     })
@@ -4579,7 +4296,6 @@ export const App: Component = () => {
 
   const saveProvider = (providerID: string, key: string) =>
     run(async (current) => {
-      await current.auth.set({ providerID, key })
       await current.integration.connectKey({ integrationID: providerID, key, label: providerID }).catch(() => undefined)
       await current.auth.reload().catch(() => undefined)
       void refetchProviderDirectory()
@@ -4591,7 +4307,6 @@ export const App: Component = () => {
 
   const removeProvider = (providerID: string) =>
     run(async (current) => {
-      await current.auth.remove({ providerID })
       const integrations = await current.integration.list()
       const integration = integrations.data.find((item) => item.id === providerID)
       for (const connection of integration?.connections ?? []) {
@@ -4612,7 +4327,6 @@ export const App: Component = () => {
       await current.updateGlobalConfig(customProviderPayload(result, disabled))
       await current.reloadConfig(vcsDirectory() ? { directory: vcsDirectory()! } : undefined)
       if (result.key) {
-        await current.auth.set({ providerID: result.providerID, key: result.key })
         await current.integration
           .connectKey({ integrationID: result.providerID, key: result.key, label: result.providerID })
           .catch(() => undefined)
@@ -4634,7 +4348,6 @@ export const App: Component = () => {
         if (connection.type !== "credential") continue
         await current.integration.disconnect(connection.id)
       }
-      await current.auth.remove({ providerID })
       const disabled = (await current.globalConfig()).disabled_providers ?? []
       await current.updateGlobalConfig({ disabled_providers: Array.from(new Set([...disabled, providerID])) })
       await current.reloadConfig(vcsDirectory() ? { directory: vcsDirectory()! } : undefined)
@@ -4679,19 +4392,6 @@ export const App: Component = () => {
     // credential, so refresh again once it has landed.
     setTimeout(refresh, 800)
   }
-
-  /**
-   * Legacy provider OAuth, for a stock OpenCode CLI whose v2 integration registry has no OAuth
-   * method (Copilot's device flow is registered only here). `authorize` returns the URL and
-   * instructions; `callback` blocks until the provider authorizes and stores the credential.
-   */
-  const legacyOAuthAuthorize = (providerID: string, method: number, inputs?: Record<string, string>) =>
-    client().provider.oauth.authorize({ providerID, method, inputs })
-
-  const legacyOAuthCallback = (providerID: string, method: number, code?: string) =>
-    client()
-      .provider.oauth.callback({ providerID, method, code })
-      .then(() => undefined)
 
   const editMessage = (messageID: string, text: string) => {
     const sessionID = selected()
@@ -6139,10 +5839,8 @@ export const App: Component = () => {
         onSaveAgent={saveAgent}
         onDeleteAgent={deleteAgent}
         providersList={providerDirectory()?.all ?? []}
-        providerAuth={providerAuth() ?? {}}
         providerConnected={providerDirectory()?.connected ?? []}
         providerIntegrations={integrations()?.data ?? []}
-        providerUnlinked={unlinkedProviders() ?? []}
         providersBusy={busy()}
         onSaveProvider={saveProvider}
         onRemoveProvider={removeProvider}
@@ -6155,9 +5853,6 @@ export const App: Component = () => {
         onProviderOAuthStatus={oAuthStatus}
         onProviderOAuthCancel={cancelOAuth}
         onProviderOAuthDone={finishOAuth}
-        onProviderOAuthLegacy={legacyOAuthAuthorize}
-        onProviderOAuthLegacyCallback={legacyOAuthCallback}
-        onLinkConfiguredProviders={linkConfiguredKeys}
         consoleActive={consoleActive()}
         consoleOrgs={consoleOrgs() ?? []}
         onSwitchConsole={switchConsoleOrg}
@@ -6270,7 +5965,11 @@ export const App: Component = () => {
       />
       <ConfigPanel
         open={configOpen()}
-        serverUrl={serverUrl()}
+        client={client()}
+        onSaved={() => {
+          void refetchEngineConfig()
+          void refetchGlobalConfig()
+        }}
         onClose={() => setConfigOpen(false)}
         onBack={() => {
           setConfigOpen(false)

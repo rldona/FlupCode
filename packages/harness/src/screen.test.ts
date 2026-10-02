@@ -20,6 +20,8 @@ describe("the screen in the URL", () => {
     expect(screenFromPath("")).toBeUndefined()
     expect(screenFromPath("/sessions")).toBeUndefined()
     expect(screenFromPath("/runs/1")).toBeUndefined()
+    // The session replay screen never rendered and is gone (TI-12): its address is the home screen.
+    expect(screenFromPath("/replay")).toBeUndefined()
   })
 
   test("keeps the query and the hash the address arrived with", () => {

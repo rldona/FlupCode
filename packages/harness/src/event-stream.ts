@@ -2,7 +2,7 @@ import { anonymousFetch, engineFetch } from "./transport"
 
 /**
  * How long a stream may go without a single byte before it is treated as dead. The engine beats
- * every 10 seconds (`/event`) or 15 (`/api/event`), so this is three missed beats. Without it a
+ * every 15 seconds on its event stream, so this is three missed beats. Without it a
  * socket that dies without closing — sleep, a NAT timeout, a dropped tunnel — leaves the read
  * pending forever, which is how the app could sit on "Connected" while the engine moved on.
  */
@@ -10,8 +10,8 @@ const STREAM_IDLE_TIMEOUT = 45_000
 
 export async function* subscribeEvents(
   baseUrl: string,
-  signal?: AbortSignal,
-  path = "/api/event",
+  signal: AbortSignal | undefined,
+  path: string,
   idleTimeout = STREAM_IDLE_TIMEOUT,
   /** The harness stream: not the engine, so without its credentials (see `anonymousFetch`). */
   anonymous = false,

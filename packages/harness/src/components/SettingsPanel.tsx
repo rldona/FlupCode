@@ -8,8 +8,6 @@ import type {
   IntegrationInfo,
   McpResource,
   McpServer,
-  ProviderAuthAuthorization,
-  ProviderAuthMethod,
   ProviderDirectoryInfo,
 } from "../engine-types"
 import type { AgentFile, CommandFile, McpConfig, McpScope } from "../types"
@@ -126,10 +124,8 @@ type SettingsPanelProps = {
   onDeleteAgent: (path: string) => Promise<unknown>
   /** Providers for the providers section (CU-3): directory, methods and links. */
   providersList: ProviderDirectoryInfo[]
-  providerAuth: Record<string, ProviderAuthMethod[]>
   providerConnected: string[]
   providerIntegrations: IntegrationInfo[]
-  providerUnlinked: string[]
   providersBusy: boolean
   onSaveProvider: (providerID: string, key: string) => void
   onRemoveProvider: (providerID: string) => void
@@ -142,14 +138,6 @@ type SettingsPanelProps = {
   onProviderOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
   onProviderOAuthCancel: (attemptID: string) => Promise<void>
   onProviderOAuthDone: () => void
-  /** Legacy provider OAuth, for engines whose v2 integration registry has no OAuth method. */
-  onProviderOAuthLegacy: (
-    providerID: string,
-    method: number,
-    inputs?: Record<string, string>,
-  ) => Promise<ProviderAuthAuthorization>
-  onProviderOAuthLegacyCallback: (providerID: string, method: number, code?: string) => Promise<void>
-  onLinkConfiguredProviders: () => void
   /** The Console org behind providers, when the engine has one (CO-1). */
   consoleActive?: ConsoleState
   consoleOrgs?: ConsoleOrg[]
@@ -654,10 +642,8 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <h3 class="fc-settings-title">{t("Providers")}</h3>
                   <ProvidersEditor
                     providers={props.providersList}
-                    auth={props.providerAuth}
                     connected={props.providerConnected}
                     integrations={props.providerIntegrations}
-                    unlinked={props.providerUnlinked}
                     busy={props.providersBusy}
                     onSave={props.onSaveProvider}
                     onRemove={props.onRemoveProvider}
@@ -670,9 +656,6 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     onOAuthStatus={props.onProviderOAuthStatus}
                     onOAuthCancel={props.onProviderOAuthCancel}
                     onOAuthDone={props.onProviderOAuthDone}
-                    onOAuthLegacy={props.onProviderOAuthLegacy}
-                    onOAuthLegacyCallback={props.onProviderOAuthLegacyCallback}
-                    onLinkConfigured={props.onLinkConfiguredProviders}
                     consoleActive={props.consoleActive}
                     consoleOrgs={props.consoleOrgs}
                     onSwitchConsole={props.onSwitchConsole}

@@ -28,11 +28,7 @@ import type {
   Part,
   PermissionSavedInfo,
   Provider,
-  ProviderAuthAuthorization,
-  ProviderAuthMethod,
   ProviderV2Info,
-  QuestionV2Info,
-  QuestionV2Tool,
   Session,
   SessionInputAdmitted,
   SessionMessagesResponse,
@@ -110,13 +106,6 @@ export type EngineClient = {
         } | undefined) => AsyncGenerator<{
             type?: string | undefined;
         }, void, unknown>;
-        /** One folder's full event stream: legacy runs (chats) only stream their deltas and status here. */
-        subscribeDirectory: (directory: string, options?: {
-            signal?: AbortSignal | undefined;
-            idleTimeout?: number | undefined;
-        } | undefined) => AsyncGenerator<{
-            type?: string | undefined;
-        }, void, unknown>;
     };
     /** The engine's own folders; chats live in `state`, which always exists on the engine's machine. */
     paths: () => Promise<{
@@ -146,6 +135,9 @@ export type EngineClient = {
         disabled_providers?: string[] | undefined;
         provider?: Record<string, ConfiguredProvider> | undefined;
     }>;
+    /** One scope's config file as it is written, for the advanced editor: the global file or the
+     *  engine folder's own. */
+    configFile: (scope: "global" | "project") => Promise<Record<string, unknown>>;
     /** Writes back one key of the engine's config and leaves the rest as it is (H-25). */
     updateConfig: (patch: Record<string, unknown>) => Promise<void>;
     /** Writes back one key of the engine's global config, shared by every directory (H-25). */
@@ -447,45 +439,8 @@ export type EngineClient = {
                 };
             }[];
         }>;
-        auth: () => Promise<{
-            [key: string]: ProviderAuthMethod[];
-        }>;
-        /**
-         * The engine's legacy provider OAuth, the one the TUI uses. A stock OpenCode CLI registers
-         * Copilot's device flow here but not in the v2 integration registry, so the panel falls back
-         * to this when a provider advertises an OAuth method in `provider.auth()` and the integration
-         * has none. `callback` blocks until the provider authorizes (device flow) and stores the
-         * credential itself; unlike the v2 attempt there is no cancel, so it keeps polling server-side.
-         */
-        oauth: {
-            authorize: (input: {
-                providerID: string;
-                method: number;
-                inputs?: Record<string, string> | undefined;
-            }) => Promise<ProviderAuthAuthorization>;
-            callback: (input: {
-                providerID: string;
-                method: number;
-                code?: string | undefined;
-            }) => Promise<boolean>;
-        };
-        /**
-         * Registers the API keys already in the engine's own configuration as v2 credentials, which is
-         * what makes those providers usable by v2 sessions. The keys stay inside this call: the reader
-         * asks for it from the providers panel, it is never done on its own.
-         */
-        linkConfiguredKeys: () => Promise<number>;
-        /** Providers whose configured key is not a v2 credential yet, by id; never carries the key. */
-        unlinked: () => Promise<string[]>;
     };
     auth: {
-        set: (input: {
-            providerID: string;
-            key: string;
-        }) => Promise<boolean>;
-        remove: (input: {
-            providerID: string;
-        }) => Promise<boolean>;
         /**
          * The engine resolves providers once and caches them, key included, so a credential saved
          * afterwards is written but never used: requests keep going out with the previous key.
@@ -528,42 +483,6 @@ export type EngineClient = {
         switchOrg: (input: {
             accountID: string;
             orgID: string;
-        }) => Promise<boolean>;
-    };
-    /**
-     * Blocked work, from whichever runtime owns it. A request belongs to the runtime that raised it
-     * and can only be answered there: the legacy runner — the one every Code and Chat turn runs on —
-     * keeps its own registry at `/question` and `/permission`, and the v2 ones answer empty for it.
-     * Reading only v2 is what left an agent waiting on a question no dock could show.
-     */
-    blocked: {
-        questions: (input: {
-            directory?: string | undefined;
-            sessionID?: string | undefined;
-        }) => Promise<{
-            id: string;
-            sessionID: string;
-            tool?: QuestionV2Tool | undefined;
-            questions: QuestionV2Info[];
-        }[]>;
-        permissions: (input: {
-            directory?: string | undefined;
-            sessionID?: string | undefined;
-        }) => Promise<PermissionV2Request[]>;
-        answerQuestion: (input: {
-            requestID: string;
-            directory?: string | undefined;
-            answers: string[][];
-        }) => Promise<boolean>;
-        rejectQuestion: (input: {
-            requestID: string;
-            directory?: string | undefined;
-        }) => Promise<boolean>;
-        answerPermission: (input: {
-            requestID: string;
-            directory?: string | undefined;
-            reply: "always" | "once" | "reject";
-            message?: string | undefined;
         }) => Promise<boolean>;
     };
     /** Permissions across every session, and the ones the reader told the engine to remember. */

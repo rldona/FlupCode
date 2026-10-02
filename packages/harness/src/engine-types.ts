@@ -20,11 +20,7 @@ export type SessionMessagesResponse = SdkSessionMessagesResponse
 export type SessionMessageInfo = SdkSessionMessagesResponse["data"][number]
 
 export type { SnapshotFileDiff as FileDiffInfo } from "./engine/sdk-types"
-export type {
-  Provider as ProviderDirectoryInfo,
-  ProviderAuthAuthorization,
-  ProviderAuthMethod,
-} from "./engine/sdk-types"
+export type { Provider as ProviderDirectoryInfo } from "./engine/sdk-types"
 
 export type { MemoryInfo } from "./engine/sdk-types"
 

@@ -48,8 +48,6 @@ describe.skipIf(!run)("permissions on the OpenCode 2 adapter", () => {
     expect(request.source?.callID).toBeTruthy()
     // Every session's pending requests, which is what marks a session as blocked in the sidebar.
     expect((await domains.permission.pending()).data.map((item) => item.id)).toContain(request.id)
-    // 2.x has no legacy registry: it reads empty, so the docks fall through to the session.
-    expect(await domains.blocked.permissions({ sessionID: session })).toEqual([])
 
     await domains.session.permission.reply({ sessionID: session, requestID: request.id, reply: "once" })
     await domains.session.wait({ sessionID: session })
@@ -113,7 +111,6 @@ describe.skipIf(!run)("forms on the OpenCode 2 adapter", () => {
       ],
       tool: { messageID: expect.any(String), callID: expect.any(String) },
     })
-    expect(await domains.blocked.questions({ sessionID: session })).toEqual([])
 
     await domains.session.question.reply({ sessionID: session, requestID: request.id, answers: [["A"]] })
     await domains.session.wait({ sessionID: session })

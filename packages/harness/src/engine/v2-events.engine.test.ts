@@ -39,7 +39,7 @@ beforeAll(async () => {
   domains = createV2Domains(engine.url)
   const connected = Promise.withResolvers<void>()
   void (async () => {
-    for await (const event of subscribeEvents(engine.url, controller.signal)) {
+    for await (const event of subscribeEvents(engine.url, controller.signal, "/api/event")) {
       if (event.type === "server.connected") connected.resolve()
       events.push(event)
     }

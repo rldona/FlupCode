@@ -80,9 +80,7 @@ describe.skipIf(!run)("providers on the OpenCode 2 adapter", () => {
       "OPENAI_API_KEY",
     )
 
-    // What the app does when the reader saves a key: `auth.set`, which 2.x has no use for, then the
-    // integration credential.
-    await domains.auth.set({ providerID: "openai", key: "sk-contract" })
+    // What the app does when the reader saves a key: an integration credential.
     await domains.integration.connectKey({ integrationID: "openai", key: "sk-contract", label: "openai" })
     const connected = await until(
       () => domains.model.list(),
@@ -110,7 +108,7 @@ describe.skipIf(!run)("providers on the OpenCode 2 adapter", () => {
     expect(after).toBeInstanceOf(EngineError)
   })
 
-  test("no answer carries a key, and 1.x's own provider sign-in says it is gone", async () => {
+  test("no answer carries a key", async () => {
     await domains.integration.connectKey({ integrationID: "keyless", key: "sk-secret-contract" })
     const answers = JSON.stringify([
       await domains.model.list(),
@@ -120,11 +118,6 @@ describe.skipIf(!run)("providers on the OpenCode 2 adapter", () => {
     ])
     expect(answers).not.toContain("sk-secret-contract")
     expect(answers).not.toContain("apiKey")
-    expect(await domains.provider.auth()).toEqual({})
-    const refused = await domains.provider.oauth
-      .authorize({ providerID: "openai", method: 0 })
-      .catch((cause: unknown) => cause)
-    expect((refused as EngineError).tag).toBe("UnsupportedByEngine")
   })
 })
 

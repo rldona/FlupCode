@@ -1,4 +1,4 @@
-import { createV2Domains } from "./engine/v2"
+import { createV2Domains, reachabilityUrl } from "./engine/v2"
 import type { EngineClient } from "./engine/contract"
 import { subscribeEvents } from "./event-stream"
 import { readStorage, STORAGE_KEYS } from "./storage"
@@ -91,7 +91,7 @@ export type ServerStatus = "online" | "offline" | "blocked" | "unauthorized"
  * credentials the browser has no way to send (see `transport.ts`).
  */
 export async function probeServer(baseUrl: string): Promise<ServerStatus> {
-  const health = `${baseUrl.replace(/\/$/, "")}/global/health`
+  const health = reachabilityUrl(baseUrl)
   const response = await engineFetch(health, { signal: AbortSignal.timeout(2000) }).catch(() => undefined)
   if (response) {
     if (response.status === 401 || response.status === 403) return "unauthorized"
