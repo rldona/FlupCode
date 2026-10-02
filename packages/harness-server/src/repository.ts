@@ -40,6 +40,7 @@ import type {
   Run,
   RunPolicy,
   RunSource,
+  RunWorkflow,
   Task,
   TaskCondition,
   TaskInput,
@@ -69,6 +70,7 @@ import type {
   SkillProposalFilter,
   StoredSkillProposal,
   StoredSkillProposalInput,
+  WorkflowVersion,
 } from "./types"
 import { decisionFromRow, decisionRowFrom } from "./adaptive/decision-record"
 import type { DecisionRow } from "./adaptive/decision-record"
@@ -541,6 +543,7 @@ type RunRow = {
   finished_at: number | null
   error: string | null
   options: string | null
+  workflow_json: string | null
 }
 
 type TaskRow = {
@@ -1010,7 +1013,29 @@ const decodeRun = (row: RunRow): Run => ({
   finishedAt: row.finished_at ?? undefined,
   error: row.error ?? undefined,
   ...decodeOptions(row.options),
+  ...decodeWorkflow(row.workflow_json),
 })
+
+/** A run's workflow (RP-01), or nothing: a row from before it was recorded reads as a plain run. */
+const decodeWorkflow = (value: string | null): Pick<Run, "workflow"> => {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value) as Partial<RunWorkflow>
+    if (typeof parsed.name !== "string" || typeof parsed.hash !== "string") return {}
+    return {
+      workflow: {
+        name: parsed.name,
+        scope: parsed.scope === "project" ? "project" : "global",
+        hash: parsed.hash,
+        inputs: Object.fromEntries(
+          Object.entries(parsed.inputs ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+        ),
+      },
+    }
+  } catch {
+    return {}
+  }
+}
 
 /**
  * How a run was asked to behave, kept with the run rather than with the request that started it.
@@ -1176,6 +1201,24 @@ export class SqliteRoutineRepository implements RoutineRepository {
         name: "decision-audit-v2",
         rewrites: true,
         up: () => this.migrateDecisionAudit(),
+      },
+      {
+        // A run names the workflow it executed and the file is kept as it ran (RP-01). Existing runs
+        // keep no workflow: none was recorded, and guessing one from the tasks would be invented.
+        // Flagged as rewriting so the file is copied first: it changes the table holding every run.
+        version: 3,
+        name: "workflow-identity",
+        rewrites: true,
+        up: () => {
+          this.addColumn("runs", "workflow_json", "TEXT")
+          this.db.exec(`CREATE TABLE IF NOT EXISTS workflow_versions (
+            hash TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            source TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+          )`)
+        },
       },
     ]
   }
@@ -1429,8 +1472,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.db
       .query(
         `INSERT OR IGNORE INTO runs
-           (id, source_type, source_id, session_id, status, started_at, finished_at, error, directory, options)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+           (id, source_type, source_id, session_id, status, started_at, finished_at, error, directory, options, workflow_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
       )
       .run(
         run.id,
@@ -1443,6 +1486,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
         run.error ?? null,
         run.directory ?? null,
         encodeOptions(run),
+        run.workflow ? JSON.stringify(run.workflow) : null,
       )
   }
 
@@ -1450,7 +1494,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     source: RunSource,
     now: number,
     directory?: string,
-    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "allow"> = {},
+    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "allow" | "workflow"> = {},
   ) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
@@ -1464,6 +1508,43 @@ export class SqliteRoutineRepository implements RoutineRepository {
   getRun(runID: string) {
     const row = this.db.query("SELECT * FROM runs WHERE id = ?1").get(runID) as RunRow | null
     return row ? decodeRun(row) : undefined
+  }
+
+  /** A workflow's runs, newest first (RP-01); in one folder when it is given, since a name is per project. */
+  listWorkflowRuns(name: string, directory?: string, limit = 50) {
+    const rows = this.db
+      .query(
+        `SELECT * FROM runs
+         WHERE json_extract(workflow_json, '$.name') = ?1 AND (?2 IS NULL OR directory = ?2)
+         ORDER BY started_at DESC LIMIT ?3`,
+      )
+      .all(name, directory ?? null, limit) as RunRow[]
+    return rows.map(decodeRun)
+  }
+
+  /** Keeps a workflow file as a run executed it, once per content (RP-01). */
+  recordWorkflowVersion(version: Omit<WorkflowVersion, "createdAt">, now = Date.now()) {
+    this.db
+      .query("INSERT OR IGNORE INTO workflow_versions (hash, name, scope, source, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
+      .run(version.hash, version.name, version.scope, version.source, now)
+  }
+
+  getWorkflowVersion(hash: string): WorkflowVersion | undefined {
+    const row = this.db.query("SELECT * FROM workflow_versions WHERE hash = ?1").get(hash) as {
+      hash: string
+      name: string
+      scope: string
+      source: string
+      created_at: number
+    } | null
+    if (!row) return undefined
+    return {
+      hash: row.hash,
+      name: row.name,
+      scope: row.scope === "project" ? "project" : "global",
+      source: row.source,
+      createdAt: row.created_at,
+    }
   }
 
   listRuns(source?: RunSource, limit = 50) {

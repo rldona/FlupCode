@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type { FileSystemEntry, SessionInfo } from "../engine-types"
 import type { Artifact, CommandOption, ProjectItem, Routine, Run, Workflow } from "../types"
+import { runTitle } from "../run-title"
 import { t } from "../i18n"
 import { sessionTitle } from "../session-title"
 import { isCoworkSession } from "../chat"
@@ -103,7 +104,7 @@ export function search(
     })
   }
   for (const run of sources.runs ?? []) {
-    const label = run.source.type === "routine" ? t("Routine") : t("Manual run")
+    const label = runTitle(run)
     if (value && !contains(`${label} ${run.status}`, value)) continue
     items.push({ kind: "run", id: `run:${run.id}`, label, detail: run.status, value: run.id })
   }

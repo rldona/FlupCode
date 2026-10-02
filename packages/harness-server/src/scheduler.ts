@@ -1,10 +1,12 @@
+import { createHash } from "node:crypto"
 import { Engine } from "./engine"
 import { parseModelKey } from "./policy"
 import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
-import { findWorkflow, tasksFor } from "./workflow"
+import { readWorkflow, tasksFor } from "./workflow"
+import type { WorkflowFile } from "./workflow"
 import { restore } from "./checkpoint"
-import type { BrowserAllowRule, Run, RunPolicy, RunSource, TaskInput } from "./types"
+import type { BrowserAllowRule, Run, RunPolicy, RunSource, RunWorkflow, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 import type { ActionRunner } from "./action-runner"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
@@ -137,6 +139,8 @@ export class RoutineScheduler {
     policy?: RunPolicy
     /** The approval an action task runs under (WA-7). Without it, an action task fails closed. */
     allow?: BrowserAllowRule[]
+    /** The workflow these tasks came from (RP-01). */
+    workflow?: RunWorkflow
   }) {
     if (input.tasks.length === 0) throw new Error("A run needs at least one task")
     const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory, {
@@ -147,6 +151,7 @@ export class RoutineScheduler {
       ...(input.worktrees ? { worktrees: true } : {}),
       ...(input.policy ? { policy: input.policy } : {}),
       ...(input.allow && input.allow.length > 0 ? { allow: input.allow } : {}),
+      ...(input.workflow ? { workflow: input.workflow } : {}),
     })
     this.repository.addTasks(run.id, input.tasks)
     // More than one task means a thread of its own: the run's session is what a person reads, and
@@ -223,8 +228,9 @@ export class RoutineScheduler {
     /** Restore this checkpoint before starting, so a run resumes from disk state (HF-1). */
     fromCheckpoint?: string
   }) {
-    const workflow = await findWorkflow(input.name, input.directory)
-    if (!workflow) throw new UnknownWorkflowError(input.name)
+    const file = await readWorkflow(input.name, input.directory)
+    if (!file) throw new UnknownWorkflowError(input.name)
+    const workflow = file.workflow
     const filled = { ...(workflow.inputDefaults ?? {}), ...(input.inputs ?? {}) }
     const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
     if (missing.length > 0) throw new MissingInputsError(missing)
@@ -251,7 +257,19 @@ export class RoutineScheduler {
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
       ...(input.worktrees || workflow.worktrees ? { worktrees: true } : {}),
       ...(input.policy ? { policy: input.policy } : {}),
+      workflow: this.identify(file, filled),
     })
+  }
+
+  /**
+   * What a run says it executed (RP-01): the workflow, the version of its file and the inputs. The
+   * file is kept once per content, so a later edit changes what the next run executes and nothing
+   * about a past one.
+   */
+  private identify(file: WorkflowFile, inputs: Record<string, string>): RunWorkflow {
+    const hash = createHash("sha256").update(file.source).digest("hex")
+    this.repository.recordWorkflowVersion({ hash, name: file.name, scope: file.scope, source: file.source })
+    return { name: file.name, scope: file.scope, hash, inputs }
   }
 
   /**
@@ -499,13 +517,17 @@ export class RoutineScheduler {
       ])
       return run
     }
+    // Read before the run starts, so the run names the version it executes (RP-01); a file that is
+    // gone still gets a failed run below, saying so.
+    const file = await readWorkflow(routine.workflow.name, routine.projectDirectory)
+    const filled = { ...(file?.workflow.inputDefaults ?? {}), ...(routine.workflow.inputs ?? {}), ...(overrides ?? {}) }
     const run = this.repository.startRun(source, now, routine.projectDirectory, {
       ...(routine.policy ? { policy: routine.policy } : {}),
+      ...(file ? { workflow: this.identify(file, filled) } : {}),
     })
     try {
-      const workflow = await findWorkflow(routine.workflow.name, routine.projectDirectory)
-      if (!workflow) throw new UnknownWorkflowError(routine.workflow.name)
-      const filled = { ...(workflow.inputDefaults ?? {}), ...(routine.workflow.inputs ?? {}), ...(overrides ?? {}) }
+      if (!file) throw new UnknownWorkflowError(routine.workflow.name)
+      const workflow = file.workflow
       const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
       if (missing.length > 0) throw new MissingInputsError(missing)
       const tasks = tasksFor(workflow, filled)

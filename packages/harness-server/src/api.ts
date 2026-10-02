@@ -1835,8 +1835,19 @@ export const createHarnessHandler = (
       const directory = new URL(request.url).searchParams.get("directory") ?? undefined
       return json({ data: await listWorkflows(directory || undefined) })
     }
+    // A workflow's runs (RP-01), for the Workflows screen: in one folder when it names one, since a
+    // project's `feature` is not another project's.
+    if (path[1] === "workflows" && request.method === "GET" && path[2] && path[3] === "runs") {
+      const directory = new URL(request.url).searchParams.get("directory") || undefined
+      return json({ data: repository.listWorkflowRuns(decodeURIComponent(path[2]), directory) })
+    }
+    // The file a past run executed, as it was then (RP-01).
+    if (path[1] === "workflow-versions" && request.method === "GET" && path[2] && !path[3]) {
+      const version = repository.getWorkflowVersion(path[2])
+      return version ? json({ data: version }) : error("No workflow version with that hash", 404)
+    }
     // One workflow, as it is written on disk, for the editor (H-28).
-    if (path[1] === "workflows" && request.method === "GET" && path[2]) {
+    if (path[1] === "workflows" && request.method === "GET" && path[2] && !path[3]) {
       const directory = new URL(request.url).searchParams.get("directory") ?? undefined
       const found = await readWorkflow(decodeURIComponent(path[2]), directory || undefined)
       return found ? json({ data: found }) : error("Workflow not found", 404)

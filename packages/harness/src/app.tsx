@@ -5425,6 +5425,11 @@ export const App: Component = () => {
             onSave={saveWorkflowFile}
             onDelete={deleteWorkflowFile}
             onRun={(workflow) => setLaunching({ workflow })}
+            onListRuns={(name) => createHarnessClient(harnessServerUrl()).workflows.runs(name, modelLocation())}
+            onOpenSession={(id) => {
+              leaveScreen()
+              selectSession(id)
+            }}
           />
           <ArtifactsPanel
             open={artifactsOpen()}

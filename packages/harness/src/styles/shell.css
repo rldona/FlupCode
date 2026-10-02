@@ -9032,6 +9032,31 @@ button.fc-status {
   margin-inline-end: auto;
 }
 
+.fc-run-inputs {
+  color: var(--fc-text-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.fc-workflow-runs {
+  display: grid;
+  gap: var(--fc-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-workflow-run {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fc-space-2);
+  font-size: 13px;
+}
+
+.fc-workflow-run .fc-run-meta {
+  margin-inline-end: auto;
+}
+
 .fc-run-mark[data-status="running"] {
   color: var(--fc-accent);
 }

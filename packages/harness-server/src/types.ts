@@ -159,7 +159,28 @@ export type Run = {
    * checked before the browser opens. Only `allow` is meaningful here.
    */
   allow?: BrowserAllowRule[]
+  /**
+   * The workflow this run executed, when one did (RP-01): who asked for the run is `source`, what ran
+   * is this. A routine that runs a workflow has both.
+   */
+  workflow?: RunWorkflow
 }
+
+/**
+ * Which workflow produced a run, in which version and with which inputs (RP-01).
+ *
+ * `hash` is the sha256 of the file as it was at launch; the file itself is kept once per hash in
+ * `workflow_versions`, so editing it later does not change what a past run says it executed.
+ */
+export type RunWorkflow = {
+  name: string
+  scope: "project" | "global"
+  hash: string
+  inputs: Record<string, string>
+}
+
+/** A workflow file as some run executed it (RP-01). */
+export type WorkflowVersion = { hash: string; name: string; scope: "project" | "global"; source: string; createdAt: number }
 
 /**
  * One rule of the approval a web action runs under (WA-7).
@@ -531,7 +552,7 @@ export type RunRepository = {
     source: RunSource,
     now: number,
     directory?: string,
-    options?: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy" | "allow">,
+    options?: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy" | "allow" | "workflow">,
   ): Run
   /** Hold a run at a gate: not running, not finished, waiting for a person. */
   awaitRun(runID: string): void

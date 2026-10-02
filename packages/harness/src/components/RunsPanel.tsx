@@ -5,6 +5,7 @@ import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedF
 import { RunTaskDetail } from "./RunTaskDetail"
 import { RunTimeline } from "./RunTimeline"
 import { money } from "../metrics"
+import { runInputs, runTitle } from "../run-title"
 
 type RunsPanelProps = {
   open: boolean
@@ -236,7 +237,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     <span class="fc-run-mark" data-status={run.status}>
                       {going(run) ? marks.running : marks[run.status as TaskStatus]}
                     </span>
-                    <span class="fc-run-title">{run.source.type === "routine" ? t("Routine") : t("Manual run")}</span>
+                    <span class="fc-run-title">{runTitle(run)}</span>
                     <span class="fc-run-meta">
                       {[run.status, elapsed(run.startedAt, run.finishedAt), ...totals(run)].join(" · ")}
                     </span>
@@ -320,6 +321,8 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       </button>
                     </Show>
                   </header>
+                  {/* What a workflow run was given (RP-01): two runs of `feature` differ by their goal. */}
+                  <Show when={runInputs(run)}>{(text) => <div class="fc-run-inputs">{text()}</div>}</Show>
                   <Show when={confirming() === run.id}>
                     <div class="fc-confirm-inline">
                       <span>{t("Delete this run?")}</span>

@@ -2349,3 +2349,100 @@ describe("the plugin token's scope (TI-10)", () => {
     repository.close()
   })
 })
+
+// RP-01: a run knows which workflow, which version of it and which inputs produced it.
+describe("a run's workflow identity (RP-01)", () => {
+  let previousDataHome: string | undefined
+  beforeEach(() => {
+    // The shared templates live under XDG_DATA_HOME; point it somewhere empty so only this folder's
+    // workflows exist.
+    previousDataHome = process.env.XDG_DATA_HOME
+    const shared = mkdtempSync(join(tmpdir(), "flupcode-api-rp01-shared-"))
+    made.push(shared)
+    process.env.XDG_DATA_HOME = shared
+  })
+  afterEach(() => {
+    if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME
+    else process.env.XDG_DATA_HOME = previousDataHome
+  })
+
+  const yaml = "name: feature\ninputs: [goal]\ntasks:\n  - id: check\n    kind: verify\n"
+  const project = () => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-rp01-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "workflows", "feature.yaml"), yaml)
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: exit 0\n")
+    return directory
+  }
+  const sha256 = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex")
+
+  test("a run started from a workflow names it, its version and its inputs, and keeps that version", async () => {
+    const { repository, handler } = open()
+    const directory = project()
+    const started = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory }),
+      }),
+    )
+    const run = (await started.json()).data
+    await settled(repository, run.id)
+    expect(repository.getRun(run.id)).toMatchObject({
+      source: { type: "manual" },
+      workflow: { name: "feature", scope: "project", hash: sha256(yaml), inputs: { goal: "search" } },
+    })
+
+    // The Workflows screen reads a workflow's runs.
+    const runs = await handler(
+      new Request(`http://localhost/harness/workflows/feature/runs?directory=${encodeURIComponent(directory)}`),
+    )
+    expect((await runs.json()).data.map((entry: { id: string }) => entry.id)).toEqual([run.id])
+
+    // Editing the file does not change what a past run says it executed.
+    writeFileSync(join(directory, ".flupcode", "workflows", "feature.yaml"), yaml + "  - id: again\n    kind: verify\n")
+    expect(repository.getRun(run.id)?.workflow?.hash).toBe(sha256(yaml))
+    const version = await handler(new Request(`http://localhost/harness/workflow-versions/${sha256(yaml)}`))
+    expect((await version.json()).data).toMatchObject({ hash: sha256(yaml), name: "feature", source: yaml })
+    repository.close()
+  })
+
+  test("a routine that runs a workflow keeps the routine as its source and names the workflow", async () => {
+    const { repository, handler } = open()
+    const directory = project()
+    const created = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({
+          ...input,
+          projectDirectory: directory,
+          workflow: { name: "feature", inputs: { goal: "nightly" } },
+        }),
+      }),
+    )
+    const routine = (await created.json()).data
+    const started = await handler(new Request(`http://x/harness/routines/${routine.id}/runs`, { method: "POST" }))
+    const run = (await started.json()).data
+    await settled(repository, run.id)
+    expect(repository.getRun(run.id)).toMatchObject({
+      source: { type: "routine", routineID: routine.id },
+      workflow: { name: "feature", scope: "project", hash: sha256(yaml), inputs: { goal: "nightly" } },
+    })
+    repository.close()
+  })
+
+  test("a run that no workflow produced names none", async () => {
+    const { repository, handler } = open()
+    const directory = project()
+    const batch = await handler(
+      new Request("http://x/harness/best-of-n", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Do it", models: ["a/one", "b/two"], directory }),
+      }),
+    )
+    const runs = (await batch.json()).data as Array<{ id: string }>
+    expect(runs.length).toBe(2)
+    for (const run of runs) expect(repository.getRun(run.id)?.workflow).toBeUndefined()
+    repository.close()
+  })
+})
