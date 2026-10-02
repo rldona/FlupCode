@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { SqliteRoutineRepository } from "../../repository"
+import { SqliteRoutineRepository } from "@flupcode/harness-server/repository"
 
 let root = ""
 

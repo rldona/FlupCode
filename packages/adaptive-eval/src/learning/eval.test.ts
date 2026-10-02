@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { resolveAdaptiveConfig } from "../config"
-import type { SessionEpisode } from "../episode"
-import type { TranscriptMessage } from "../../engine"
-import { DRAFT_INSTRUCTION } from "./draft"
+import { resolveAdaptiveConfig } from "@flupcode/harness-server/adaptive/config"
+import type { SessionEpisode } from "@flupcode/harness-server/adaptive/episode"
+import type { TranscriptMessage } from "@flupcode/harness-server/engine"
+import { DRAFT_INSTRUCTION } from "@flupcode/harness-server/adaptive/learning/draft"
 import {
   EVAL_THRESHOLDS,
   computeReport,

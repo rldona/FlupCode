@@ -12,12 +12,12 @@
 
 import { Database } from "bun:sqlite"
 import { parseArgs } from "node:util"
-import { decodeEpisode, defaultDatabasePath } from "../../repository"
-import type { EpisodeRow } from "../../repository"
-import { DEFAULT_LEARNING_CONFIG } from "../config"
-import { redactText } from "../redaction"
-import { classifyEpisode, episodeTrace } from "./heuristics"
-import { reflectionGate } from "./reflection-job"
+import { decodeEpisode, defaultDatabasePath } from "@flupcode/harness-server/repository"
+import type { EpisodeRow } from "@flupcode/harness-server/repository"
+import { DEFAULT_LEARNING_CONFIG } from "@flupcode/harness-server/adaptive/config"
+import { redactText } from "@flupcode/harness-server/adaptive/redaction"
+import { classifyEpisode, episodeTrace } from "@flupcode/harness-server/adaptive/learning/heuristics"
+import { reflectionGate } from "@flupcode/harness-server/adaptive/learning/reflection-job"
 
 if (import.meta.main) {
   const args = parseArgs({

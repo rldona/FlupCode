@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import type { ReplayReport, ReplayRun, ReplayVariant } from "../../replay/runner"
+import type { ReplayReport, ReplayRun, ReplayVariant } from "@flupcode/harness-server/replay/runner"
 import { pairsOf, pairedStatistic, replayEvidence } from "./replay-evidence"
 
 const T0 = Date.parse("2026-10-05T00:00:00Z")

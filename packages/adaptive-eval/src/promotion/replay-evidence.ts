@@ -10,7 +10,7 @@
  * Nothing here runs a replay, asks a model or writes a file.
  */
 
-import type { ReplayReport, ReplayRun } from "../../replay/runner"
+import type { ReplayReport, ReplayRun } from "@flupcode/harness-server/replay/runner"
 import { CRITERIA, EVALUATION, METRICS, checkKey } from "./criteria"
 import type { Check, Estimate, MetricID, PromotionCapability } from "./criteria"
 import { bootstrap } from "./stats"

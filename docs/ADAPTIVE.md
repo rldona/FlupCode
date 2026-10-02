@@ -195,7 +195,7 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   (`heuristics-eval.test.ts`, corpus in `fixtures/heuristics/`) replays 26 labelled synthetic episodes
   and asserts precision ≥ 0.6 (currently 0.89, recall 0.89). For the manual review on real data,
   `bun run reflect:heuristics -- [--db <path>] [--limit 200] [--project <dir>] [--json]` in
-  `packages/harness-server` replays the closed episodes of a database opened **read-only** and prints
+  `packages/adaptive-eval` (the dev-only package, PI-03) replays the closed episodes of a database opened **read-only** and prints
   the redacted candidates without writing anything.
 - **Draft timeout.** The draft session waits up to `learning.draftTimeoutMs` (default 120 s, not the
   `skillReflection` decision deadline); past it, or on any failure, the session is interrupted and the
@@ -352,7 +352,8 @@ does not need the classifier's consent.
 ### Reflection quality eval (PoC-4)
 
 _AH-F05._ Before learning is turned on for real, a person reviews what it would propose on their own
-episodes. The tooling (`learning/eval.ts`, `eval-sheet.ts`, `eval-cli.ts`) makes that one sitting;
+episodes. The tooling (`packages/adaptive-eval/src/learning/eval.ts`, `eval-sheet.ts`, `eval-cli.ts`, outside the
+server since PI-03) makes that one sitting;
 the review and the go/no-go are the person's.
 
 **Preregistered thresholds.** Written here, and fixed in `EVAL_THRESHOLDS`, before any real episode
@@ -395,7 +396,7 @@ all five are yes; an approval with a "no" is flagged in the report as inconsiste
 | `wellScoped` | One lesson, with a description (the trigger) that fires on the right tasks and not on everything. |
 | `verdict` | `approve`: you would install it as it stands. `reject`: anything else. |
 
-**Steps.** From `packages/harness-server`:
+**Steps.** From `packages/adaptive-eval`:
 
 1. **Heuristic pass (free, local).**
    `bun run reflect:eval -- select` opens `~/.local/share/flupcode/harness.sqlite` **read-only**
@@ -786,7 +787,8 @@ data (AH-G01) and one analysis of a holdout evaluation (AH-G02). The criteria ar
 [ADR-0025](adr/0025-promotion-criteria.md), **accepted by the owner on 2026-09-30**; the final
 decision is a person's (AH-G03).
 
-- **The criteria.** `src/adaptive/promotion/criteria.ts` holds every number: per capability the
+- **The criteria.** `packages/adaptive-eval/src/promotion/criteria.ts` (the dev-only package, PI-03; the
+  `eval:live` commands below run from `packages/adaptive-eval`) holds every number: per capability the
   primary metric and its threshold, the guardrails (completion Δ ≥ −1 pp, error rate Δ ≤ +1 pp, p95
   turn duration Δ ≤ +10%, plus the capability's own), the safety stops, the minimum sample per arm,
   the 14-day window and the 42-day cap. The ADR embeds the table the module generates

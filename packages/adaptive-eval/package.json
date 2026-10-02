@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@flupcode/adaptive-eval",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Developer tools that evaluate the adaptive layer offline: the reflection eval, the heuristics dry run and the live promotion evaluation. Never part of the server.",
+  "scripts": {
+    "test": "bun test src",
+    "typecheck": "tsgo --noEmit",
+    "reflect:heuristics": "bun src/learning/heuristics-cli.ts",
+    "reflect:eval": "bun src/learning/eval-cli.ts",
+    "eval:live": "bun src/promotion/cli.ts"
+  },
+  "dependencies": {
+    "@flupcode/harness-server": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "catalog:"
+  }
+}
