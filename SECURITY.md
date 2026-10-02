@@ -14,8 +14,12 @@ engine, which runs locally on your machine and gives an agent shell, file and we
   choice.
 - **Harness server.** The desktop app also runs FlupCode's harness server on loopback
   (`http://127.0.0.1:4097`), which keeps runs, routines, artifacts and web-action profiles. Its
-  routes ask for a bearer token the desktop app generates. That token is one secret for every route,
-  and the agent's plugins hold it too; splitting it by scope is planned (AUDIT-2026-10, TI-10).
+  routes ask for a bearer token the desktop app generates. The engine's plugins get a second token
+  that only lists, approves and runs web actions, reads their evidence and asks the plan's hand-off:
+  it cannot commit, push, write config or read anything else. Neither token is handed to the engine
+  or to the commands the harness runs (external tasks, checks, git and its hooks). Both live in files
+  in your FlupCode config folder, which anything running as you can read, an agent's shell included;
+  moving the UI's token out of that folder is open work (AUDIT-2026-10).
 - **Remote control.** Phones reach the engine through the relay over an end-to-end encrypted channel
   opened by pairing. The relay forwards encrypted traffic and cannot read it; anyone holding a paired
   device can control the paired computer, so revoke devices you no longer use.

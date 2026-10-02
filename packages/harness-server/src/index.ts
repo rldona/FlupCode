@@ -9,6 +9,9 @@ import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
 import type { BrowserRuntime } from "./browser"
 import {
   adaptiveTokenFile,
+  pluginTokenFile,
+  readOrCreatePluginToken,
+  readPluginToken,
   browserTokenFile,
   isLoopbackHostname,
   readAdaptiveToken,
@@ -77,6 +80,9 @@ export type HarnessServerOptions = {
   /** The acting line's dedicated bearer (FH-04, ADR-0022); resolved from the file when omitted. */
   adaptiveToken?: string
   adaptiveTokenFile?: string
+  /** The engine plugins' bearer (TI-10); resolved from the file when omitted. */
+  pluginToken?: string
+  pluginTokenFile?: string
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
@@ -93,6 +99,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // Read apart from the runtime: the same bearer guards the artifact routes (WA-9), and it is worth
   // passing even when there is no browser to guard, so the token is not lost with the runtime.
   const browserToken = options.browserToken ?? readBrowserToken(options.browserTokenFile ?? browserTokenFile())
+  const pluginToken = options.pluginToken ?? readPluginToken(options.pluginTokenFile ?? pluginTokenFile())
   // A vault exists only when there is a key to open it: without one, a profile that names a
   // credential fails closed rather than running with an empty field, and `/harness/credentials/*`
   // is an ordinary 404 (WA-5).
@@ -151,7 +158,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const egress = createAdaptiveEgressGuard({
     config: () => adaptive.current(),
     secrets: () =>
-      [browserToken, adaptiveToken, process.env.TYPESAFE_API_KEY?.trim() || undefined, ...(vault?.secrets() ?? [])].filter(
+      [browserToken, pluginToken, adaptiveToken, process.env.TYPESAFE_API_KEY?.trim() || undefined, ...(vault?.secrets() ?? [])].filter(
         (secret) => secret !== undefined,
       ),
   })
@@ -391,6 +398,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       hostname,
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
+      ...(pluginToken ? { pluginToken } : {}),
       ...(actions ? { actions } : {}),
       ...(actions
         ? {
@@ -528,6 +536,19 @@ const createBrowserToken = (): string | undefined => {
   }
 }
 
+// The engine plugins' bearer (TI-10). The desktop does not pass it to the engine: the plugins read
+// this file, so a variable in the engine's environment does not hand an agent's shell a key.
+const createPluginToken = (): string | undefined => {
+  const fromEnv = process.env.FLUPCODE_PLUGIN_TOKEN?.trim()
+  if (fromEnv) return fromEnv
+  try {
+    return readOrCreatePluginToken(pluginTokenFile())
+  } catch (cause) {
+    console.warn(`Could not write the plugin token: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return undefined
+  }
+}
+
 /**
  * The acting line's dedicated secret (FH-04, ADR-0022).
  *
@@ -574,6 +595,7 @@ if (import.meta.main) {
   // The entrypoint is the one place that writes the secret; a read-only config dir must not stop
   // the harness from serving everything else, so it starts without a browser instead.
   const token = createBrowserToken()
+  const pluginToken = createPluginToken()
   const vaultKey = createVaultKey()
   // The acting line's secret is only ever created on a loopback host (ADR-0022 §1): off the loopback
   // the feature is inert, so the entrypoint must not leave the dedicated token on disk either. The
@@ -582,6 +604,7 @@ if (import.meta.main) {
   const adaptiveToken = isLoopbackHostname(hostname) ? createAdaptiveToken() : undefined
   const app = createHarnessServer({
     ...(token ? { browserToken: token } : {}),
+    ...(pluginToken ? { pluginToken } : {}),
     ...(vaultKey ? { vaultKey } : {}),
     ...(adaptiveToken ? { adaptiveToken } : {}),
   })

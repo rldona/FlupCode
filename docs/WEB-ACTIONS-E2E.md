@@ -17,13 +17,15 @@
 
 ## 0b. Engine manual emparejado con el escritorio
 
-El escritorio persiste su token en el fichero `browser-token`
-(`~/.config/flupcode/`, `0600`; o `FLUPCODE_CONFIG_DIR` si está definido) y lo
-reutiliza en cada arranque. Un engine levantado a mano lee ese mismo fichero,
-así que emparejan sin hacer nada **siempre que el engine arranque después de
-que el fichero exista**: abre primero el escritorio una vez y luego levanta el
-engine. `FLUPCODE_BROWSER_TOKEN` en el entorno sigue ganando al fichero en
-ambos procesos.
+Los plugins del engine usan su propio token, el fichero `plugin-token`
+(`~/.config/flupcode/`, `0600`; o `FLUPCODE_CONFIG_DIR` si está definido), que
+crea el harness-server al arrancar y reutiliza después. Un engine levantado a mano
+lee ese mismo fichero, así que emparejan sin hacer nada **siempre que el engine
+arranque después de que el fichero exista**: arranca primero el harness (o el
+escritorio) una vez y luego el engine. `FLUPCODE_PLUGIN_TOKEN` en el entorno gana
+al fichero. El token de la interfaz (`browser-token`) no sirve a los plugins: solo
+abre el catálogo, la aprobación y la ejecución de acciones, sus capturas y el
+`plan_exit` (TI-10).
 
 Si el token no coincide, el plugin no registra ninguna tool y el agente falla
 con un "Request failed" pelado. El engine lo dice en su log:

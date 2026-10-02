@@ -1692,11 +1692,12 @@ function harnessBaseURL() {
   return url.origin
 }
 
-// The browser bearer: the desktop hands it to the engine, and the harness keeps it in a file.
+// The plugins' own bearer (TI-10), from the harness's file: it lists, approves and runs web actions
+// and reads their evidence, nothing else. Never the UI's token.
 async function readToken() {
-  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN
+  const fromEnv = process.env.FLUPCODE_PLUGIN_TOKEN
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
-  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  const text = await readFile(path.join(flupcodeConfigDir(), "plugin-token"), "utf8").catch(() => undefined)
   if (text === undefined) return undefined
   const token = text.trim()
   return token === "" ? undefined : token
@@ -2793,10 +2794,11 @@ function harnessBaseURL() {
   return url.origin
 }
 
+// The plugins' own bearer (TI-10), from the harness's file; the plan's hand-off is in its scope.
 async function readToken() {
-  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN
+  const fromEnv = process.env.FLUPCODE_PLUGIN_TOKEN
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
-  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  const text = await readFile(path.join(flupcodeConfigDir(), "plugin-token"), "utf8").catch(() => undefined)
   if (text === undefined) return undefined
   const token = text.trim()
   return token === "" ? undefined : token

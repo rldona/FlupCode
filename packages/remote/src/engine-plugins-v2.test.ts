@@ -37,6 +37,7 @@ afterEach(async () => {
     "FLUPCODE_EPISODE_EVENTS_DIR",
     "FLUPCODE_BROWSER_DISABLED",
     "FLUPCODE_BROWSER_TOKEN",
+    "FLUPCODE_PLUGIN_TOKEN",
     "FLUPCODE_ADAPTIVE_TOKEN",
     "FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS",
     "FLUPCODE_GUARDRAILS_FETCH_TIMEOUT_MS",
@@ -277,7 +278,7 @@ type Call = { route: string; method: string; authorization: string | null; body:
  */
 async function loopback(
   answer: (route: string, body: Record<string, unknown>) => Response | Promise<Response>,
-  tokens: { adaptive?: string | false; browser?: string | false } = {},
+  tokens: { adaptive?: string | false; plugin?: string | false } = {},
 ) {
   const calls: Call[] = []
   const server = Bun.serve({
@@ -293,8 +294,10 @@ async function loopback(
   const config = await temp()
   if (tokens.adaptive !== false)
     await writeFile(path.join(config, "adaptive-token"), `${tokens.adaptive ?? "adaptive-token"}\n`)
-  if (tokens.browser !== false)
-    await writeFile(path.join(config, "browser-token"), `${tokens.browser ?? "browser-token"}\n`)
+  // The UI's bearer sits beside the plugins' one, as on a desktop: no plugin may send it (TI-10).
+  await writeFile(path.join(config, "browser-token"), "ui-token\n")
+  if (tokens.plugin !== false)
+    await writeFile(path.join(config, "plugin-token"), `${tokens.plugin ?? "plugin-token"}\n`)
   process.env.FLUPCODE_CONFIG_DIR = config
   process.env.FLUPCODE_HARNESS_SERVER_URL = `http://127.0.0.1:${server.port}`
   stops.push(() => server.stop(true))
@@ -670,7 +673,7 @@ describe("OpenCode 2 web actions and delivery", () => {
       project: "/work/demo",
       inputs: { title: "Hello", image: { dataUrl: composed } },
     })
-    expect(calls.on("/harness/actions/approve")[0]!.authorization).toBe("Bearer browser-token")
+    expect(calls.on("/harness/actions/approve")[0]!.authorization).toBe("Bearer plugin-token")
     expect(calls.on("/harness/actions/run")[0]!.body).toEqual({
       action: "post",
       sessionID: "ses_1",
@@ -1051,7 +1054,7 @@ describe("OpenCode 2 agents", () => {
       "The user approved the plan and switched to the build agent. Execute the plan now.",
     )
     expect(calls.on("/harness/plan-exit")[0]).toMatchObject({
-      authorization: "Bearer browser-token",
+      authorization: "Bearer plugin-token",
       body: { sessionID: "ses_1" },
     })
   })
@@ -1727,7 +1730,7 @@ describe("OpenCode 2 web actions", () => {
         }
         return new Response("Not found", { status: 404 })
       },
-      { browser: options.token },
+      { plugin: options.token },
     )
 
   async function open(composeTools: string[] = ["compose_demo"]) {
@@ -1773,13 +1776,13 @@ describe("OpenCode 2 web actions", () => {
     })
     expect(added.read_demo!.input).toEqual({ type: "object", properties: {}, required: [] })
     expect(calls.on("/harness/actions").map((call) => [call.method, call.authorization])).toEqual([
-      ["GET", "Bearer browser-token"],
+      ["GET", "Bearer plugin-token"],
     ])
   })
 
-  test("the desktop's token wins over the file", async () => {
+  test("the plugin token from the environment wins over the file", async () => {
     const calls = await fixture({ token: "token-file" })
-    process.env.FLUPCODE_BROWSER_TOKEN = "token-env"
+    process.env.FLUPCODE_PLUGIN_TOKEN = "token-env"
     const { tools: added } = await open()
     expect(Object.keys(added).sort()).toEqual(["do_demo", "read_demo"])
     expect(calls.on("/harness/actions").map((call) => call.authorization)).toEqual(["Bearer token-env"])
@@ -1942,6 +1945,13 @@ describe("OpenCode 2 web actions", () => {
     const tokenless = await fixture({ token: false })
     expect(registered((await open()).recorded)).toEqual([])
     expect(tokenless.calls).toHaveLength(0)
+  })
+
+  test("the UI's bearer is never a fallback, from the file or the environment (TI-10)", async () => {
+    const calls = await fixture({ token: false })
+    process.env.FLUPCODE_BROWSER_TOKEN = "ui-token-from-env"
+    expect(registered((await open()).recorded)).toEqual([])
+    expect(calls.calls).toHaveLength(0)
   })
 
   test("a non-loopback harness URL is refused before any token is sent", async () => {

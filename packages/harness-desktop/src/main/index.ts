@@ -5,6 +5,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
 import { editorCommand } from "./open-path"
+import { isAppPage } from "./renderer-origin"
 import { initRemoteHost } from "./remote"
 import { rendererCsp } from "./renderer-csp"
 import {
@@ -94,8 +95,6 @@ function createWindow() {
   const states = loadWindowStates()
   // Its own remembered bounds, or the first window's stepped down so they do not stack exactly.
   const bounds = cascade(states[index] ?? states[0] ?? DEFAULT_BOUNDS, index)
-  const credentials = engineCredentials()
-
   const window = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
@@ -121,14 +120,10 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // The preload reads all of these: the speech bridge is only exposed when the native helper
-      // is present, the credentials let the renderer reach the engine this app password-protected,
-      // and the browser token lets its live view drive the harness browser (WA-6).
-      additionalArguments: [
-        ...(speechAvailable() ? ["--flupcode-speech"] : []),
-        ...(credentials ? [`--flupcode-engine-auth=${credentials}`] : []),
-        `--flupcode-browser-token=${harnessBrowserToken()}`,
-      ],
+      // The speech bridge is only exposed when the native helper is present. The credentials are
+      // not passed here: a command line is readable by any local process, so the preload asks for
+      // them over IPC instead (`flupcode:credentials`, TI-10).
+      additionalArguments: [...(speechAvailable() ? ["--flupcode-speech"] : [])],
     },
   })
 
@@ -207,6 +202,17 @@ app.on("window-all-closed", () => {
 // Windows paints its own window buttons, so it has to be told the colours the page is using.
 // Nothing else can: the palette and the light/dark choice live in the renderer's storage. Registered
 // once for the whole process: a handler is global, so registering it per window throws on the second.
+// What the renderer needs to reach the engine this app password-protected and to drive the harness
+// browser's live view (WA-6), asked once by the preload. Only the app's own page gets them (TI-10).
+ipcMain.on("flupcode:credentials", (event) => {
+  const page = event.senderFrame?.url ?? ""
+  const devUrl = process.env.FLUPCODE_DEV_URL || !app.isPackaged ? DEV_URL : undefined
+  const credentials = engineCredentials()
+  event.returnValue = isAppPage(page, devUrl)
+    ? { ...(credentials ? { engineAuth: credentials } : {}), browserToken: harnessBrowserToken() }
+    : {}
+})
+
 ipcMain.handle("flupcode:title-bar", (event, overlay: { color?: string; symbolColor?: string }) => {
   if (process.platform !== "win32") return
   const target = BrowserWindow.fromWebContents(event.sender)

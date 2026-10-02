@@ -10,6 +10,7 @@
  */
 
 import { GitError } from "./git"
+import { childEnv } from "./child-env"
 
 export type CheckCounts = { total: number; passed: number; failed: number; running: number }
 
@@ -63,7 +64,7 @@ async function run(command: string[], directory: string) {
       cwd: directory,
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
+      env: childEnv({ GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1", NO_COLOR: "1" }),
     })
     timer = setTimeout(() => child.kill(), TIMEOUT_MS)
     const [stdout, stderr, exitCode] = await Promise.all([

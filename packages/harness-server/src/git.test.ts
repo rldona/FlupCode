@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { leaked, withSecrets } from "./child-env.fixture"
 import { branch, commit, currentBranch, discard, isRepository, mergeBranch } from "./git"
 
 /** A throwaway repository. Every test here writes to git, so none of them may share one. */
@@ -234,5 +235,17 @@ describe("merging a worktree's branch back (H-29)", () => {
     // The folder is clean and not mid-merge, so the reader can just try again.
     expect(await run(["status", "--porcelain"])).toBe("")
     expect(await run(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])).toBe("")
+  })
+})
+
+describe("what a repository's hooks inherit (TI-10)", () => {
+  test("a pre-commit hook sees none of the harness's secrets", async () => {
+    const dump = join(directory, ".git", "hook-env.txt")
+    writeFileSync(join(directory, ".git", "hooks", "pre-commit"), `#!/bin/sh\nenv > "${dump}"\n`, { mode: 0o755 })
+    write("kept.txt", "two\n")
+    await withSecrets(() => commit({ directory, message: "through the hook", paths: ["kept.txt"] }))
+    const env = readFileSync(dump, "utf8")
+    expect(env).toContain("PATH=")
+    expect(leaked(env)).toEqual([])
   })
 })

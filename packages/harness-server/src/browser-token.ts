@@ -33,7 +33,16 @@ export function adaptiveTokenFile(dir: string = flupcodeConfigDir()): string {
   return join(dir, "adaptive-token")
 }
 
-/** The one door both tokens use; one implementation, two names. */
+/**
+ * The engine plugins' own bearer (TI-10): a sibling of `browser-token`. The actions and agents
+ * plugins read it instead of the UI's token, so what the engine's process can reach only lists,
+ * approves and runs web actions, reads their evidence and asks the plan's hand-off.
+ */
+export function pluginTokenFile(dir: string = flupcodeConfigDir()): string {
+  return join(dir, "plugin-token")
+}
+
+/** The one door every token uses; one implementation, several names. */
 function readTokenFile(file: string): string | undefined {
   if (!existsSync(file)) return undefined
   try {
@@ -63,6 +72,15 @@ export function readBrowserToken(file: string): string | undefined {
 }
 
 export function readOrCreateBrowserToken(file: string): string {
+  return readOrCreateTokenFile(file)
+}
+
+/** Reads the plugin token if it is already there, and never creates anything: only the entrypoint writes. */
+export function readPluginToken(file: string = pluginTokenFile()): string | undefined {
+  return readTokenFile(file)
+}
+
+export function readOrCreatePluginToken(file: string = pluginTokenFile()): string {
   return readOrCreateTokenFile(file)
 }
 

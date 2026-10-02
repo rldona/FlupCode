@@ -19,6 +19,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { GitError, isRepository } from "./git"
+import { childEnv } from "./child-env"
 
 export type Checkpoint = {
   id: string
@@ -57,8 +58,7 @@ async function git(directory: string, args: string[], index?: string) {
       cwd: directory,
       stdout: "pipe",
       stderr: "pipe",
-      env: {
-        ...process.env,
+      env: childEnv({
         GIT_TERMINAL_PROMPT: "0",
         GIT_EDITOR: "true",
         NO_COLOR: "1",
@@ -71,7 +71,7 @@ async function git(directory: string, args: string[], index?: string) {
         GIT_COMMITTER_NAME: AUTHOR.name,
         GIT_COMMITTER_EMAIL: AUTHOR.email,
         ...(index ? { GIT_INDEX_FILE: index } : {}),
-      },
+      }),
     })
     timer = setTimeout(() => child.kill(), TIMEOUT_MS)
     const [stdout, stderr, exitCode] = await Promise.all([

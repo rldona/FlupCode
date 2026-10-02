@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { leaked, withSecrets } from "./child-env.fixture"
 import { externalCommand, fillCommand, runExternal, shellQuote } from "./external"
 
 describe("an external command (H-38)", () => {
@@ -86,5 +87,14 @@ describe("an external command (H-38)", () => {
     expect(result.output).toContain("two")
     // While it runs, the activity endpoint gets what has been printed so far.
     expect(seen.at(-1)).toContain("two")
+  })
+})
+
+describe("what an external command inherits (TI-10)", () => {
+  test("an external task sees none of the harness's secrets, and keeps the rest of the environment", async () => {
+    const result = await withSecrets(() => runExternal({ command: "env", directory: process.cwd() }))
+    expect(result.ok).toBe(true)
+    expect(leaked(result.output)).toEqual([])
+    expect(result.output).toContain("PATH=")
   })
 })

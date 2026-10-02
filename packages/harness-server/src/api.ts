@@ -426,7 +426,14 @@ const openToAnyCaller = (request: Request, path: string[]) =>
 
 export type HarnessHandlerOptions = {
   browser?: BrowserRuntime
+  /** The UI's bearer: every guarded route. */
   token?: string
+  /**
+   * The engine plugins' bearer (TI-10): the action catalogue, approval and run, the evidence
+   * screenshots a run returns, and the plan's hand-off. It cannot commit, push, write config or read
+   * anything else, so what an agent can find in the engine's reach is not the UI's key.
+   */
+  pluginToken?: string
   actions?: ActionRunner
   /** A web action's approval asked in the session, for the OpenCode 2 actions plugin (V2-31). */
   actionApprover?: ActionApprover
@@ -477,6 +484,15 @@ export const createHarnessHandler = (
   options: HarnessHandlerOptions = {},
 ) => {
   const roots = options.projectRoots ?? projectRoots(() => scheduler.engine.projectRoots())
+  const pluginCaller = (request: Request) =>
+    !!options.pluginToken && tokenMatches(options.pluginToken, bearerFrom(request))
+  // The one artifact read a plugin makes: a run's evidence screenshot, shown back in the chat.
+  const evidenceRead = (request: Request, path: string[]) =>
+    request.method === "GET" &&
+    path[1] === "artifacts" &&
+    path[3] === "raw" &&
+    path.length === 4 &&
+    repository.getArtifact(path[2] ?? "")?.kind === "screenshot"
   const handle = async (request: Request) => {
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
@@ -501,9 +517,10 @@ export const createHarnessHandler = (
     // The runner drives the browser on the user's machine, so it sits behind the same bearer as
     // `/harness/browser/*` (WA-2). Without a runner the path is an ordinary 404.
     if (path[1] === "actions" && options.actions) {
-      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)) && !pluginCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleActionRequest(request, path.slice(2), options.actions, options.actionApprover)
+      const caller = tokenMatches(options.token ?? "", bearerFrom(request)) ? "ui" : "plugin"
+      return handleActionRequest(request, path.slice(2), options.actions, options.actionApprover, caller)
     }
     // What a web action signs in with (WA-5). Stored secrets are the most sensitive thing here, so
     // the vault is behind the same bearer rather than the loopback address alone, and it is only a
@@ -516,7 +533,7 @@ export const createHarnessHandler = (
     // The plan's hand-off (V2-33): OpenCode 2's `plan_exit` tool has no way to ask, so it asks here,
     // behind the bearer the engine's plugins hold.
     if (path[1] === "plan-exit" && request.method === "POST" && options.planExit) {
-      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)) && !pluginCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       const body = (await request.json().catch(() => ({}))) as { sessionID?: unknown }
       if (typeof body.sessionID !== "string" || !body.sessionID) return error("A session is required", 400)
@@ -879,7 +896,12 @@ export const createHarnessHandler = (
     // configured each one asks for the bearer that guards the browser (WA-9, AH-A05): a page that is
     // not this app cannot read the token, so it can neither read what the runs left behind nor start
     // one. Without a token nothing is compared and every route answers as before.
-    if (options.token && !openToAnyCaller(request, path) && !tokenMatches(options.token, bearerFrom(request)))
+    if (
+      options.token &&
+      !openToAnyCaller(request, path) &&
+      !tokenMatches(options.token, bearerFrom(request)) &&
+      !(pluginCaller(request) && evidenceRead(request, path))
+    )
       return json({ error: "Forbidden", code: "invalid_token" }, 403)
     // Everything the server changes, in order, so a client follows along instead of asking.
     if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))

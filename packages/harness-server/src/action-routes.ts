@@ -33,9 +33,10 @@ export async function handleActionRequest(
   segments: string[],
   actions: ActionRunner,
   approver?: ActionApprover,
+  caller: "ui" | "plugin" = "ui",
 ): Promise<Response> {
   try {
-    return await dispatch(request, segments, actions, approver)
+    return await dispatch(request, segments, actions, approver, caller)
   } catch (cause) {
     return failure(cause)
   }
@@ -46,8 +47,13 @@ const dispatch = async (
   segments: string[],
   actions: ActionRunner,
   approver?: ActionApprover,
+  caller: "ui" | "plugin" = "ui",
 ): Promise<Response> => {
   const route = segments[0]
+  // The engine's plugins list, approve and run (TI-10); the editor's validate, dry run and preview
+  // are the UI's.
+  if (caller === "plugin" && route !== undefined && route !== "approve" && route !== "run")
+    return error("Forbidden", "invalid_token", 403)
   // The OpenCode 2 plugin's approval, asked in the session before a run (V2-31). A yes carries the
   // single-use id the run below has to present (TI-09).
   if (route === "approve" && request.method === "POST" && approver) {
@@ -91,6 +97,9 @@ const dispatch = async (
   if (!sessionID) return error("A session is required", "invalid_request", 400)
   const project = typeof body.project === "string" ? body.project : ""
   if (!project) return error("A project is required", "invalid_request", 400)
+
+  if (caller === "plugin" && (body.dryRun === true || body.preview === true))
+    return error("Forbidden", "invalid_token", 403)
 
   const run: ActionRunRequest = {
     inputs: isPlainObject(body.inputs) ? body.inputs : {},

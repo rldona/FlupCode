@@ -11,6 +11,7 @@
  */
 
 import type { Checkpoint } from "./types"
+import { childEnv } from "./child-env"
 
 export type TouchedFiles = {
   taskID?: string
@@ -31,7 +32,7 @@ async function git(directory: string, args: string[]) {
       cwd: directory,
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", NO_COLOR: "1" },
+      env: childEnv({ GIT_TERMINAL_PROMPT: "0", NO_COLOR: "1" }),
     })
     timer = setTimeout(() => child.kill(), TIMEOUT_MS)
     const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited])
