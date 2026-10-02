@@ -187,23 +187,9 @@ export class V2Engine {
     }
   }
 
-  /**
-   * What the last turn answered, and what it cost. 2.x writes one assistant message per step, so the
-   * answer is the last one's text and the cost is every step's since the turn's prompt.
-   */
+  /** What the last turn answered, what it cost, and why it failed if it did (TI-02). */
   async lastAnswer(sessionID: string) {
-    const messages = await this.transcript(sessionID)
-    const start = messages.findLastIndex((message) => message.type === "user") + 1
-    const steps = messages.slice(start).flatMap((message) => (message.type === "assistant" ? [message] : []))
-    const last = steps.at(-1)
-    if (!last) return undefined
-    const text = last.content
-      .flatMap((item) => (item.type === "text" && item.text ? [item.text] : []))
-      .join("\n")
-      .trim()
-    const tokens = steps.reduce((sum, step) => sum + (step.tokens?.input ?? 0) + (step.tokens?.output ?? 0), 0)
-    const cost = steps.reduce((sum, step) => sum + Number(step.cost ?? 0), 0)
-    return { text: text || undefined, tokens: tokens || undefined, cost }
+    return answerOf(await this.transcript(sessionID))
   }
 
   /** Every message, oldest first: 2.x pages newest first. */
@@ -217,6 +203,39 @@ export class V2Engine {
     } while (cursor)
     return pages.reverse()
   }
+}
+
+/**
+ * The last turn of a transcript, oldest first: its answer, its cost, and its failure.
+ *
+ * 2.x writes one assistant message per step, so the answer is the last one's text and the cost is
+ * every step's since the turn's prompt. A turn that ends idle is not a turn that worked: a provider
+ * refusal (a bad key, a rate limit the engine gave up retrying) leaves an assistant step with an
+ * `error` and the turn's `idle` marker says `failed`. That is a failure, and so is a turn in which
+ * the engine never answered at all. Steps that failed and were retried by the engine do not stay in
+ * the transcript, so a recovered turn reads as the success it is.
+ */
+export function answerOf(messages: SessionMessageInfo[]) {
+  const turn = messages.slice(messages.findLastIndex((message) => message.type === "user") + 1)
+  const steps = turn.flatMap((message) => (message.type === "assistant" ? [message] : []))
+  const last = steps.at(-1)
+  const outcome = turn.findLast((message) => message.type === "idle")
+  const text = last?.content
+    .flatMap((item) => (item.type === "text" && item.text ? [item.text] : []))
+    .join("\n")
+    .trim()
+  const tokens = steps.reduce((sum, step) => sum + (step.tokens?.input ?? 0) + (step.tokens?.output ?? 0), 0)
+  const cost = steps.reduce((sum, step) => sum + Number(step.cost ?? 0), 0)
+  const error = last?.error?.message?.trim()
+    ? last.error.message.trim()
+    : !last
+      ? "The engine ended the turn without answering"
+      : outcome?.type === "idle" && outcome.outcome === "failed"
+        ? "The engine reported the turn as failed"
+        : outcome?.type === "idle" && outcome.outcome === "interrupted"
+          ? "The turn was interrupted"
+          : undefined
+  return { text: text || undefined, tokens: tokens || undefined, cost, ...(error ? { error } : {}) }
 }
 
 /** A 1.x rule as a 2.x one: same meaning, 2.x names, and `bash` is `shell`. */

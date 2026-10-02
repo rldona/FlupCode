@@ -11,6 +11,8 @@ export type Reply =
   | { type: "tool"; name: string; input: unknown }
   /** Starts a reply and never finishes it, for a turn a test interrupts. */
   | { type: "hang" }
+  /** Refuses the request the way a provider does, e.g. a 401 for a bad key. */
+  | { type: "error"; status: number; message: string }
 
 export function startModel() {
   const queue: Reply[] = []
@@ -25,6 +27,11 @@ export function startModel() {
       requests.push(body)
       const reply = queue.shift() ?? { type: "text", text: "(no scripted reply)" }
       if (reply.type === "hang") return hang(request.signal)
+      if (reply.type === "error")
+        return Response.json(
+          { error: { message: reply.message, type: "invalid_request_error", code: reply.status } },
+          { status: reply.status },
+        )
       return stream(reply.type === "text" ? [...text(reply.text)] : [...tool(reply.name, reply.input)])
     },
   })
