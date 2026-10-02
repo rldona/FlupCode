@@ -502,6 +502,70 @@ export type UsageReport = {
   slowest: Array<{ taskID: string; runID: string; name: string; ms: number }>
 }
 
+/**
+ * The usage ledger read back (UL-05), as `/harness/usage/summary`, `/sessions/:id` and `/runs/:id`
+ * answer. Mirrors `harness-server/src/usage.ts`.
+ */
+export type UsageDimension =
+  | "run"
+  | "task"
+  | "workflow"
+  | "routine"
+  | "agent"
+  | "model"
+  | "provider"
+  | "directory"
+  | "tag"
+  | "purpose"
+  | "day"
+  | "session"
+
+/** Whose price a figure is: the engine's list price, FlupCode's, the provider's own report; or none. */
+export type CostBasis = "engine-list-price" | "flupcode-priced" | "provider-reported" | "unpriced"
+
+/** How it was paid for: per use, by a subscription (so the figure is notional), on this machine, or not known. */
+export type Billing = "metered" | "subscription" | "local" | "unknown"
+
+export type LedgerTokens = { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number }
+
+/** Money with what it is. Lines with different basis or billing are never added together. */
+export type MoneyLine = { basis: Exclude<CostBasis, "unpriced">; billing: Billing; usd: number; events: number }
+
+/** What a set of ledger rows adds up to; `unpriced` had no price at all and is never $0. */
+export type UsageBucket = {
+  events: number
+  tokens: LedgerTokens
+  money: MoneyLine[]
+  unpriced: { events: number; tokens: LedgerTokens }
+}
+
+/** One group: `key` identifies it (null for rows the dimension does not name); `fields` say what it is. */
+export type UsageGroup = UsageBucket & { key: string | null; fields: Record<string, string | number | null> }
+
+export type UsageSummary = {
+  groupBy: UsageDimension | null
+  total: UsageBucket
+  groups: UsageGroup[]
+  rest?: UsageBucket & { groups: number }
+}
+
+export type UsageSessionReport = {
+  sessionID: string
+  total: UsageBucket
+  own: UsageBucket
+  sessions: Array<UsageBucket & { sessionID: string; parentSessionID: string | null; depth: number }>
+  byAgent: UsageGroup[]
+}
+
+export type UsageRunReport = {
+  runID: string
+  total: UsageBucket
+  byTask: UsageGroup[]
+  byPurpose: UsageGroup[]
+  byAgent: UsageGroup[]
+  byModel: UsageGroup[]
+}
+
 /** Latency percentiles over a set of turns (AH-B02); absent when no turn measured it. */
 export type Percentiles = { p50?: number; p95?: number }
 

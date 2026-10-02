@@ -240,6 +240,40 @@ export class V2Engine {
     return usageOf(session, await this.rootOf(session), await this.transcript(sessionID))
   }
 
+  /**
+   * What the usage ledger needs to know about prices and connections (UL-05), for a folder: each
+   * provider's integration, the host it calls and whether its config carries a key (never the key);
+   * whether each model has a price (`ModelInfo.cost` is empty for a model nobody priced, and lists a
+   * $0 tier for a free one); and how each integration is connected.
+   */
+  async usageCatalog(directory?: string) {
+    const location = directory ? { location: { directory } } : undefined
+    const [providers, models, integrations] = await Promise.all([
+      call(this.client.provider.list(location)),
+      call(this.client.model.list(location)),
+      call(this.client.integration.list()),
+    ])
+    return {
+      providers: providers.data.map((provider) => ({
+        providerID: provider.id,
+        ...(provider.integrationID ? { integrationID: provider.integrationID } : {}),
+        ...(typeof provider.settings?.baseURL === "string" ? { baseURL: provider.settings.baseURL } : {}),
+        configKey: typeof provider.settings?.apiKey === "string" && provider.settings.apiKey.length > 0,
+      })),
+      models: models.data.map((model) => ({
+        providerID: model.providerID,
+        modelID: model.id,
+        priced: model.cost.length > 0,
+      })),
+      integrations: integrations.data.map((integration) => ({
+        integrationID: integration.id,
+        connections: integration.connections.map((connection) =>
+          connection.type === "env" ? ("env" as const) : connection.method,
+        ),
+      })),
+    }
+  }
+
   /** The session a subagent's chain starts from: itself when it has no parent. */
   private async rootOf(session: SessionInfo) {
     let root = session

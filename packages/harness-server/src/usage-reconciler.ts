@@ -1,5 +1,6 @@
 import type { Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
+import type { UsageEvent } from "./usage-ledger"
 
 /**
  * The usage reconciler (UL-03, audit §8.4 "Captura", item 2).
@@ -21,6 +22,8 @@ export function createUsageReconciler(input: {
   engine: Pick<Engine, "sessionsUpdatedSince" | "sessionUsage">
   intervalMs?: number
   log?: (line: string) => void
+  /** Basis and billing as the server can tell them (UL-05), before the rows are stored. */
+  classify?: <T extends UsageEvent>(events: T[]) => Promise<T[]>
 }) {
   const log = input.log ?? ((line: string) => console.log(line))
   // The engine's clock, never this process's: 0 until a pass completes, so the first reads everything.
@@ -45,7 +48,9 @@ export function createUsageReconciler(input: {
       const usage = await input.engine.sessionUsage(session.id)
       // Stopped while the engine answered: the database may be closed already, and the next start reads it.
       if (stopped) break
-      const stored = usage ? input.repository.recordUsage(usage) : { events: 0, tools: 0 }
+      const classified = usage && input.classify ? { ...usage, events: await input.classify(usage.events) } : usage
+      if (stopped) break
+      const stored = classified ? input.repository.recordUsage(classified) : { events: 0, tools: 0 }
       events += stored.events
       tools += stored.tools
       input.repository.markUsageReconciled(session.id, session.updated)
