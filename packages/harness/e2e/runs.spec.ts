@@ -68,7 +68,7 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
         body:
           `id: 1\ndata: ${JSON.stringify({
             type: "task.changed",
-            task: { ...tasks[1], status: "success", finishedAt: now + 9000, tokens: 2400, cost: 0.12 },
+            task: { ...tasks[1], status: "success", finishedAt: now + 9000, tokens: 2400, cost: 0.0043 },
           })}\n\n`,
       })
     }
@@ -90,11 +90,14 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
   // The event moved it: the task shows what it cost, which only the event carried.
   const second = run1.locator(".fc-run-task").nth(1)
   await expect(second.locator(".fc-run-meta")).toContainText("2.4k", { timeout: 15_000 })
-  await expect(second.locator(".fc-run-meta")).toContainText("$0.12")
+  // A small cost reads as what it is, not as $0.00 (TI-05).
+  await expect(second.locator(".fc-run-meta")).toContainText("$0.0043")
 
-  // The run's header adds its tasks up: the report of what it did, where there is room for it.
+  // The run's header adds its tasks up: the report of what it did, where there is room for it. The
+  // same value prints the same string on the header and on the task.
   await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("2/2")
   await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("2.4k")
+  await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("$0.0043")
 
   // And nothing was re-read to learn it.
   expect(listReads).toBeLessThanOrEqual(2)

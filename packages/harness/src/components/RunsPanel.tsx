@@ -4,6 +4,7 @@ import type { ModelInfo } from "../engine-types"
 import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedFiles } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
 import { RunTimeline } from "./RunTimeline"
+import { money } from "../metrics"
 
 type RunsPanelProps = {
   open: boolean
@@ -73,7 +74,6 @@ const marks: Record<TaskStatus, string> = {
 /** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */
 const going = (run: Run) => run.status === "running" || run.status === "awaiting"
 
-const money = (value: number | undefined) => (value === undefined ? undefined : `$${value.toFixed(2)}`)
 const thousands = (value: number | undefined) =>
   value === undefined ? undefined : value >= 1000 ? `${Math.round(value / 100) / 10}k` : String(value)
 
@@ -93,7 +93,7 @@ const totals = (run: Run) => {
   return [
     tasks.length ? `${done}/${tasks.length}` : undefined,
     thousands(tokens || undefined),
-    cost ? `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}` : undefined,
+    cost ? money(cost) : undefined,
   ].filter((value): value is string => !!value)
 }
 
@@ -106,7 +106,7 @@ const facts = (task: Task) => {
     (task.attempt ?? 1) > 1 ? t("attempt {n}", { n: task.attempt! }) : undefined,
     started ? elapsed(started, task.finishedAt) : undefined,
     thousands(task.tokens),
-    money(task.cost),
+    task.cost ? money(task.cost) : undefined,
   ].filter((value): value is string => !!value)
 }
 

@@ -1,3 +1,4 @@
+import { money } from "./metrics"
 import type { Run, Task, TouchedFiles } from "./types"
 
 /**
@@ -110,9 +111,9 @@ export function compareRuns(a: RunSnapshot, b: RunSnapshot): ComparisonRow[] {
     },
     {
       label: "Cost",
-      a: `$${a.cost.toFixed(4)}`,
-      b: `$${b.cost.toFixed(4)}`,
-      delta: signed(b.cost - a.cost, (value) => `$${value.toFixed(4)}`),
+      a: money(a.cost),
+      b: money(b.cost),
+      delta: signed(b.cost - a.cost, money),
     },
     {
       label: "Files changed",

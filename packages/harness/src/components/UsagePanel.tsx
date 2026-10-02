@@ -1,6 +1,6 @@
 import { For, Show, createMemo, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
-import { formatTokens } from "../metrics"
+import { formatTokens, money } from "../metrics"
 import type { Spend, UsageReport } from "../types"
 
 type UsagePanelProps = {
@@ -19,17 +19,6 @@ type UsagePanelProps = {
   onOpenRuns: () => void
   /** Every session's cost (AH-B02), drawn under the runs; it fetches and fails on its own. */
   sessions?: JSX.Element
-}
-
-/**
- * Money, to the cent when it is money and to four places when it is not yet.
- *
- * A run that cost $0.0034 shows as $0.00 at two places, which reads as free. It was not free — it
- * is the number that turns into real money once it happens two hundred times.
- */
-export function money(value: number) {
-  if (value === 0) return "$0"
-  return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
 }
 
 /** A duration a person reads, not a number of milliseconds. */

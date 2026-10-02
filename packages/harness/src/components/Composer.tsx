@@ -48,6 +48,7 @@ type ComposerProps = {
     used: number
     limit: number
     cost?: number
+    costEstimated?: boolean
     tokens?: { input: number; output: number; reasoning: number }
     estimated?: boolean
     compaction?: { at: number; count: number }
@@ -623,6 +624,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
                 used={props.usage.used}
                 limit={props.usage.limit}
                 cost={props.usage.cost}
+                costEstimated={props.usage.costEstimated}
                 tokens={props.usage.tokens}
                 estimated={props.usage.estimated}
                 compaction={props.usage.compaction}

@@ -163,3 +163,25 @@ test("what OpenCode 2 removed is not offered", async ({ page, request }) => {
   await expect(menu.getByRole("menuitem", { name: /Fork|Bifurcar/ })).toBeVisible()
   await expect(menu.getByRole("menuitem", { name: /Share|Compartir|Stop sharing|Dejar de compartir/ })).toHaveCount(0)
 })
+
+// TI-05: the meter's "Spent" is the engine's session cost. The session's cost already holds every
+// step the engine priced (and the title it asked the model for), so adding the steps again doubled it.
+test("the context meter spends what the engine says the session cost", async ({ page, request }) => {
+  await script(request, { type: "text", text: "First answer" }, { type: "text", text: "Second answer" })
+  const sessionID = await openSession(page, request, { mode: "auto" })
+
+  await send(page, "One")
+  await expect(page.locator(".fc-message-assistant").filter({ hasText: "First answer" })).toBeVisible()
+  await expect(page.locator(".fc-message-pending")).toHaveCount(0)
+  await send(page, "Two")
+  await expect(page.locator(".fc-message-assistant").filter({ hasText: "Second answer" })).toBeVisible()
+  await expect(page.locator(".fc-message-pending")).toHaveCount(0)
+
+  const session = (await (await request.get(`${ENGINE}/api/session/${sessionID}`)).json()) as {
+    data: { cost: number }
+  }
+  expect(session.data.cost).toBeGreaterThan(0)
+  await page.locator(".fc-context-button").click()
+  const spent = page.locator(".fc-context-row").filter({ hasText: /Spent|Gastado/ })
+  await expect(spent).toContainText(`$${session.data.cost.toFixed(2)}`)
+})
