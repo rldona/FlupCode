@@ -8,7 +8,9 @@ import type { ActionCredentialResolver } from "./action-credentials"
 import { runActionGuards } from "./action-guards"
 import { MAX_STEP_TIMEOUT_MS, substituteActionTemplate, validateActionProfile } from "./actions"
 import type { ActionInputKind, ActionProfile } from "./actions"
+import { createActionApprover } from "./action-approval"
 import { ActionRunError, createActionRunner, toActionErrorBody } from "./action-runner"
+import type { ActionCatalogProfile, ActionRunRequest } from "./action-runner"
 import { createHarnessHandler } from "./api"
 import { createBrowserRuntime } from "./browser"
 import type { BrowserRuntime, BrowserStartInput } from "./browser"
@@ -1568,7 +1570,8 @@ describe("the action HTTP routes", () => {
       response = await handler(
         new Request(
           "http://x/harness/actions/run",
-          authed({ method: "POST", body: JSON.stringify({ action: "good", sessionID: "s1", project: "proj" }) }),
+          // A dry run needs no approval, so the crash is the runner's own.
+          authed({ method: "POST", body: JSON.stringify({ action: "good", sessionID: "s1", project: "proj", dryRun: true }) }),
         ),
       )
     } finally {
@@ -1616,5 +1619,116 @@ describe("the action HTTP routes", () => {
     )
     expect(broken.status).toBe(422)
     expect((await broken.json()).code).toBe("unsupported_kind")
+  })
+})
+
+describe("a run needs the server's own approval (TI-09)", () => {
+  const repositories: SqliteRoutineRepository[] = []
+  afterEach(() => {
+    for (const repository of repositories.splice(0)) repository.close()
+  })
+
+  const profile = {
+    id: "post",
+    tool: "flupcode_post",
+    description: "Post a message",
+    kind: "browser",
+    origin: "https://example.com",
+    inputs: { text: "string" },
+    steps: [{ goto: "/" }, { fill: "#message", value: "{{text}}" }, { click: "#send" }],
+    guards: [],
+    sensitive: true,
+    availability: "host",
+    evidence: "failure",
+    scope: "global",
+  } as unknown as ActionCatalogProfile
+
+  // A runner that records what it was asked to run, and an approver whose reader answers in turn.
+  const subject = (answers: Array<"once" | "always" | "deny">) => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    repositories.push(repository)
+    const runs: ActionRunRequest[] = []
+    const actions = {
+      list: () => ({ profiles: [profile], rejected: [] }),
+      run: async (request: ActionRunRequest) => {
+        runs.push(request)
+        return { action: request.action ?? "draft", status: request.dryRun ? "dry-run" : "ok" }
+      },
+    }
+    const handler = createHarnessHandler(repository, new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" }), {
+      token: ACTION_TOKEN,
+      actions: actions as never,
+      actionApprover: createActionApprover({
+        actions,
+        ask: async () => answers.shift(),
+        file: join(mkdtempSync(join(tmpdir(), "fc-approval-")), "approvals.json"),
+      }),
+    })
+    const post = (path: string, body: unknown) =>
+      handler(
+        new Request(`http://x/harness/actions/${path}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${ACTION_TOKEN}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      )
+    const approve = async (body: Record<string, unknown>) => (await (await post("approve", body)).json()).data
+    return { runs, post, approve }
+  }
+
+  const run = { action: "post", sessionID: "ses_1", project: "/work/demo", inputs: { text: "hello" } }
+
+  test("a run without an approval id is refused and nothing runs", async () => {
+    const { runs, post } = subject([])
+    const response = await post("run", run)
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe("approval_required")
+    expect(runs).toEqual([])
+  })
+
+  test("an approval runs once: the plugin path works, a replay is refused", async () => {
+    const { runs, post, approve } = subject(["once"])
+    const verdict = await approve({ action: "post", sessionID: "ses_1", project: "/work/demo", inputs: { text: "hello" } })
+    expect(verdict.approved).toBe(true)
+    expect(typeof verdict.approval).toBe("string")
+    expect((await post("run", { ...run, approval: verdict.approval })).status).toBe(200)
+    expect(runs.map((entry) => entry.action)).toEqual(["post"])
+    const replay = await post("run", { ...run, approval: verdict.approval })
+    expect(replay.status).toBe(403)
+    expect((await replay.json()).code).toBe("approval_required")
+    expect(runs).toHaveLength(1)
+  })
+
+  test("an approval is bound to the action, the session, the project and the inputs it was given for", async () => {
+    const { runs, post, approve } = subject(["always"])
+    const grant = async () =>
+      (await approve({ action: "post", sessionID: "ses_1", project: "/work/demo", inputs: { text: "hello" } })).approval
+    for (const changed of [
+      { inputs: { text: "something else" } },
+      { sessionID: "ses_2" },
+      { project: "/work/other" },
+      { action: "other" },
+    ]) {
+      const response = await post("run", { ...run, ...changed, approval: await grant() })
+      expect([changed, response.status]).toEqual([changed, 403])
+    }
+    expect(runs).toEqual([])
+    expect((await post("run", { ...run, approval: "made-up" })).status).toBe(403)
+  })
+
+  test("a denied approval carries no id", async () => {
+    const { approve } = subject(["deny"])
+    const verdict = await approve({ action: "post", sessionID: "ses_1", project: "/work/demo", inputs: { text: "hello" } })
+    expect(verdict).toEqual({ approved: false, reason: "denied" })
+  })
+
+  test("the editor's dry run and preview change nothing and need no approval", async () => {
+    const { runs, post } = subject([])
+    expect((await post("run", { ...run, dryRun: true })).status).toBe(200)
+    expect((await post("run", { ...run, preview: true })).status).toBe(200)
+    expect(runs.map((entry) => [entry.dryRun ?? false, entry.preview ?? false])).toEqual([
+      [true, false],
+      [false, true],
+    ])
   })
 })

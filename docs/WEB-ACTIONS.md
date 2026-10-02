@@ -124,10 +124,11 @@ remembers at most `origin` or `origin:action`, never everything. Modes that gran
 (including bypass) are documented as including the browser; a whole-engine kill switch disables every
 browser tool regardless of mode.
 
-> **Where approval is enforced today.** The plugin asks before it calls the harness server's run
-> route, and the server does not yet refuse a run that skipped the question: anything holding the
-> harness token could start one directly. Moving that decision into the server is AUDIT-2026-10
-> TI-09.
+The harness server owns that decision. A yes is a single-use approval id, bound to the action, the
+session, the project and the inputs it was asked for, and the run route refuses a run without one
+(`403 approval_required`): a used, unknown or mismatched id runs nothing. The editor's dry run plans
+without a browser and its preview stops before the first step with an effect, so neither asks. There
+is no route to navigate, click, type, submit or read a page outside an action.
 
 A **scheduled** action is never asked: there is nobody to answer it. Its approval is written
 down on the routine as an `allow` list and checked when the routine is saved and again before the
