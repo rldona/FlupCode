@@ -1195,10 +1195,26 @@ describe("a run's model policy (H-30)", () => {
     const repository = open()
     const directory = mkdtempSync(join(tmpdir(), "flupcode-budget-"))
     scratch.push(directory)
+    // What the turn spent reaches the ledger, as the plugin reports it (UL-08): the budget reads that.
     const engine = {
       createSession: async () => ({ id: "ses_one" }),
       prompt: async () => undefined,
-      waitForIdle: async () => undefined,
+      waitForIdle: async () =>
+        void repository.recordUsage({
+          events: [
+            {
+              id: `ses_one:step:${crypto.randomUUID()}`,
+              kind: "step",
+              sessionID: "ses_one",
+              tokens: { input: 80, output: 20, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+              costUSD: 0.5,
+              costBasis: "engine-list-price",
+              billing: "metered",
+              endedAt: Date.now(),
+            },
+          ],
+          tools: [],
+        }),
       lastAnswer: async () => ({ text: "done", tokens: 100, cost: 0.5 }),
     } as never
     const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })

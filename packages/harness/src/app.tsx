@@ -9,6 +9,7 @@ import { createReconciledList } from "./reconciled"
 import { compareFromSearch, decisionFromSearch, screenFromPath, searchForCompare, searchForDecision, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
+import { budgetNotice } from "./components/BudgetMeter"
 import { AgentsPanel } from "./components/AgentsPanel"
 import { SkillCatalogue } from "./components/SkillCatalogue"
 import { FilesPanel } from "./components/FilesPanel"
@@ -1630,7 +1631,7 @@ export const App: Component = () => {
     return byTask
   })
   // What each run spent, from the usage ledger (UL-06): the card's figure is the Cost screen's.
-  const [runUsage] = createResource(runsDetailKey, async (key) => {
+  const [runUsage, { refetch: refetchRunUsage }] = createResource(runsDetailKey, async (key) => {
     const [url = ""] = key.split("\n")
     const client = createHarnessClient(url)
     const ids = runIDsOf(key)
@@ -3826,6 +3827,11 @@ export const App: Component = () => {
       if (event.type === "routine.failing" && typeof event.name === "string") {
         return toast(t("{name} failed {count} times in a row", { name: event.name, count: Number(event.failedInARow) }), "error")
       }
+      // A budget's warning or its stop (UL-08), said once by the server; the card's meter is read again.
+      if (event.type === "budget.reached" && typeof event.name === "string") {
+        void refetchRunUsage()
+        return toast(budgetNotice(event), (event as Record<string, unknown>).level === "hard" ? "error" : "info")
+      }
       if (event.type === "routine.removed" && typeof event.routineID === "string") {
         const removed = event.routineID
         return setRoutineState(routines().filter((entry) => entry.id !== removed))
@@ -5584,6 +5590,7 @@ export const App: Component = () => {
             onRetryRefusal={() => void refreshRoutines()}
             runs={runs()}
             routineName={(id) => routines().find((routine) => routine.id === id)?.name}
+            routines={routines()}
             sessionTitle={(id) => sessionList()?.find((session) => session.id === id)?.title}
             onOpenRuns={() => showScreen("runs")}
             onOpenSession={selectSession}

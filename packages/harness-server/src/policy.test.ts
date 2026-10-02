@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { budgetReason, fallbackModel, modelForTask, parseModelKey } from "./policy"
+import { fallbackModel, modelForTask, parseModelKey } from "./policy"
 
 describe("reading a model key", () => {
   test("provider/model is the two ids the engine wants", () => {
@@ -54,18 +54,5 @@ describe("the model a retry falls back to", () => {
     const current = { providerID: "a", id: "one" }
     expect(fallbackModel(undefined, current)).toEqual(current)
     expect(fallbackModel({}, current)).toEqual(current)
-  })
-})
-
-describe("the budget", () => {
-  test("says why when tokens or cost are reached", () => {
-    expect(budgetReason({ budget: { tokens: 100 } }, { tokens: 100, cost: 0 })).toMatch(/token budget/)
-    expect(budgetReason({ budget: { cost: 2 } }, { tokens: 0, cost: 2 })).toMatch(/cost budget/)
-  })
-
-  test("under the budget, or no budget, is nothing to say", () => {
-    expect(budgetReason({ budget: { tokens: 100 } }, { tokens: 99, cost: 0 })).toBeUndefined()
-    expect(budgetReason(undefined, { tokens: 1e9, cost: 1e9 })).toBeUndefined()
-    expect(budgetReason({}, { tokens: 1e9, cost: 1e9 })).toBeUndefined()
   })
 })

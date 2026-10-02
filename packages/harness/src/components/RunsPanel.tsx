@@ -6,6 +6,7 @@ import { RunTaskDetail } from "./RunTaskDetail"
 import { RunGraph, elapsed } from "./RunGraph"
 import { StateBadge } from "./StateBadge"
 import { CostFigure } from "./CostFigure"
+import { BudgetMeter } from "./BudgetMeter"
 import { purposeName } from "../cost"
 import { AttentionMark } from "./AttentionMark"
 import type { Attention } from "../attention"
@@ -144,9 +145,8 @@ const ALL_RUNNING = "*running"
  * and what it cost, once each; its tasks on the workflow's graph in their live state, each opening
  * its detail; and a footer with what it left behind — checkpoints, files and artifacts.
  *
- * It shows what the server actually knows. The audit's sketch also has files touched, tool counts and
- * a budget bar; none of those exist yet, and drawing them empty would say the harness knows something
- * it does not.
+ * It shows what the server actually knows: a budget bar only for a budget the server enforces on the
+ * ledger (UL-08), never an empty one.
  */
 export const RunsPanel: Component<RunsPanelProps> = (props) => {
   const title = (run: Run) =>
@@ -529,6 +529,8 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     selected={selectedTask()}
                     onSelect={setSelectedTask}
                   />
+                  {/* The budgets it answers to, as the ledger measures them (UL-08). */}
+                  <BudgetMeter standings={props.usage?.[run.id]?.budgets} />
                   {/* What the run spent beyond its tasks (§8.4): handoffs and other purposes apart. */}
                   <Show when={(props.usage?.[run.id]?.byPurpose ?? []).some((group) => group.key !== "run-task")}>
                     <p class="fc-run-cost-breakdown">

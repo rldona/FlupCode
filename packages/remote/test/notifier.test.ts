@@ -125,6 +125,32 @@ describe("watchHarnessEvents", () => {
       { kind: "failed", sessionID: "ses_root", session: "Nightly audit", detail: "failed 3 times in a row" },
     ])
   })
+
+  // UL-08: a budget's warning and its limit, each raised once by the harness, open the session whose
+  // step crossed it.
+  test("a budget's warning and its limit are reported, with what was spent of it", async () => {
+    const seen: Seen[] = []
+    const budget = { type: "budget.reached", scope: "run", name: "review", unit: "usd", limit: 1, runID: "run_1" }
+    const watcher = watchHarnessEvents({
+      harness: "http://h",
+      fetch: harness([
+        { ...budget, level: "soft", spent: 0.8, sessionID: "ses_task" },
+        { ...budget, level: "hard", spent: 1.05, sessionID: "ses_task" },
+        { ...budget, scope: "day", name: "today", unit: "tokens", limit: 5000, level: "hard", spent: 5200, sessionID: "ses_chat" },
+        // Nowhere to open: nothing to push.
+        { ...budget, level: "hard", spent: 2 },
+      ]),
+      onNotification: (notification) => seen.push(notification),
+    })
+    await Bun.sleep(30)
+    watcher.stop()
+
+    expect(seen).toEqual([
+      { kind: "budget-warning", sessionID: "ses_task", session: "review", detail: "$0.80 of $1.00" },
+      { kind: "budget", sessionID: "ses_task", session: "review", detail: "$1.05 of $1.00" },
+      { kind: "budget", sessionID: "ses_chat", session: "today", detail: "5200 tokens of 5000 tokens" },
+    ])
+  })
 })
 
 /** A fake engine: one session to name, and one event stream that ends as soon as it is read. */

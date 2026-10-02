@@ -244,6 +244,33 @@ test("the same run costs the same on its card, in the Center and in its session"
   await expect(page.locator(".fc-context-agent").filter({ hasText: "explore" })).toContainText("~$0.05")
 })
 
+// UL-08: a run's budget is a labelled meter of what the ledger says it spent, and a standing budget
+// is set on the Cost screen and drawn the same way.
+test("a run's budget is a meter on its card, and a day's budget is set on the Cost screen", async ({ page }) => {
+  await open(page, "/runs")
+  const meter = page.locator(".fc-run-card").filter({ hasText: "review" }).locator(".fc-budget-meter")
+  await expect(meter).toHaveAttribute("data-level", "hard")
+  await expect(meter.locator(".fc-budget-meter-label")).toHaveText("Budget (cost)")
+  await expect(meter.locator(".fc-budget-meter-figure")).toHaveText("~$0.08 of $0.05")
+  // The handoff on a local model had no price: the cost figure says it left it out.
+  await expect(meter.locator(".fc-budget-meter-note")).toHaveText("1 unpriced model calls not counted")
+  await expect(meter.getByRole("meter")).toHaveAttribute("aria-valuetext", "~$0.08 of $0.05")
+
+  await page.goto("/usage")
+  const block = page.locator(".fc-usage-block").filter({ has: page.locator("#fc-usage-budgets") })
+  await block.locator(".fc-budget-form label", { hasText: "Limit" }).locator("input").fill("1")
+  await block.getByRole("button", { name: "Add" }).click()
+  const today = block.locator(".fc-budget-row .fc-budget-meter")
+  await expect(today.locator(".fc-budget-meter-label")).toHaveText("Today's budget (cost)")
+  // Today's spend, from the same ledger as the screen: a $0.02 compaction, and two local calls with
+  // no price that a cost budget cannot count, said beside it.
+  await expect(today.locator(".fc-budget-meter-figure")).toHaveText("~$0.02 of $1.00")
+  await expect(today.locator(".fc-budget-meter-note")).toHaveText("2 unpriced model calls not counted")
+  await expect(today).toHaveAttribute("data-level", "under")
+  await block.getByRole("button", { name: "Remove" }).click()
+  await expect(block.locator(".fc-budget-row")).toHaveCount(0)
+})
+
 test("a session the ledger has not heard of shows a dash, not $0", async ({ page }) => {
   await open(page, "/", "ses_unmeasured")
   await page.locator(".fc-context-button").click()

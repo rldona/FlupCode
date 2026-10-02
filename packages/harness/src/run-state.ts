@@ -46,5 +46,12 @@ export function runState(run: Pick<Run, "status" | "paused" | "verdict">): RunSt
   return run.verdict?.value ?? "succeeded"
 }
 
-/** What the run's one word rests on, for its tooltip: the verdict's reason, or the run's error. */
-export const runReason = (run: Run) => (runState(run) === run.verdict?.value ? run.verdict.reason : run.error)
+/**
+ * What the run's one word rests on, for its tooltip: the budget it waits at (UL-08), the verdict's
+ * reason, or the run's error.
+ */
+export function runReason(run: Run) {
+  const state = runState(run)
+  if (state === "budget") return run.overBudget
+  return state === run.verdict?.value ? run.verdict.reason : run.error
+}

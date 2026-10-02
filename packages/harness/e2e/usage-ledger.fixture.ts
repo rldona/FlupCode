@@ -13,7 +13,8 @@ import type { LedgerEvent } from "../../harness-server/src/usage-ledger"
  * The ledger, relative to now (a day is a local day):
  * - run "feature" (one task, session `ses_task_a` with a subagent): $0.30 pay-per-use and $0.05 of
  *   its subagent, plus $0.12 on a Copilot subscription — yesterday;
- * - run "review" (task `ses_task_b`, $0.08) with a handoff on a local model nobody priced — 3 days ago;
+ * - run "review" (task `ses_task_b`, $0.08, over its $0.05 budget) with a handoff on a local model
+ *   nobody priced — 3 days ago;
  * - a chat in another project, $0.50, then two unpriced local calls and a $0.02 compaction today;
  * - an old chat, $1.00, 20 days ago (inside 30 days, outside 7).
  */
@@ -37,6 +38,8 @@ repository.finishRun(feature.id, "success", undefined, daysAgo(1) + 60_000)
 
 const review = repository.startRun({ type: "manual" }, daysAgo(3), "/work/flupcode", {
   workflow: { name: "review", scope: "project", hash: "sha256-review", inputs: {} },
+  // A budget it went past (UL-08): the card draws it as a meter at its limit.
+  policy: { budget: { cost: 0.05, softPct: 50 } },
 })
 const [check] = repository.addTasks(review.id, [{ name: "check", prompt: "p", agent: "plan" }])
 repository.startTask(check!.id, daysAgo(3))

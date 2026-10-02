@@ -22,15 +22,18 @@ type WorkflowLaunchDialogProps = {
   onClose: () => void
 }
 
-const policyFrom = (fallback: string, tokens: string, cost: string): RunPolicy | undefined => {
+const policyFrom = (fallback: string, tokens: string, cost: string, softPct: string): RunPolicy | undefined => {
   const budget: { tokens?: number; cost?: number } = {}
   const parsedTokens = Number(tokens.replace(/[\s,_]/g, ""))
   if (tokens.trim() && Number.isFinite(parsedTokens) && parsedTokens > 0) budget.tokens = Math.floor(parsedTokens)
   const parsedCost = Number(cost.replace(/[\s,_]/g, ""))
   if (cost.trim() && Number.isFinite(parsedCost) && parsedCost > 0) budget.cost = parsedCost
+  // A warning share belongs to a budget (UL-08): with no limit there is nothing to warn about.
+  const share = Number(softPct.trim())
+  const warn = Object.keys(budget).length > 0 && softPct.trim() && share > 0 && share < 100 ? { softPct: share } : {}
   const policy: RunPolicy = {
     ...(fallback.trim() ? { fallback: fallback.trim() } : {}),
-    ...(Object.keys(budget).length > 0 ? { budget } : {}),
+    ...(Object.keys(budget).length > 0 ? { budget: { ...budget, ...warn } } : {}),
   }
   return Object.keys(policy).length > 0 ? policy : undefined
 }
@@ -50,6 +53,7 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
   const [fallback, setFallback] = createSignal("")
   const [budgetTokens, setBudgetTokens] = createSignal("")
   const [budgetCost, setBudgetCost] = createSignal("")
+  const [budgetWarn, setBudgetWarn] = createSignal("")
 
   createEffect(
     on(
@@ -73,6 +77,7 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
         setFallback("")
         setBudgetTokens("")
         setBudgetCost("")
+        setBudgetWarn("")
       },
     ),
   )
@@ -85,7 +90,7 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
       inputs: Object.fromEntries(Object.entries(inputs()).map(([name, value]) => [name, value.trim()])),
       packs: packs(),
       worktrees: worktrees(),
-      policy: policyFrom(fallback(), budgetTokens(), budgetCost()),
+      policy: policyFrom(fallback(), budgetTokens(), budgetCost(), budgetWarn()),
       ...(until().trim() ? { until: until().trim() } : {}),
     })
   }
@@ -192,6 +197,17 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
                 inputMode="decimal"
                 value={budgetCost()}
                 onInput={(event) => setBudgetCost(event.currentTarget.value)}
+              />
+            </label>
+            <label class="fc-field">
+              <span>{t("Warn at (%)")}</span>
+              <input
+                class="fc-question-custom"
+                inputMode="numeric"
+                placeholder="80"
+                title={t("Warn once when a run has spent this share of its budget")}
+                value={budgetWarn()}
+                onInput={(event) => setBudgetWarn(event.currentTarget.value)}
               />
             </label>
           </div>

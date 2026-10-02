@@ -98,12 +98,16 @@ const WORDS = {
     question: "Has a question",
     finished: "Finished",
     failed: "Stopped with an error",
+    "budget-warning": "Near its budget",
+    budget: "Reached its budget",
   },
   es: {
     permission: "Necesita tu permiso",
     question: "Tiene una pregunta",
     finished: "Ha terminado",
     failed: "Se ha detenido con un error",
+    "budget-warning": "Cerca de su presupuesto",
+    budget: "Ha llegado a su presupuesto",
   },
 }
 
@@ -123,7 +127,7 @@ self.addEventListener("push", (event) => {
   if (!data || typeof data.kind !== "string" || typeof data.sessionID !== "string") return
   const text = words()[data.kind] || data.kind
   const url = `/?session=${encodeURIComponent(data.sessionID)}&host=${encodeURIComponent(data.host || "")}`
-  const urgent = data.kind === "permission" || data.kind === "question"
+  const urgent = data.kind === "permission" || data.kind === "question" || data.kind === "budget"
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
       // Someone is looking at the app: the in-app state already shows it.

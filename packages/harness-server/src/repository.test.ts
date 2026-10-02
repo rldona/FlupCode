@@ -315,6 +315,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 11, name: "artifact-versions", backup: join(dirname(path), backup!) },
       { version: 12, name: "project-settings", backup: join(dirname(path), backup!) },
       { version: 13, name: "routine-reliability", backup: join(dirname(path), backup!) },
+      { version: 14, name: "budget-policy", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -329,7 +330,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -351,6 +352,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 11, backup: null },
       { version: 12, backup: null },
       { version: 13, backup: null },
+      { version: 14, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -358,7 +360,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }])
     repository.close()
   })
 
@@ -1841,6 +1843,41 @@ describe("the routine-reliability migration (RP-07)", () => {
     expect(repository.get(routine.id)).toMatchObject({ missed: "skip", retry: { count: 2, backoffMinutes: 10 } })
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM routines").get() as { count: number }).count).toBe(1)
+    copy.close()
+    repository.close()
+  })
+})
+
+describe("the budget-policy migration (UL-08)", () => {
+  test("a populated database is backed up, its runs keep their budgets, and it can hold standing ones", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo", { policy: { budget: { cost: 2, tokens: 500 } } })
+    before.addTasks(run.id, [{ name: "one", prompt: "Do it" }])
+    before.db.exec(`
+      DELETE FROM schema_version WHERE version >= 14;
+      DROP TABLE budget;
+      DROP TABLE budget_alert;
+    `)
+    const latest = (before.db.query("SELECT MAX(version) AS version FROM schema_version").get() as { version: number }).version
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(new RegExp(`^harness\\.sqlite\\.bak-v${latest}-`))
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 14").all()).toEqual([
+      { version: 14, name: "budget-policy" },
+    ])
+    expect(repository.getRun(run.id)).toMatchObject({ policy: { budget: { cost: 2, tokens: 500 } } })
+    expect(repository.listTasks(run.id)).toHaveLength(1)
+    expect(repository.listBudgets()).toEqual([])
+    const saved = repository.saveBudget({ scope: "day", unit: "usd", limit: 5, softPct: 80 })
+    expect(repository.listBudgets()).toEqual([saved])
+    // One per scope, target and unit: saving it again changes its limit, not the number of budgets.
+    expect(repository.saveBudget({ scope: "day", unit: "usd", limit: 7 })).toMatchObject({ id: saved.id, limit: 7 })
+    expect(repository.listBudgets()).toHaveLength(1)
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM runs").get() as { count: number }).count).toBe(1)
     copy.close()
     repository.close()
   })

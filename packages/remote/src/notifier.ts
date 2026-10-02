@@ -218,6 +218,20 @@ export function watchHarnessEvents(input: {
       })
       return
     }
+    // A budget's warning or its limit (UL-08), raised once each by the harness at the step that
+    // crossed it. It opens the session whose step that was.
+    if (event.type === "budget.reached") {
+      if (typeof event.sessionID !== "string" || typeof event.limit !== "number" || typeof event.spent !== "number") return
+      const usd = event.unit === "usd"
+      const amount = (value: number) => (usd ? `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}` : `${Math.round(value)} tokens`)
+      input.onNotification({
+        kind: event.level === "hard" ? "budget" : "budget-warning",
+        sessionID: event.sessionID,
+        session: typeof event.name === "string" && event.name ? event.name : "Budget",
+        detail: `${amount(event.spent)} of ${amount(event.limit)}`,
+      })
+      return
+    }
     if (event.type !== "run.changed") return
     const run = event.run as
       | { id?: unknown; status?: unknown; sessionID?: unknown; source?: { type?: unknown; routineID?: unknown } }

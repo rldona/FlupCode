@@ -62,7 +62,11 @@ export type Artifact = {
 export type RunPolicy = {
   models?: Record<string, string>
   fallback?: string
-  budget?: { tokens?: number; cost?: number }
+  /**
+   * Stop and ask past these (UL-08): `cost` in USD, `tokens` as input, output and reasoning (no
+   * cache). `softPct` warns once at that share of the limit.
+   */
+  budget?: { tokens?: number; cost?: number; softPct?: number }
   /** What a task does when it needs a person mid-turn (RP-05); absent, the project's default. */
   unattended?: Unattended
 }
@@ -245,6 +249,8 @@ export type Run = {
   paused?: "gate" | "budget" | "request"
   /** Somebody let it past the budget. */
   budgetApproved?: boolean
+  /** Which budget a run waiting at the budget gate reached (UL-08). */
+  overBudget?: string
   /** The approval a scheduled web action ran under (WA-7). */
   allow?: BrowserAllowRule[]
   /** Present when the run was asked for by id; the list leaves them out. */
@@ -644,7 +650,43 @@ export type UsageRunReport = {
   byPurpose: UsageGroup[]
   byAgent: UsageGroup[]
   byModel: UsageGroup[]
+  /** The budgets it answers to and where each stands on the ledger (UL-08). */
+  budgets?: BudgetStanding[]
 }
+
+/** A budget's scope (UL-08): one run (its policy), or a day of spend overall, by workflow or by routine. */
+export type BudgetScope = "run" | "day" | "workflow" | "routine"
+
+/** A budget measured on the ledger: `spent` in its unit; `unpriced` steps a cost figure cannot count. */
+export type BudgetStanding = {
+  scope: BudgetScope
+  name: string
+  budgetID?: string
+  unit: "usd" | "tokens"
+  limit: number
+  softPct?: number
+  spent: number
+  unpriced: number
+  level?: "soft" | "hard"
+  reason: string
+}
+
+/** A standing budget over a day (UL-08), as saved, with today's standing. */
+export type Budget = {
+  id: string
+  scope: Exclude<BudgetScope, "run">
+  target?: string
+  unit: "usd" | "tokens"
+  limit: number
+  softPct?: number
+  createdAt: number
+  name: string
+  spent: number
+  unpriced: number
+  level?: "soft" | "hard"
+}
+
+export type BudgetInput = Pick<Budget, "scope" | "target" | "unit" | "limit" | "softPct">
 
 export type MetricTokens = { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number }
 

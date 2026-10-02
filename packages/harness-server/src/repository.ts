@@ -41,6 +41,7 @@ import type {
 import type {
   ActionTaskInput,
   BrowserAllowRule,
+  Budget,
   BrowserAuditEntry,
   BrowserGrant,
   Routine,
@@ -1161,7 +1162,7 @@ const decodeOptions = (
   value: string | null,
 ): Pick<
   Run,
-  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow" | "attempt"
+  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt"
 > => {
   if (!value) return {}
   try {
@@ -1174,6 +1175,7 @@ const decodeOptions = (
       policy?: unknown
       paused?: unknown
       budgetApproved?: unknown
+      overBudget?: unknown
       allow?: unknown
       attempt?: unknown
     }
@@ -1193,6 +1195,7 @@ const decodeOptions = (
         ? { paused: parsed.paused }
         : {}),
       ...(parsed.budgetApproved === true ? { budgetApproved: true } : {}),
+      ...(typeof parsed.overBudget === "string" ? { overBudget: parsed.overBudget } : {}),
       ...(allow !== undefined ? { allow } : {}),
       ...(typeof parsed.attempt === "number" && parsed.attempt > 1 ? { attempt: parsed.attempt } : {}),
     }
@@ -1204,7 +1207,7 @@ const decodeOptions = (
 const encodeOptions = (
   run: Pick<
     Run,
-    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow" | "attempt"
+    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt"
   >,
 ) => {
   const options = {
@@ -1217,6 +1220,7 @@ const encodeOptions = (
     ...(run.policy ? { policy: run.policy } : {}),
     ...(run.paused ? { paused: run.paused } : {}),
     ...(run.budgetApproved ? { budgetApproved: true } : {}),
+    ...(run.overBudget ? { overBudget: run.overBudget } : {}),
     ...(run.allow && run.allow.length > 0 ? { allow: run.allow } : {}),
   }
   return Object.keys(options).length > 0 ? JSON.stringify(options) : null
@@ -1597,6 +1601,33 @@ export class SqliteRoutineRepository implements RoutineRepository {
           this.addColumn("routines", "missed", "TEXT")
           this.addColumn("routines", "retry_json", "TEXT")
         },
+      },
+      {
+        // Budgets as policy (UL-08): the standing ones over a day of spend, and the notices already
+        // raised, so a threshold is said once however many steps land past it. New tables: a run's
+        // own budget stays in its policy, where runs from before already keep it.
+        version: 14,
+        name: "budget-policy",
+        rewrites: true,
+        up: () =>
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS budget (
+              id TEXT PRIMARY KEY,
+              scope_kind TEXT NOT NULL,
+              scope_id TEXT NOT NULL DEFAULT '',
+              unit TEXT NOT NULL,
+              limit_value REAL NOT NULL,
+              soft_pct REAL,
+              created_at INTEGER NOT NULL,
+              UNIQUE (scope_kind, scope_id, unit)
+            );
+            CREATE TABLE IF NOT EXISTS budget_alert (
+              key TEXT NOT NULL,
+              level TEXT NOT NULL,
+              at INTEGER NOT NULL,
+              PRIMARY KEY (key, level)
+            );
+          `),
       },
     ]
   }
@@ -2201,9 +2232,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return true
   }
 
-  /** Why a run is waiting: a person at a gate, or a budget it reached (H-30). */
-  setPaused(runID: string, paused: "gate" | "budget") {
-    this.patchOptions(runID, { paused })
+  /** Why a run is waiting: a person at a gate, or a budget it reached (H-30), and which one (UL-08). */
+  setPaused(runID: string, paused: "gate" | "budget", overBudget?: string) {
+    this.patchOptions(runID, { paused, overBudget })
   }
 
   /**
@@ -2226,10 +2257,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   /** Somebody said to carry on past the budget (H-30), so it is not checked again. */
   approveBudget(runID: string) {
-    this.patchOptions(runID, { budgetApproved: true, paused: undefined })
+    this.patchOptions(runID, { budgetApproved: true, paused: undefined, overBudget: undefined })
   }
 
-  private patchOptions(runID: string, patch: Pick<Run, "paused" | "budgetApproved">) {
+  private patchOptions(runID: string, patch: Partial<Pick<Run, "paused" | "budgetApproved" | "overBudget">>) {
     const run = this.getRun(runID)
     if (!run) return
     this.db.query("UPDATE runs SET options = ?1 WHERE id = ?2").run(encodeOptions({ ...run, ...patch }), runID)
@@ -3778,6 +3809,89 @@ export class SqliteRoutineRepository implements RoutineRepository {
     )()
   }
 
+  // ---- budgets (UL-08) --------------------------------------------------------------------------
+
+  /**
+   * What the ledger says was spent, for a budget: priced money (every basis, the estimate the engine
+   * put on it), tokens as input, output and reasoning (cache is not counted), and how many rows had no
+   * price at all, which a cost budget cannot see. Filtered by run, routine or workflow, and from a
+   * moment on, as `usageTotals` bounds a fact by when it happened.
+   */
+  budgetSpend(input: { runID?: string; routineID?: string; workflowName?: string; from?: number }) {
+    const where = [
+      ...(input.runID !== undefined ? ["run_id = $run"] : []),
+      ...(input.routineID !== undefined ? ["routine_id = $routine"] : []),
+      ...(input.workflowName !== undefined ? ["workflow_name = $workflow"] : []),
+      ...(input.from !== undefined ? ["COALESCE(ended_at, started_at) >= $from"] : []),
+    ]
+    const row = this.db
+      .query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN cost_basis != 'unpriced' AND cost_usd IS NOT NULL THEN cost_usd END), 0) AS usd,
+           COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning), 0) AS tokens,
+           COALESCE(SUM(CASE WHEN cost_basis = 'unpriced' OR cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS unpriced
+         FROM usage_event ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}`,
+      )
+      .get({
+        ...(input.runID !== undefined ? { $run: input.runID } : {}),
+        ...(input.routineID !== undefined ? { $routine: input.routineID } : {}),
+        ...(input.workflowName !== undefined ? { $workflow: input.workflowName } : {}),
+        ...(input.from !== undefined ? { $from: input.from } : {}),
+      }) as { usd: number; tokens: number; unpriced: number }
+    return { usd: Number(row.usd), tokens: Number(row.tokens), unpriced: Number(row.unpriced) }
+  }
+
+  /** Who a session works for, as far as budgets go: its run, routine and workflow (UL-04). */
+  sessionBudgetScope(sessionID: string) {
+    const row = this.db
+      .query("SELECT run_id, routine_id, workflow_name FROM session_attribution WHERE session_id = ?1")
+      .get(sessionID) as { run_id: string | null; routine_id: string | null; workflow_name: string | null } | null
+    return {
+      ...(row?.run_id ? { runID: row.run_id } : {}),
+      ...(row?.routine_id ? { routineID: row.routine_id } : {}),
+      ...(row?.workflow_name ? { workflowName: row.workflow_name } : {}),
+    }
+  }
+
+  listBudgets(): Budget[] {
+    const rows = this.db.query("SELECT * FROM budget ORDER BY created_at, rowid").all() as BudgetRow[]
+    return rows.map((row) => ({
+      id: row.id,
+      scope: row.scope_kind as Budget["scope"],
+      ...(row.scope_id ? { target: row.scope_id } : {}),
+      unit: row.unit as Budget["unit"],
+      limit: row.limit_value,
+      ...(row.soft_pct !== null ? { softPct: row.soft_pct } : {}),
+      createdAt: row.created_at,
+    }))
+  }
+
+  /** A standing budget; one per scope, target and unit, so saving the same one again replaces its limit. */
+  saveBudget(input: Omit<Budget, "id" | "createdAt">, now = Date.now()) {
+    this.db
+      .query(
+        `INSERT INTO budget (id, scope_kind, scope_id, unit, limit_value, soft_pct, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(scope_kind, scope_id, unit) DO UPDATE SET limit_value = excluded.limit_value, soft_pct = excluded.soft_pct`,
+      )
+      .run(crypto.randomUUID(), input.scope, input.target ?? "", input.unit, input.limit, input.softPct ?? null, now)
+    return this.listBudgets().find(
+      (budget) => budget.scope === input.scope && (budget.target ?? "") === (input.target ?? "") && budget.unit === input.unit,
+    )!
+  }
+
+  removeBudget(id: string) {
+    return this.db.query("DELETE FROM budget WHERE id = ?1").run(id).changes > 0
+  }
+
+  /**
+   * Records a budget notice, once: true the first time `key` reaches `level`, false ever after. The
+   * key carries the day for a standing budget, so each day warns afresh.
+   */
+  raiseBudgetAlert(key: string, level: "soft" | "hard", now = Date.now()) {
+    return this.db.query("INSERT OR IGNORE INTO budget_alert (key, level, at) VALUES (?1, ?2, ?3)").run(key, level, now).changes > 0
+  }
+
   /** Whether the run exists or the ledger holds rows for it. */
   knowsRunUsage(runID: string) {
     return (
@@ -4817,6 +4931,16 @@ function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
     endedAt: row.ended_at,
     ...(row.arms_json ? { arms: JSON.parse(row.arms_json) } : {}),
   }
+}
+
+type BudgetRow = {
+  id: string
+  scope_kind: string
+  scope_id: string
+  unit: string
+  limit_value: number
+  soft_pct: number | null
+  created_at: number
 }
 
 type UsageEventRow = {

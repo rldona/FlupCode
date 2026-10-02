@@ -289,18 +289,20 @@ const policyFrom = (value: unknown): RunPolicy | undefined => {
     }
   }
   const rawBudget = input.budget && typeof input.budget === "object" && !Array.isArray(input.budget)
-    ? (input.budget as { tokens?: unknown; cost?: unknown })
+    ? (input.budget as { tokens?: unknown; cost?: unknown; softPct?: unknown })
     : undefined
-  const budget = rawBudget
+  const limits = rawBudget
     ? {
         ...(typeof rawBudget.tokens === "number" && rawBudget.tokens > 0 ? { tokens: Math.floor(rawBudget.tokens) } : {}),
         ...(typeof rawBudget.cost === "number" && rawBudget.cost > 0 ? { cost: rawBudget.cost } : {}),
       }
-    : undefined
+    : {}
+  // A warning share is only a budget's: on its own it warns of nothing (UL-08).
+  const softPct = typeof rawBudget?.softPct === "number" ? softPctOf({ softPct: rawBudget.softPct }) : undefined
   const policy: RunPolicy = {
     ...(Object.keys(models).length > 0 ? { models } : {}),
     ...(typeof input.fallback === "string" && input.fallback.trim() ? { fallback: input.fallback.trim() } : {}),
-    ...(budget && Object.keys(budget).length > 0 ? { budget } : {}),
+    ...(Object.keys(limits).length > 0 ? { budget: { ...limits, ...(softPct !== undefined ? { softPct } : {}) } } : {}),
     ...(input.unattended === "deny" || input.unattended === "gate" ? { unattended: input.unattended } : {}),
   }
   return Object.keys(policy).length > 0 ? policy : undefined
@@ -454,6 +456,7 @@ import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
 import { indexDocument, registerDocuments, type DocumentWrite } from "./documents"
 import { handleUsageRead } from "./usage"
+import { handleBudgetRoutes, softPctOf } from "./budget"
 import { handleUsageIngest, learnSession } from "./usage-ledger"
 import type { createUsagePricing } from "./usage-pricing"
 import { FINDINGS_INSTRUCTION } from "./findings"
@@ -655,6 +658,8 @@ export const createHarnessHandler = (
         repository,
         (sessionID) => scheduler.engine.describeSession(sessionID),
         options.usagePricing?.classify,
+        // A budget is decided at the step that crosses it, on the server (UL-08, P7).
+        (sessionIDs) => scheduler.checkBudgets(sessionIDs),
       )
     }
     // A document the agent just kept with `artifact_write` (RP-03): the engine's plugin reports which
@@ -1537,6 +1542,9 @@ export const createHarnessHandler = (
     // and a run, every figure with its basis. The UI's bearer, never the plugins'.
     const usage = handleUsageRead(request, path, repository)
     if (usage) return usage
+    // Standing budgets (UL-08): today's, a workflow's or a routine's, each with what today spent.
+    const budgets = await handleBudgetRoutes(request, path, repository)
+    if (budgets) return budgets
 
     // What the model was given (H-17): which instruction files a turn in this folder would load.
     // Read from disk by the engine's own rules, because the engine does not report them.

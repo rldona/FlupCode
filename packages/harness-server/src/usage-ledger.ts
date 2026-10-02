@@ -147,6 +147,8 @@ export async function handleUsageIngest(
   repository: UsageRepository,
   describe?: SessionDescriber,
   classify?: <T extends UsageEvent>(events: T[]) => Promise<T[]>,
+  /** The sessions that got new rows, once they are stored: where budgets are decided (UL-08). */
+  onStored?: (sessionIDs: string[]) => void,
 ) {
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return tooLarge()
   const text = await request.text()
@@ -176,6 +178,7 @@ export async function handleUsageIngest(
     events: classify ? await classify(valid) : valid,
     tools: parsedTools.filter((tool): tool is ToolEvent => typeof tool !== "string"),
   })
+  if (stored.events > 0) onStored?.([...new Set(valid.map((event) => event.sessionID))])
   const rejected = [
     ...parsedEvents.flatMap((event, index) =>
       typeof event === "string" ? [{ list: "events", index, error: event }] : [],

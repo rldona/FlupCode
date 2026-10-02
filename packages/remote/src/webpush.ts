@@ -9,7 +9,8 @@ export type PushSubscriptionKeys = { endpoint: string; keys: { p256dh: string; a
 
 /** What the phone shows; its service worker words it in the phone's language. */
 export type PushNotification = {
-  kind: "permission" | "question" | "finished" | "failed"
+  /** `budget-warning` is a budget's warning share reached, `budget` the limit itself (UL-08). */
+  kind: "permission" | "question" | "finished" | "failed" | "budget-warning" | "budget"
   /** Relay host id and name of the computer that sent it. */
   host: string
   hostName: string

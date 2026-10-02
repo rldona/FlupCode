@@ -87,16 +87,20 @@ export type RunSource = { type: "routine"; routineID: string } | { type: "manual
  * How a run spends (H-30).
  *
  * Models are named by role — the agent a task runs as — because that is what a process says about
- * who does what; a task that names its own model still wins. The budget is checked between tasks,
- * and reaching it pauses the run rather than killing it, so a person can say "carry on".
+ * who does what; a task that names its own model still wins. The budget is checked against the usage
+ * ledger at every step (UL-08): crossing it stops the turn in flight and pauses the run, so a person
+ * can say "carry on"; `softPct` warns once on the way.
  */
 export type RunPolicy = {
   /** A model per role, as "provider/model". */
   models?: Record<string, string>
   /** The model a task is retried on after it fails. */
   fallback?: string
-  /** Stop and ask before spending past these. */
-  budget?: { tokens?: number; cost?: number }
+  /**
+   * Stop and ask before spending past these (UL-08): `cost` in USD at the price the ledger has,
+   * `tokens` as input, output and reasoning (cache not counted). `softPct` warns once at that share.
+   */
+  budget?: RunBudget
   /**
    * What a task does when its session waits on a person mid-turn (RP-05): a permission, a question or
    * the plan's hand-off. `deny` fails the task at once with the request as its reason; `gate` holds the
@@ -104,6 +108,24 @@ export type RunPolicy = {
    * the project has none.
    */
   unattended?: Unattended
+}
+
+export type RunBudget = { tokens?: number; cost?: number; softPct?: number }
+
+/**
+ * A standing budget over a day of spend (UL-08): everything (`day`), one workflow by name, or one
+ * routine. A run's own budget is its policy's, not a row here.
+ */
+export type Budget = {
+  id: string
+  scope: "day" | "workflow" | "routine"
+  /** The workflow's name or the routine's id; absent for `day`. */
+  target?: string
+  unit: "usd" | "tokens"
+  limit: number
+  /** Warn once at this share of the limit; absent, no warning before the stop. */
+  softPct?: number
+  createdAt: number
 }
 
 /**
@@ -179,6 +201,8 @@ export type Run = {
   paused?: "gate" | "budget" | "request"
   /** Somebody said to carry on past the budget, so it is not checked again. */
   budgetApproved?: boolean
+  /** Which budget a run paused at said, while it waits there (UL-08). */
+  overBudget?: string
   /**
    * The approval a web action may run under when no model turn is there to ask (WA-7).
    *
@@ -559,6 +583,24 @@ export type ServerEvent =
   | { type: "routine.status"; routineID: string; lastRunAt?: number; nextRunAt?: number; failedInARow: number; failing: boolean }
   /** A routine failed `failedInARow` times in a row: raised once per streak, when it reaches the notice (RP-07). */
   | { type: "routine.failing"; routineID: string; name: string; failedInARow: number; sessionID?: string }
+  /**
+   * A budget was reached (UL-08): `soft` is the warning at its share, `hard` the stop. Raised once per
+   * budget and level (per day for a standing one), whichever step crossed it.
+   */
+  | {
+      type: "budget.reached"
+      level: "soft" | "hard"
+      scope: "run" | Budget["scope"]
+      /** What it is a budget of, in words: the run's title, the workflow, the routine, or "today". */
+      name: string
+      unit: Budget["unit"]
+      limit: number
+      spent: number
+      budgetID?: string
+      runID?: string
+      /** The session whose step crossed it: where a notice opens. */
+      sessionID?: string
+    }
   | { type: "artifact.created"; artifact: Artifact }
   | { type: "artifact.changed"; artifact: Artifact }
   | { type: "checkpoint.added"; checkpoint: Checkpoint }
@@ -688,7 +730,7 @@ export type RunRepository = {
   /** Let it through, and say whether there was anything to let through. */
   resumeRun(runID: string): boolean
   /** Why a run is waiting (H-30). */
-  setPaused(runID: string, paused: "gate" | "budget"): void
+  setPaused(runID: string, paused: "gate" | "budget", overBudget?: string): void
   /** A task's session waits on a person mid-turn (RP-05): the run is `awaiting` while it does. */
   holdForRequest(runID: string): void
   /** Nothing waits any more: back to running, still driven by the same runner (RP-05). */

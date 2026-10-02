@@ -24,6 +24,8 @@ export function createUsageReconciler(input: {
   log?: (line: string) => void
   /** Basis and billing as the server can tell them (UL-05), before the rows are stored. */
   classify?: <T extends UsageEvent>(events: T[]) => Promise<T[]>
+  /** A session that got new rows (UL-08): what the plugin missed still counts against a budget. */
+  onStored?: (sessionID: string) => void
 }) {
   const log = input.log ?? ((line: string) => console.log(line))
   // The engine's clock, never this process's: 0 until a pass completes, so the first reads everything.
@@ -53,6 +55,7 @@ export function createUsageReconciler(input: {
       const stored = classified ? input.repository.recordUsage(classified) : { events: 0, tools: 0 }
       events += stored.events
       tools += stored.tools
+      if (stored.events > 0) input.onStored?.(session.id)
       input.repository.markUsageReconciled(session.id, session.updated)
     }
     if (stopped) return { sessions: 0, events, tools }
