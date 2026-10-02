@@ -3,6 +3,11 @@ import { resolveAdaptiveConfig } from "./config"
 import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
 import type { DecisionRequest } from "./decision"
 import { createEgressGuard } from "./egress"
+import { createDecisionService } from "./decision-service"
+import { createGovernor } from "./providers/governor"
+import { createJevClient, createJevModel } from "./providers/jev"
+import { createAuditor } from "../verdict"
+import { SqliteRoutineRepository } from "../repository"
 
 const CANARY = "canary-secret-value-1234567890"
 
@@ -170,5 +175,69 @@ describe("EgressGuard.redact", () => {
     expect(redacted).not.toContain(CANARY)
     expect(redacted).toContain("[REDACTED]")
     expect(redacted).toContain("command:")
+  })
+})
+
+// PI-03: a project is named by its absolute path on the acting paths (a run's directory), and that
+// path says who the person is and how their disk is laid out. It is the local consent key, so it
+// stays on the request, but what a remote model is sent carries only a digest of it.
+describe("what leaves the machine", () => {
+  const PROJECT = "/Users/someone/work/secret-client"
+
+  test("the auditor's request to a remote model names no absolute path", async () => {
+    const bodies: string[] = []
+    const config = resolveAdaptiveConfig({
+      block: { models: { completion: "jev" }, egress: { providers: { jev: { enabled: true, projects: [PROJECT], kinds: { completion: true } } } } },
+      env: {},
+    })
+    const egress = createEgressGuard({ config: () => config })
+    const client = createJevClient({
+      egress,
+      config: () => config.jev,
+      // The network boundary: the body is what would cross it.
+      fetch: async ({ body }) => {
+        bodies.push(body)
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: async () => ({ answers: { w0: { type: "noul", probability: 0.9 } } }),
+        }
+      },
+    })
+    const repository = new SqliteRoutineRepository(":memory:")
+    const service = createDecisionService({
+      repository,
+      config: () => config,
+      egress,
+      models: [createJevModel({ client })],
+      governor: createGovernor({ config: () => config.governor, store: repository }),
+    })
+    const audit = await createAuditor(service, () => config)({
+      runID: "run_1",
+      taskID: "task_1",
+      objective: "Fix the parser",
+      answer: "Fixed the parser.",
+      projectID: PROJECT,
+    })
+
+    expect(audit.source).toBe("model")
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toContain("Fix the parser")
+    expect(bodies[0]).not.toContain(PROJECT)
+    expect(bodies[0]).not.toContain("/Users/")
+  })
+
+  test("a model input carries a digest of the project, never its path", () => {
+    const guard = createEgressGuard({ config: () => configFor({}) })
+    const prepared = guard.prepare({ ...completionRequest, projectID: PROJECT, state: { ...completionRequest.state, projectID: PROJECT } })
+    expect(prepared.serialized).not.toContain(PROJECT)
+    expect(prepared.state.text).not.toContain(PROJECT)
+    // The digest is stable, so one project still reads as one project to a model.
+    const again = guard.prepare({ ...completionRequest, projectID: PROJECT, state: { ...completionRequest.state, projectID: PROJECT } })
+    expect(again.serialized).toBe(prepared.serialized)
+    expect(guard.prepare(completionRequest).serialized).not.toBe(prepared.serialized)
+    // The consent check still reads the real path, which never leaves.
+    expect(prepared.state.projectID).toBe(PROJECT)
   })
 })
