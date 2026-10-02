@@ -37,6 +37,14 @@ export type Checkpoint = {
 /** A marker, not a copy of the transcript: enough to recognise the point, no more. */
 export const CHECKPOINT_SUMMARY_LIMIT = 2000
 
+/**
+ * How many points of one run the hourly sweep keeps (TI-15), newest first. A run takes one after each
+ * task, and its per-task diff reads this many, so an older one is not reachable from the run anyway.
+ * Points taken by hand and the ones a restore takes belong to no run and are never swept: they are
+ * the reader's own way back. Checkpoints cannot be pinned, so nothing else is exempt.
+ */
+export const CHECKPOINTS_KEPT_PER_RUN = 50
+
 export type RestorePlan = {
   /** Files the restore would write, overwriting whatever is there. */
   write: string[]
@@ -219,6 +227,11 @@ export async function restore(input: {
 /** Forgets one. The commit goes with the ref, once git next collects. */
 export async function drop(directory: string, checkpointID: string) {
   await git(directory, ["update-ref", "-d", REF(checkpointID)])
+}
+
+/** Forgets the refs of checkpoints the index no longer has. A folder that is gone has none to forget. */
+export async function dropAll(checkpoints: Checkpoint[]) {
+  await Promise.all(checkpoints.map((checkpoint) => drop(checkpoint.directory, checkpoint.id)))
 }
 
 /** Whether the commit a checkpoint names is still there — a repository can be cleaned by hand. */

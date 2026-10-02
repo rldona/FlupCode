@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { CHECKPOINT_SUMMARY_LIMIT, drop, exists, planRestore, restore, take } from "./checkpoint"
+import { createHarnessHandler } from "./api"
+import { CHECKPOINT_SUMMARY_LIMIT, CHECKPOINTS_KEPT_PER_RUN, drop, dropAll, exists, planRestore, restore, take } from "./checkpoint"
+import { projectRoots } from "./project-roots"
+import { SqliteRoutineRepository } from "./repository"
+import { RoutineScheduler } from "./scheduler"
 
 let directory = ""
 
@@ -192,4 +196,107 @@ test("a folder that is not a repository says so rather than failing oddly", asyn
   const plain = mkdtempSync(join(tmpdir(), "flupcode-plain-"))
   expect(take({ directory: plain, title: "t" })).rejects.toThrow(/not a git repository/)
   rmSync(plain, { recursive: true, force: true })
+})
+
+// TI-15: the harness keeps an index of checkpoints, and git keeps the refs. Both have to agree.
+describe("checkpoints in the harness", () => {
+  const open = () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    const handler = createHarnessHandler(repository, scheduler, { projectRoots: projectRoots(async () => [directory]) })
+    return { repository, handler }
+  }
+  const ref = (id: string) => run(["rev-parse", "--verify", "--quiet", `refs/flupcode/checkpoints/${id}`])
+  // `take` stamps the clock, and sixty of them land inside a few milliseconds: the order is given.
+  const point = async (title: string, createdAt: number, runID?: string) => ({
+    ...(await take({ directory, title, runID })),
+    createdAt,
+  })
+
+  test("the 60th-oldest checkpoint is found and restores", async () => {
+    const { repository, handler } = open()
+    const points = []
+    for (let index = 0; index < 60; index++) {
+      write("kept.txt", `version ${index}\n`)
+      points.push(repository.addCheckpoint(await point(`step ${index}`, 1000 + index)))
+    }
+    const oldest = points[0]!
+    // Beyond the newest fifty the list used to stop, and the lookup with it.
+    expect(repository.getCheckpoint(oldest.id)?.sha).toBe(oldest.sha)
+
+    const plan = await handler(new Request(`http://x/harness/checkpoints/${oldest.id}/plan`))
+    expect(plan.status).toBe(200)
+    expect((await plan.json()).data).toEqual({ write: ["kept.txt"], remove: [] })
+    const restored = await handler(new Request(`http://x/harness/checkpoints/${oldest.id}/restore`, { method: "POST" }))
+    expect(restored.status).toBe(200)
+    expect(read("kept.txt")).toBe("version 0\n")
+    repository.close()
+  }, 60_000)
+
+  test("removing a run removes its checkpoints and their refs, and leaves the rest", async () => {
+    const { repository, handler } = open()
+    const gone = repository.startRun({ type: "manual" }, 1000, directory)
+    const kept = repository.startRun({ type: "manual" }, 1000, directory)
+    const ofGone = [
+      repository.addCheckpoint(await point("one", 1, gone.id)),
+      repository.addCheckpoint(await point("two", 2, gone.id)),
+    ]
+    const ofKept = repository.addCheckpoint(await point("other run", 3, kept.id))
+    // Taken by hand: it belongs to no run, so no run going takes it with it.
+    const byHand = repository.addCheckpoint(await point("by hand", 4))
+    repository.finishRun(gone.id, "success")
+
+    const removed = await handler(new Request(`http://x/harness/runs/${gone.id}`, { method: "DELETE" }))
+    expect(removed.status).toBe(200)
+
+    for (const checkpoint of ofGone) {
+      expect(repository.getCheckpoint(checkpoint.id)).toBeUndefined()
+      expect(await ref(checkpoint.id)).toBe("")
+    }
+    for (const checkpoint of [ofKept, byHand]) {
+      expect(repository.getCheckpoint(checkpoint.id)?.id).toBe(checkpoint.id)
+      expect(await ref(checkpoint.id)).toBe(checkpoint.sha)
+    }
+    repository.close()
+  })
+
+  test("clearing finished runs removes their refs too", async () => {
+    const { repository, handler } = open()
+    const over = repository.startRun({ type: "manual" }, 1000, directory)
+    const checkpoint = repository.addCheckpoint(await point("one", 1, over.id))
+    repository.finishRun(over.id, "failed", "no engine")
+
+    const cleared = await handler(new Request("http://x/harness/runs", { method: "DELETE" }))
+    expect(cleared.status).toBe(200)
+    expect(repository.getCheckpoint(checkpoint.id)).toBeUndefined()
+    expect(await ref(checkpoint.id)).toBe("")
+    repository.close()
+  })
+
+  test("the sweep keeps the newest of each run, every one taken by hand, and none of a run that is gone", async () => {
+    const { repository } = open()
+    const busy = repository.startRun({ type: "manual" }, 1000, directory)
+    const points = []
+    for (let index = 0; index < CHECKPOINTS_KEPT_PER_RUN + 2; index++) {
+      points.push(repository.addCheckpoint(await point(`step ${index}`, 1000 + index, busy.id)))
+    }
+    const byHand = repository.addCheckpoint(await point("by hand", 1))
+    // A run deleted by a version that did not clean up after it: its row stayed, and so did its ref.
+    const orphan = repository.addCheckpoint(await point("left behind", 2, "run_deleted_long_ago"))
+
+    await dropAll(repository.removeStaleCheckpoints())
+
+    const [first, second, ...newest] = points
+    for (const checkpoint of [first!, second!, orphan]) {
+      expect(repository.getCheckpoint(checkpoint.id)).toBeUndefined()
+      expect(await ref(checkpoint.id)).toBe("")
+    }
+    expect(repository.listCheckpoints({ runID: busy.id }).map((checkpoint) => checkpoint.id)).toEqual(
+      newest.map((checkpoint) => checkpoint.id).reverse(),
+    )
+    expect(await ref(byHand.id)).toBe(byHand.sha)
+    // Nothing more to do the second time.
+    expect(repository.removeStaleCheckpoints()).toEqual([])
+    repository.close()
+  }, 60_000)
 })

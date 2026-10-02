@@ -19,6 +19,7 @@ import {
   sliceEvidence,
 } from "./adaptive/evidence"
 import { TOOL_TRIM_MAX_STORED_BYTES } from "./adaptive/config"
+import { CHECKPOINTS_KEPT_PER_RUN } from "./checkpoint"
 import type {
   EvidenceInput,
   EvidenceKind,
@@ -637,6 +638,17 @@ type CheckpointRow = {
   task_id: string | null
   created_at: number
 }
+
+const decodeCheckpoint = (row: CheckpointRow): Checkpoint => ({
+  id: row.id,
+  directory: row.directory,
+  sha: row.sha,
+  title: row.title,
+  ...(row.summary ? { summary: row.summary } : {}),
+  ...(row.run_id ? { runID: row.run_id } : {}),
+  ...(row.task_id ? { taskID: row.task_id } : {}),
+  createdAt: row.created_at,
+})
 
 type FindingRow = {
   id: string
@@ -1752,20 +1764,35 @@ export class SqliteRoutineRepository implements RoutineRepository {
          ORDER BY created_at DESC LIMIT ?${values.length}`,
       )
       .all(...(values as never[])) as CheckpointRow[]
-    return rows.map((row) => ({
-      id: row.id,
-      directory: row.directory,
-      sha: row.sha,
-      title: row.title,
-      ...(row.summary ? { summary: row.summary } : {}),
-      ...(row.run_id ? { runID: row.run_id } : {}),
-      ...(row.task_id ? { taskID: row.task_id } : {}),
-      createdAt: row.created_at,
-    }))
+    return rows.map(decodeCheckpoint)
   }
 
+  /** By id, however old: a point the list showed once must still be found to restore it (TI-15). */
   getCheckpoint(id: string) {
-    return this.listCheckpoints().find((checkpoint) => checkpoint.id === id)
+    const row = this.db.query("SELECT * FROM checkpoints WHERE id = ?1").get(id) as CheckpointRow | null
+    return row ? decodeCheckpoint(row) : undefined
+  }
+
+  /**
+   * Forgets the points nobody can reach any more (TI-15): those of a run that is gone, and those of a
+   * run beyond its newest `keepPerRun`. A point of no run (taken by hand, or before a restore) is
+   * never one of them. Hands back what went, so the caller can drop the refs that kept the commits.
+   */
+  removeStaleCheckpoints(keepPerRun = CHECKPOINTS_KEPT_PER_RUN) {
+    const rows = this.db
+      .query(
+        `DELETE FROM checkpoints WHERE id IN (
+           SELECT id FROM checkpoints WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT id FROM runs)
+           UNION
+           SELECT id FROM (
+             SELECT id, ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY created_at DESC, rowid DESC) AS rank
+             FROM checkpoints WHERE run_id IS NOT NULL
+           ) WHERE rank > ?1
+         ) RETURNING *`,
+      )
+      .all(keepPerRun) as CheckpointRow[]
+    for (const row of rows) this.append({ type: "checkpoint.removed", checkpointID: row.id })
+    return rows.map(decodeCheckpoint)
   }
 
   removeCheckpoint(id: string) {

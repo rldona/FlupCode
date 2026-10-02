@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
+import { dropAll } from "./checkpoint"
 import { runEngineDataCommand } from "./engine-data-command"
 import { SqliteRoutineRepository, defaultDatabasePath } from "./repository"
 import { RoutineScheduler } from "./scheduler"
@@ -453,6 +454,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   purge()
   const sweep = setInterval(() => {
     repository.removeExpiredArtifacts()
+    // Checkpoints past their run's newest few, or of a run that is gone (TI-15), and the refs that kept
+    // their commits. A folder that cannot be reached leaves its refs for git, never the server down.
+    void dropAll(repository.removeStaleCheckpoints())
     purge()
     // The metrics dedupe ledger only has to outlive a redelivery (AH-B01).
     repository.pruneSessionMetricSeen(Date.now() - 2 * 24 * 60 * 60 * 1000)
