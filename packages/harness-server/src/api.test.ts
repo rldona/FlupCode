@@ -345,6 +345,34 @@ describe("harness runs API", () => {
     repository.close()
   })
 
+  // RP-06: a hand-built graph can wait for verified work too, and a run is read with its verdict.
+  test("keeps `require: verified`, and a run is read with the verdict its tasks add up to", async () => {
+    const { repository, handler } = open()
+    const started = await handler(
+      new Request("http://localhost/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          tasks: [
+            { name: "build", prompt: "build", dependsOn: [] },
+            { name: "ship", prompt: "ship", dependsOn: ["build"], require: "verified" },
+            { name: "notes", prompt: "notes", dependsOn: ["build"], require: "approved" },
+          ],
+        }),
+      }),
+    )
+    const run = (await started.json()).data
+    await settled(repository, run.id)
+    const [build, ship, notes] = repository.listTasks(run.id)
+    expect([ship!.require, notes!.require]).toEqual(["verified", undefined])
+    repository.setTaskVerdict(build!.id, { value: "needs-user", reason: "Which one?", source: "rule" })
+    const read = await (await handler(new Request(`http://localhost/harness/runs/${run.id}`))).json()
+    expect(read.data.verdict).toEqual({ value: "needs-user", reason: "Which one?", source: "rule", taskID: build!.id })
+    expect(read.data.tasks[0].verdict).toEqual({ value: "needs-user", reason: "Which one?", source: "rule" })
+    const listed = await (await handler(new Request("http://localhost/harness/runs"))).json()
+    expect(listed.data[0].verdict.value).toBe("needs-user")
+    repository.close()
+  })
+
   // H-44: the same task once per model, each its own run, so H-33's comparison can put any two
   // side by side. A repeated key is the same comparison twice, so only the distinct models run.
   test("starts one run per distinct model with the model on its task", async () => {

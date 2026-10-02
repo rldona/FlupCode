@@ -9015,6 +9015,7 @@ button.fc-status {
 
 .fc-run-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--fc-space-2);
 }
@@ -9567,6 +9568,47 @@ button.fc-status {
 .fc-run-rule-open {
   background: color-mix(in srgb, var(--fc-warning, #c98a00) 18%, transparent);
   color: var(--fc-warning, #c98a00);
+}
+
+/*
+ * A verdict (RP-06). Verified is the only filled green; not verified is an outline in the muted
+ * colour, so a clean answer nothing checked never reads as a quieter verified.
+ */
+.fc-verdict {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--fc-radius-pill);
+  font-size: var(--fc-text-xs);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.fc-verdict[data-verdict="verified"] {
+  background: color-mix(in srgb, var(--fc-success) 16%, transparent);
+  color: var(--fc-success);
+}
+
+.fc-verdict[data-verdict="unverified"] {
+  border: 1px dashed var(--fc-text-muted);
+  color: var(--fc-text-muted);
+}
+
+.fc-verdict[data-verdict="needs-user"] {
+  background: color-mix(in srgb, var(--fc-warning) 18%, transparent);
+  color: var(--fc-warning);
+}
+
+.fc-verdict[data-verdict="failed"] {
+  background: color-mix(in srgb, var(--fc-danger) 14%, transparent);
+  color: var(--fc-danger);
+}
+
+.fc-verdict-reason {
+  flex-basis: 100%;
+  margin: var(--fc-space-1) 0 0;
+  color: var(--fc-text-muted);
+  font-size: 13px;
 }
 
 .fc-run-error {

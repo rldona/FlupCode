@@ -1,6 +1,6 @@
 import { sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
-import type { Run, Task, TaskStatus, Artifact } from "./types"
+import type { Run, Task, TaskStatus, TaskVerdict, Artifact } from "./types"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { externalCommand, fillCommand, runExternal } from "./external"
@@ -15,6 +15,7 @@ import { BrowserError } from "./browser"
 import { actionInputProblem, missingAllowRules } from "./action-allow"
 import type { ContextManager } from "./adaptive/context-manager"
 import type { ContextPart } from "./adaptive/context"
+import { answerVerdict, auditedVerdict, type Auditor } from "./verdict"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
@@ -80,6 +81,9 @@ export const externalActivity = (taskID: string) => externalLive.get(taskID)
 function retryPrompt(task: Task, evidence: string) {
   return [task.prompt, "", "The previous attempt did not pass verification:", "", evidence].join("\n")
 }
+
+const passSummary = (report: { steps: Array<{ name: string }> }) =>
+  `Verification passed: ${report.steps.map((step) => step.name).join(", ")}`
 
 const failureSummary = (report: { steps: Array<{ name: string; exitCode: number }>; problem?: string }) => {
   // A declaration that cannot be read is its own answer, and the one the reader can act on.
@@ -256,6 +260,13 @@ export class TaskRunner {
      * `context.apply` is on, which is off by default.
      */
     private readonly context?: ContextManager,
+    /**
+     * The auditor model's judgement of a finished agent task (RP-06), through the decision service.
+     *
+     * Absent means the deterministic rule alone judges, which is also what happens when no model is
+     * assigned to `completion`. A failure to audit never fails the task: the rule's verdict stands.
+     */
+    private readonly auditor?: Auditor,
   ) {}
 
   /**
@@ -271,14 +282,7 @@ export class TaskRunner {
   private scheduleRetry(run: Run, verify: Task, evidence: string) {
     const budget = verify.retries ?? 0
     if (budget <= 0) return false
-    const agents = this.repository.listTasks(run.id).filter((entry) => entry.kind === "agent")
-    // The task the check is about, when it says so; a v1 check has no `dependsOn`, so the nearest
-    // agent task before it is the work it was checking.
-    const executor = (
-      verify.dependsOn && verify.dependsOn.length > 0
-        ? agents.filter((entry) => verify.dependsOn!.includes(entry.name))
-        : agents.filter((entry) => entry.position < verify.position)
-    ).at(-1)
+    const executor = this.checkedTask(run, verify)
     if (!executor) return false
     this.repository.addTasks(run.id, [
       {
@@ -307,6 +311,53 @@ export class TaskRunner {
       },
     ])
     return true
+  }
+
+  /**
+   * The agent task a check is about: the one it names, when it says so; a v1 check has no
+   * `dependsOn`, so the nearest agent task before it is the work it was checking.
+   */
+  private checkedTask(run: Run, verify: Task) {
+    const agents = this.repository.listTasks(run.id).filter((entry) => entry.kind === "agent")
+    return (
+      verify.dependsOn && verify.dependsOn.length > 0
+        ? agents.filter((entry) => verify.dependsOn!.includes(entry.name))
+        : agents.filter((entry) => entry.position < verify.position)
+    ).at(-1)
+  }
+
+  /**
+   * Judges a finished agent task (RP-06): the rule over its final answer, then the auditor model when
+   * one is assigned, and keeps the verdict on the task and as a `verdict` artifact so the run can be
+   * read back without its transcripts.
+   */
+  private async judge(run: Run, task: Task, answer: string | undefined, directory?: string) {
+    const baseline = answerVerdict(answer)
+    const audit =
+      this.auditor && answer?.trim()
+        ? await this.auditor({
+            runID: run.id,
+            taskID: task.id,
+            objective: task.prompt,
+            answer,
+            ...(directory ? { projectID: directory } : {}),
+          }).catch(() => undefined)
+        : undefined
+    this.recordVerdict(run, task, auditedVerdict(baseline, audit), directory)
+  }
+
+  /** A task's verdict, on the task and as a `verdict` artifact: a later one is kept beside it, not over it. */
+  private recordVerdict(run: Run, task: Task, verdict: TaskVerdict, directory?: string) {
+    this.repository.setTaskVerdict(task.id, verdict)
+    this.repository.addArtifact({
+      kind: "verdict",
+      title: `${task.name} — ${verdict.value}`,
+      producer: "harness",
+      content: verdict.reason,
+      directory,
+      runID: run.id,
+      taskID: task.id,
+    })
   }
 
   /**
@@ -449,6 +500,14 @@ export class TaskRunner {
           task.when?.task === name && task.when.is.some((status) => status === "failed" || status === "stopped")
         if (!allowed) return { action: "skip", reason: `Not run: ${name} did not succeed` }
       }
+    }
+    // `require: verified` (RP-06): the work before this task has to have been checked, not only to
+    // have ended. The newest attempt of each dependency is the one that speaks for it.
+    if (task.require === "verified") {
+      const unverified = this.dependencies(task, tasks).find(
+        (name) => tasks.filter((entry) => entry.name === name).at(-1)?.verdict?.value !== "verified",
+      )
+      if (unverified) return { action: "skip", reason: `Not run: ${unverified} was not verified` }
     }
     const condition = this.condition(task, tasks)
     if (condition === "wait") return { action: "wait" }
@@ -646,6 +705,19 @@ export class TaskRunner {
           output: evidence,
           error: report.ok ? undefined : failureSummary(report),
         })
+        // A check that ran is the one thing that makes work `verified` (RP-06): the check itself, and
+        // the agent task it checked, unless that task already said it did not finish — a passing suite
+        // does not turn "I stop here" into done. A failed check fails the work it checked.
+        if (!stopped()) {
+          const verdict = report.ok
+            ? { value: "verified" as const, reason: passSummary(report), source: "check" as const }
+            : { value: "failed" as const, reason: failureSummary(report), source: "check" as const }
+          this.repository.setTaskVerdict(task.id, verdict)
+          const checked = this.checkedTask(run, task)
+          const standing = checked?.verdict?.value
+          if (checked && (!report.ok || standing === undefined || standing === "unverified"))
+            this.recordVerdict(run, checked, verdict, checked.directory ?? directory)
+        }
         // And it is kept (H-14): the verdict of a check is the evidence the audit asks for, and it
         // outlives the task list, which only shows the last twenty runs.
         this.repository.addArtifact({
@@ -775,9 +847,11 @@ export class TaskRunner {
         cost: answer?.cost,
       })
       if (failure) {
+        this.repository.setTaskVerdict(task.id, { value: "failed", reason: failure, source: "rule" })
         context.failure = failure
         return
       }
+      if (!stopped()) await this.judge(run, task, answer?.text, directory)
       context.directories.set(task.id, directory)
       // A stopped run has no next task to hand anything to, and a closing note is a turn of its own.
       if (stopped()) return
@@ -817,7 +891,11 @@ export class TaskRunner {
         tokens: spent?.tokens,
         cost: spent?.cost,
       })
-      if (!stopped()) context.failure = message(cause)
+      if (stopped()) return
+      // A task that failed is judged as failed (RP-06), so the run's verdict is never better than it.
+      if (task.kind === "agent" || task.kind === "verify")
+        this.repository.setTaskVerdict(task.id, { value: "failed", reason: message(cause), source: "rule" })
+      context.failure = message(cause)
     }
   }
 

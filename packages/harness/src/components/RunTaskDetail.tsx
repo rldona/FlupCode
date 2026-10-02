@@ -4,6 +4,7 @@ import type { ModelInfo } from "../engine-types"
 import type { Artifact, Run, Task, TaskActivity, TaskTools, TouchedFiles } from "../types"
 import { money } from "../metrics"
 import { duration } from "./UsagePanel"
+import { VerdictBadge } from "./VerdictBadge"
 
 type RunTaskDetailProps = {
   run: Run
@@ -43,6 +44,13 @@ const elapsed = (from: number, to: number | undefined) => {
 
 const thousands = (value: number | undefined) =>
   value === undefined ? undefined : value >= 1000 ? `${Math.round(value / 100) / 10}k` : String(value)
+
+/** Who judged a verdict (RP-06), so a rule's reading of the answer is not mistaken for a check. */
+const VERDICT_SOURCES: Record<NonNullable<Task["verdict"]>["source"], string> = {
+  check: "Judged by a check that ran",
+  rule: "Judged by a rule over the agent's answer",
+  model: "Judged by the auditor model",
+}
 
 const modelKey = (model: Task["model"]) => (model ? `${model.providerID}/${model.id}` : "")
 
@@ -97,6 +105,7 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
           {marks[props.task.status]}
         </span>
         <span class="fc-run-detail-title">{props.task.name}</span>
+        <Show when={props.task.verdict}>{(verdict) => <VerdictBadge verdict={verdict()} />}</Show>
         <button class="fc-icon-button" type="button" aria-label={t("Close")} title={t("Close")} onClick={props.onClose}>
           ×
         </button>
@@ -116,6 +125,17 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
       </Show>
 
       <Show when={props.task.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
+
+      {/* Why it was judged so, and by what (RP-06): the agent's own words are not a check. */}
+      <Show when={props.task.verdict}>
+        {(verdict) => (
+          <section class="fc-run-detail-section">
+            <h3>{t("Verdict")}</h3>
+            <p class="fc-run-detail-note">{verdict().reason}</p>
+            <p class="fc-run-meta">{t(VERDICT_SOURCES[verdict().source])}</p>
+          </section>
+        )}
+      </Show>
 
       <div class="fc-run-detail-actions">
         <Show when={props.task.sessionID}>

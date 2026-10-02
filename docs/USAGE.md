@@ -298,6 +298,23 @@ failing test, a lint rule — becomes a comment on that line of the diff in **Ch
 command that exited non-zero. The retry, if the check has a budget, is handed those lines instead of
 the whole log.
 
+### The verdict on a task
+
+A task that ended is not a task that did what it was asked. Every agent task carries a **verdict**,
+from something other than the agent that did the work:
+
+- **Verified** — a `verify` task checked it and passed. Nothing else makes work verified.
+- **Not verified** — the agent answered and nothing checked the answer.
+- **Needs your input** — the agent's answer ends asking you something.
+- **Failed** — the turn failed, the answer was empty, the agent said it gave up ("I stop here",
+  "no puedo completar…"), the check failed, or an auditor model judged the goal not met.
+
+The reason is beside the badge: the agent's own words when it gave up or asked, or what the check
+said. A run's verdict is its worst task's. With no model assigned the verdict comes from that small
+set of rules; assigning one to the `completion` decision (`adaptive.models.completion`, with that
+model's consent for the project and the `completion` kind) lets it judge too, and it can only make a verdict worse, never verified. A verdict
+does not stop the run unless a later task says `require: verified`.
+
 ## Agents
 
 Each agent is a markdown file: the frontmatter is how it runs, the body is what it is told. **Agents**
@@ -393,6 +410,7 @@ tasks:
 | `command` | an `external` task | the command it runs; `{{prompt}}` is the task's prompt, and `{{item}}` and `{{input}}` are filled the same way: each value goes in quoted as one shell word, so do not wrap a placeholder in quotes of your own |
 | `onFail: { max: N }` | a `verify` task | attempt the work before it again, up to N times |
 | `gate: human` | a task | hold the run here until somebody lets it through |
+| `require: verified` | a task | run only if every task it depends on ended **Verified**; otherwise it is skipped. Put it behind a `verify` task: work nothing checked is never verified |
 | `limits: { tool: 10m }` | the workflow | stop a task whose single tool call runs longer than that |
 | `outside: true` | the workflow | let its tasks reach outside the project (off by default) |
 | `shell: false` | the workflow | refuse the shell for its tasks: the engine hides the tool and denies every command |

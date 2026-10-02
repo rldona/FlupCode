@@ -64,6 +64,7 @@ import { learningLimitStatus } from "./adaptive/learning/limits"
 import { createProposalReview } from "./adaptive/learning/review"
 import { createUsagePricing } from "./usage-pricing"
 import { createUsageReconciler } from "./usage-reconciler"
+import { createAuditor } from "./verdict"
 
 export type HarnessServerOptions = {
   port?: number
@@ -314,6 +315,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     ...(actions ? { actions } : {}),
     episodes,
     context,
+    // Every agent task is judged (RP-06); the `completion` decision asks a model only where one is
+    // assigned and consented to, and otherwise the deterministic rule's verdict stands.
+    auditor: createAuditor(decisions, () => adaptive.current()),
   })
   // The learning manager (FH-034): it reflects on closed episodes and sweeps for terminal ones with
   // no job. The draft is the only model call, through a throwaway engine session, and only when a

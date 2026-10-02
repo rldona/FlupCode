@@ -165,7 +165,37 @@ export type Run = {
    * is this. A routine that runs a workflow has both.
    */
   workflow?: RunWorkflow
+  /**
+   * How the run's work was judged (RP-06): the worst verdict among its tasks, with the task that set
+   * it. Derived from the tasks whenever the run is read, never stored, so it cannot go stale when a
+   * check upgrades a task or a retry supersedes one. Absent while no task has been judged.
+   */
+  verdict?: RunVerdict
 }
+
+/**
+ * Whether a task met its goal, judged by something other than the agent that did it (RP-06).
+ *
+ * Ordered best to worst. `verified` is only ever set by a check that ran (a verify task); a clean
+ * answer nothing checked is `unverified`. `needs-user` is an answer that ends asking the person
+ * something; `failed` is a turn that failed, an empty answer, an agent that gave up, a failed check,
+ * or an auditor model that judged the goal not met.
+ */
+export const VERDICTS = ["verified", "unverified", "needs-user", "failed"] as const
+export type VerdictValue = (typeof VERDICTS)[number]
+
+/** Who judged: a check that ran, the deterministic rule over the answer, or an auditor model. */
+export type VerdictSource = "check" | "rule" | "model"
+
+export type TaskVerdict = {
+  value: VerdictValue
+  /** Why, in a sentence: the agent's own words when it gave up or asked, or what the check said. */
+  reason: string
+  source: VerdictSource
+}
+
+/** A run's verdict is its worst task's, and names that task. */
+export type RunVerdict = TaskVerdict & { taskID: string }
 
 /**
  * Which workflow produced a run, in which version and with which inputs (RP-01).
@@ -330,6 +360,13 @@ export type TaskInput = {
    * for all of them because they share this name.
    */
   foreach?: string
+  /**
+   * `verified`: run only when every task this one depends on ended with a `verified` verdict (RP-06).
+   *
+   * Declared on the dependant, so a check placed between the work and this task is what lets it
+   * through. Absent is the default and does not block: a verdict is shown, not enforced.
+   */
+  require?: "verified"
 }
 
 export type Task = TaskInput & {
@@ -355,6 +392,8 @@ export type Task = TaskInput & {
   output?: string
   tokens?: number
   cost?: number
+  /** Whether it met its goal (RP-06), when it has been judged. Agent and verify tasks are. */
+  verdict?: TaskVerdict
 }
 
 /**

@@ -82,7 +82,10 @@ import type {
   StoredSkillProposal,
   StoredSkillProposalInput,
   WorkflowVersion,
+  TaskVerdict,
 } from "./types"
+import { VERDICTS } from "./types"
+import { runVerdict } from "./verdict"
 import { decisionFromRow, decisionRowFrom } from "./adaptive/decision-record"
 import type { DecisionRow } from "./adaptive/decision-record"
 import { planFromRow, planRowFrom } from "./adaptive/context-record"
@@ -602,6 +605,11 @@ type TaskRow = {
   output: string | null
   tokens: number | null
   cost: number | null
+  /** RP-06 (migration 9); absent on a database that has not reached it yet. */
+  verdict?: string | null
+  verdict_reason?: string | null
+  verdict_source?: string | null
+  require_verdict?: string | null
 }
 
 const decodeTask = (row: TaskRow): Task => ({
@@ -638,7 +646,16 @@ const decodeTask = (row: TaskRow): Task => ({
   output: row.output ?? undefined,
   tokens: row.tokens ?? undefined,
   cost: row.cost ?? undefined,
+  ...(row.require_verdict === "verified" ? { require: "verified" as const } : {}),
+  ...decodeVerdict(row),
 })
+
+/** A task's verdict (RP-06), or nothing: a value this build does not know reads as not judged. */
+const decodeVerdict = (row: Pick<TaskRow, "verdict" | "verdict_reason" | "verdict_source">): Pick<Task, "verdict"> => {
+  const value = VERDICTS.find((verdict) => verdict === row.verdict)
+  const source = row.verdict_source === "check" || row.verdict_source === "model" ? row.verdict_source : "rule"
+  return value ? { verdict: { value, reason: row.verdict_reason ?? "", source } } : {}
+}
 
 type ArtifactRow = {
   id: string
@@ -1415,6 +1432,21 @@ export class SqliteRoutineRepository implements RoutineRepository {
         rewrites: true,
         up: () => this.db.exec("CREATE INDEX IF NOT EXISTS usage_event_at ON usage_event(COALESCE(ended_at, started_at))"),
       },
+      {
+        // Whether a task met its goal (RP-06): the verdict, why, and who judged it, and the
+        // `require: verified` a workflow task may declare. Tasks from before stay unjudged: nobody
+        // judged them, and reading a verdict into an old answer now would be inventing one. A run's
+        // verdict is not stored at all: it is derived from its tasks whenever the run is read.
+        version: 9,
+        name: "task-verdict",
+        rewrites: true,
+        up: () => {
+          this.addColumn("tasks", "verdict", "TEXT")
+          this.addColumn("tasks", "verdict_reason", "TEXT")
+          this.addColumn("tasks", "verdict_source", "TEXT")
+          this.addColumn("tasks", "require_verdict", "TEXT")
+        },
+      },
     ]
   }
 
@@ -1626,9 +1658,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
       )
       .all(ROUTINE_RUNS_LISTED) as RunRow[]
     const byRoutine = new Map<string, Run[]>()
-    for (const run of runs) {
-      const key = run.source_id ?? ""
-      byRoutine.set(key, [...(byRoutine.get(key) ?? []), decodeRun(run)])
+    for (const run of this.runsFrom(runs)) {
+      const key = run.source.type === "routine" ? run.source.routineID : ""
+      byRoutine.set(key, [...(byRoutine.get(key) ?? []), run])
     }
     return rows.map((row) => decodeRoutine(row, byRoutine.get(row.id) ?? []))
   }
@@ -1774,9 +1806,36 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return run
   }
 
+  /**
+   * Runs as the app reads them, each with the verdict its tasks add up to (RP-06).
+   *
+   * Derived here rather than stored: a check that upgrades a task or a retry that supersedes one
+   * changes the run's verdict, and a stored copy would have to be kept in step with every such write.
+   * One query covers the whole page of runs.
+   */
+  private runsFrom(rows: RunRow[]): Run[] {
+    if (rows.length === 0) return []
+    const judged = this.db
+      .query(
+        `SELECT id, run_id, retry_of, verdict, verdict_reason, verdict_source FROM tasks
+         WHERE run_id IN (SELECT value FROM json_each(?1)) AND (verdict IS NOT NULL OR retry_of IS NOT NULL)`,
+      )
+      .all(JSON.stringify(rows.map((row) => row.id))) as Array<
+      Pick<TaskRow, "id" | "run_id" | "retry_of" | "verdict" | "verdict_reason" | "verdict_source">
+    >
+    return rows.map((row) => {
+      const verdict = runVerdict(
+        judged
+          .filter((task) => task.run_id === row.id)
+          .map((task) => ({ id: task.id, retryOf: task.retry_of ?? undefined, ...decodeVerdict(task) })),
+      )
+      return { ...decodeRun(row), ...(verdict ? { verdict } : {}) }
+    })
+  }
+
   getRun(runID: string) {
     const row = this.db.query("SELECT * FROM runs WHERE id = ?1").get(runID) as RunRow | null
-    return row ? decodeRun(row) : undefined
+    return row ? this.runsFrom([row])[0] : undefined
   }
 
   /** A workflow's runs, newest first (RP-01); in one folder when it is given, since a name is per project. */
@@ -1788,7 +1847,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
          ORDER BY started_at DESC LIMIT ?3`,
       )
       .all(name, directory ?? null, limit) as RunRow[]
-    return rows.map(decodeRun)
+    return this.runsFrom(rows)
   }
 
   /** Keeps a workflow file as a run executed it, once per content (RP-01). */
@@ -1822,7 +1881,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
           .query("SELECT * FROM runs WHERE source_type = ?1 AND source_id IS ?2 ORDER BY started_at DESC LIMIT ?3")
           .all(source.type, sourceKey(source), limit) as RunRow[])
       : (this.db.query("SELECT * FROM runs ORDER BY started_at DESC LIMIT ?1").all(limit) as RunRow[])
-    return rows.map(decodeRun)
+    return this.runsFrom(rows)
   }
 
   /**
@@ -1855,7 +1914,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
          LIMIT ?3`,
       )
       .all(input.since, RUN_EPISODE_PREFIX, input.limit) as RunRow[]
-    return rows.map(decodeRun)
+    return this.runsFrom(rows)
   }
 
   /**
@@ -1880,7 +1939,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const rows = this.db
       .query("SELECT * FROM runs WHERE status IN ('running', 'awaiting') ORDER BY started_at DESC")
       .all() as RunRow[]
-    return rows.map(decodeRun)
+    return this.runsFrom(rows)
   }
 
   attachSession(runID: string, sessionID: string) {
@@ -2511,8 +2570,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db
           .query(
             `INSERT INTO tasks
-               (id, run_id, position, name, prompt, kind, command, action_json, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'queued')`,
+               (id, run_id, position, name, prompt, kind, command, action_json, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, require_verdict, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'queued')`,
           )
           .run(
             task.id,
@@ -2532,6 +2591,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.dependsOn !== undefined ? JSON.stringify(task.dependsOn) : null,
             task.when ? JSON.stringify(task.when) : null,
             task.foreach ?? null,
+            task.require ?? null,
           )
       }
     })()
@@ -2590,6 +2650,20 @@ export class SqliteRoutineRepository implements RoutineRepository {
         taskID,
       )
     this.publishTask(taskID)
+  }
+
+  /**
+   * Records whether a task met its goal (RP-06), and tells the app about the task and its run: the
+   * run's verdict is derived from its tasks, so it changes with them.
+   */
+  setTaskVerdict(taskID: string, verdict: TaskVerdict) {
+    this.db
+      .query("UPDATE tasks SET verdict = ?1, verdict_reason = ?2, verdict_source = ?3 WHERE id = ?4")
+      .run(verdict.value, verdict.reason, verdict.source, taskID)
+    const task = this.publishTask(taskID)
+    const run = task ? this.getRun(task.runID) : undefined
+    if (run) this.append({ type: "run.changed", run })
+    return task
   }
 
   private publishTask(taskID: string) {
@@ -3000,7 +3074,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
    * and nothing already stamped is changed. The facts themselves never are.
    */
   attributeSession(sessionID: string, attribution: SessionAttribution, source: "server" | "engine" = "server") {
-    const run = attribution.runID ? this.getRun(attribution.runID) : undefined
+    // The row alone, not `getRun`: attribution needs no verdict, and migration 7 attributes sessions
+    // before migration 9 has added the columns a run's verdict is derived from.
+    const row = attribution.runID
+      ? (this.db.query("SELECT * FROM runs WHERE id = ?1").get(attribution.runID) as RunRow | null)
+      : null
+    const run = row ? decodeRun(row) : undefined
     const task = attribution.taskID ? this.getTask(attribution.taskID) : undefined
     const directory = attribution.directory ?? run?.directory
     const values = [

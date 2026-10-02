@@ -339,6 +339,11 @@ const ES: Record<string, string> = {
   Difference: "Diferencia",
   Duration: "Duración",
   Verdict: "Veredicto",
+  Verified: "Verificada",
+  "Not verified": "Sin verificar",
+  "Judged by a check that ran": "Lo decidió una comprobación que se ejecutó",
+  "Judged by a rule over the agent's answer": "Lo decidió una regla sobre la respuesta del agente",
+  "Judged by the auditor model": "Lo decidió el modelo auditor",
   "Neither changed a file.": "Ninguna cambió un fichero.",
   "{left} files on the left, {right} on the right, {shared} in both.":
     "{left} ficheros a la izquierda, {right} a la derecha, {shared} en ambas.",
