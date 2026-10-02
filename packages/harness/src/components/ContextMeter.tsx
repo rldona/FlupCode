@@ -1,11 +1,13 @@
 import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
-import { compactionNear } from "../metrics"
+import { compactionNear, money } from "../metrics"
 import { t } from "../i18n"
 
 type ContextMeterProps = {
   used: number
   limit: number
   cost?: number
+  /** Part of `cost` was priced by the app, not the engine (TI-05): it is shown with a "~". */
+  costEstimated?: boolean
   tokens?: { input: number; output: number; reasoning: number }
   /** The figure sizes the text the engine will send next, not a finished step: after a compaction,
    *  until the next step reports tokens. */
@@ -107,7 +109,10 @@ export const ContextMeter: Component<ContextMeterProps> = (props) => {
           <Show when={props.cost !== undefined && props.cost > 0}>
             <div class="fc-context-row">
               <span>{t("Spent")}</span>
-              <span class="fc-context-muted">${props.cost!.toFixed(4)}</span>
+              <span class="fc-context-muted" title={props.costEstimated ? t("Estimated") : undefined}>
+                {props.costEstimated ? "~" : ""}
+                {money(props.cost!)}
+              </span>
             </div>
           </Show>
         </div>

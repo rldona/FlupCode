@@ -2,11 +2,11 @@ import { For, Show, type Component } from "solid-js"
 import { t } from "../i18n"
 import { createResource } from "../resource"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
-import { formatTokens } from "../metrics"
+import { formatTokens, money } from "../metrics"
 import type { Percentiles, SessionCost, ToolTotal } from "../types"
 import { sizeLabel } from "./ConfigFilesPanel"
 import { PanelFailure } from "./PanelBoundary"
-import { duration, money, share } from "./UsagePanel"
+import { duration, share } from "./UsagePanel"
 
 type SessionCostsProps = {
   open: boolean

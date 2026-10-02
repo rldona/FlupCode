@@ -14,6 +14,8 @@ import { installSandboxOpenCodeV2 } from "./opencode-v2"
  */
 export async function startEngine(input: {
   modelUrl: string
+  /** What the stub model costs per million tokens; free when absent. */
+  price?: { input: number; output: number }
   config?: Record<string, unknown>
   /** Layered over the isolated environment. `OPENCODE_PURE: undefined` lets plugins load. */
   env?: Record<string, string | undefined>
@@ -44,7 +46,7 @@ export async function startEngine(input: {
         XDG_STATE_HOME: join(home, ".local/state"),
         XDG_CACHE_HOME: join(home, ".cache"),
         OPENCODE_SERVER_PASSWORD: password,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...stubConfig(input.modelUrl), ...input.config }),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...stubConfig(input.modelUrl, input.price), ...input.config }),
         OPENCODE_DISABLE_PROJECT_CONFIG: "1",
         OPENCODE_DISABLE_AUTOUPDATE: "1",
         OPENCODE_DISABLE_MODELS_FETCH: "1",
@@ -104,7 +106,7 @@ async function engineCommand() {
   return [await installSandboxOpenCodeV2(), "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
 }
 
-function stubConfig(modelUrl: string) {
+function stubConfig(modelUrl: string, price = { input: 0, output: 0 }) {
   return {
     formatter: false,
     lsp: false,
@@ -125,7 +127,7 @@ function stubConfig(modelUrl: string) {
             tool_call: true,
             release_date: "2025-01-01",
             limit: { context: 100_000, output: 10_000 },
-            cost: { input: 0, output: 0 },
+            cost: price,
           },
         },
       },

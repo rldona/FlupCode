@@ -72,7 +72,7 @@ describe("comparing two runs", () => {
     const rows = compareRuns(left, right)
     const row = (label: string) => rows.find((entry) => entry.label === label)
     expect(row("Tokens")).toEqual({ label: "Tokens", a: "100", b: "250", delta: "+150" })
-    expect(row("Cost")).toEqual({ label: "Cost", a: "$0.1000", b: "$0.2500", delta: "+$0.1500" })
+    expect(row("Cost")).toEqual({ label: "Cost", a: "$0.10", b: "$0.25", delta: "+$0.15" })
     // A shorter run reads as a negative difference, which is the point of putting them side by side.
     expect(row("Duration")!.delta).toBe("−30s")
     expect(row("Tasks")!.b).toContain("1 skipped")

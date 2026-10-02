@@ -17,6 +17,8 @@ const CONTROL_PORT = 4189
 const model = startModel()
 const engine = await startEngine({
   modelUrl: model.url,
+  // Priced, so the cost the app shows can be held against the engine's own (TI-05).
+  price: { input: 1000, output: 2000 },
   config: {
     mcp: { contract: { type: "local", command: mcpStdioCommand() } },
     // 2.x enables OpenCode Zen with a public key out of the box. On a runner with a network the app

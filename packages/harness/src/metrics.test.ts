@@ -114,14 +114,42 @@ describe("sessionCost", () => {
     ).toBeCloseTo(4 + 0.4)
   })
 
-  test("adds priced v2 steps to the legacy total and keeps a cost the engine recorded", () => {
-    const legacy = { ...session(Date.now()), cost: 0.5 }
+  // TI-05: on 2.0.18 the session's cost already holds every priced step (and the title request,
+  // which is no step of the transcript); adding the steps again doubled it. Recorded against the real
+  // engine: four steps of $0.02 and a session cost of $0.10.
+  test("is the engine's session cost when the engine priced every step", () => {
+    const priced = { ...session(Date.now()), cost: 0.1 }
+    const messages = [
+      { type: "user" } as unknown as SessionMessageInfo,
+      ...[1, 2, 3, 4].map(() => step({ input: 10, output: 5, reasoning: 0, read: 0 }, 0.02)),
+    ]
+    expect(sessionCost(priced, messages, models)).toEqual({ cost: 0.1, estimated: false })
+  })
+
+  test("prices the steps the engine left unpriced, and says the figure is an estimate", () => {
     const messages = [
       { type: "user" } as unknown as SessionMessageInfo,
       step({ input: 1_000_000, output: 0, reasoning: 0, read: 0 }),
-      step({ input: 1_000_000, output: 0, reasoning: 0, read: 0 }, 0.25),
+      step({ input: 0, output: 1_000_000, reasoning: 0, read: 0 }),
     ]
-    expect(sessionCost(legacy, messages, models)).toBeCloseTo(0.5 + 1 + 0.25)
+    expect(sessionCost(session(Date.now()), messages, models)).toEqual({ cost: 5, estimated: true })
+  })
+
+  test("adds only the unpriced steps to what the engine counted", () => {
+    const counted = { ...session(Date.now()), cost: 0.25 }
+    const messages = [
+      step({ input: 1_000_000, output: 0, reasoning: 0, read: 0 }, 0.25),
+      step({ input: 1_000_000, output: 0, reasoning: 0, read: 0 }),
+    ]
+    const figure = sessionCost(counted, messages, models)
+    expect(figure.cost).toBeCloseTo(0.25 + 1)
+    expect(figure.estimated).toBe(true)
+  })
+
+  test("a free model is not an estimate", () => {
+    const free = [{ providerID: "p", id: "m", cost: [] }] as unknown as ModelInfo[]
+    const messages = [step({ input: 1_000, output: 10, reasoning: 0, read: 0 })]
+    expect(sessionCost(session(Date.now()), messages, free)).toEqual({ cost: 0, estimated: false })
   })
 })
 

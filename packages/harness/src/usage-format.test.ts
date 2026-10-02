@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { duration, money, scaleOf, share } from "./components/UsagePanel"
+import { duration, scaleOf, share } from "./components/UsagePanel"
+import { money } from "./metrics"
 
 describe("money", () => {
   test("shows a small amount rather than rounding it to nothing", () => {

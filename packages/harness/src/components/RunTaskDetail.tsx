@@ -2,7 +2,8 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
 import type { Artifact, Run, Task, TaskActivity, TaskTools, TouchedFiles } from "../types"
-import { duration, money } from "./UsagePanel"
+import { money } from "../metrics"
+import { duration } from "./UsagePanel"
 
 type RunTaskDetailProps = {
   run: Run

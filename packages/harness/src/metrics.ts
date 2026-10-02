@@ -177,23 +177,33 @@ export function stepCost(tokens: NonNullable<SessionMessageAssistant["tokens"]>,
 }
 
 /**
- * What a session has spent. The engine only adds legacy history to the session's cost; v2 steps carry
- * their tokens with a cost of 0, so those are priced here from their model.
+ * What a session has spent (TI-05).
+ *
+ * The engine prices every step it can and keeps the total on the session, including requests that
+ * are no step of the transcript (the title it asks the model for), so that total is the figure:
+ * adding the steps to it again counted them twice. A step the engine left unpriced is priced here
+ * from its model's catalog price, and then the figure is an estimate and says so.
  */
 export function sessionCost(session: SessionInfo | undefined, messages: SessionMessageInfo[], models: ModelInfo[]) {
-  return messages.reduce((sum, message) => {
-    const step = message as SessionMessageAssistant
-    if (message.type !== "assistant" || !step.tokens) return sum
-    if (step.cost) return sum + step.cost
-    const model = models.find((entry) => entry.providerID === step.model?.providerID && entry.id === step.model?.id)
-    return sum + stepCost(step.tokens, model?.cost)
-  }, session?.cost ?? 0)
+  const steps = messages.flatMap((message) =>
+    message.type === "assistant" && message.tokens ? [message as SessionMessageAssistant] : [],
+  )
+  const counted = session?.cost ?? steps.reduce((sum, step) => sum + (step.cost ?? 0), 0)
+  const estimate = steps
+    .filter((step) => !step.cost)
+    .reduce((sum, step) => {
+      const model = models.find((entry) => entry.providerID === step.model?.providerID && entry.id === step.model?.id)
+      return sum + stepCost(step.tokens!, model?.cost)
+    }, 0)
+  return { cost: counted + estimate, estimated: estimate > 0 }
 }
 
 export type ContextFigures = {
   used: number
   limit: number
   cost: number
+  /** Some of `cost` was priced here because the engine left a step unpriced (TI-05). */
+  costEstimated?: boolean
   tokens?: { input: number; output: number; reasoning: number }
   /**
    * The figure sizes the text the engine will send next instead of a finished step. It is set
@@ -290,7 +300,9 @@ export function contextFigures(
     .findLast(
       (message): message is SessionMessageAssistant => message.type === "assistant" && hasTokens(message.tokens),
     )
-  const cost = sessionCost(session, messages, models)
+  const spent = sessionCost(session, messages, models)
+  const cost = spent.cost
+  const costEstimated = spent.estimated ? { costEstimated: true } : {}
   if (measured) {
     const tokens = measured.tokens!
     const at = compactionAt(model, compaction)
@@ -298,16 +310,24 @@ export function contextFigures(
       used: tokens.input + tokens.cache.read,
       limit,
       cost,
+      ...costEstimated,
       tokens: { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning },
       ...(at !== undefined ? { compaction: { at, count: overflowCount(tokens) } } : {}),
     }
   }
   if (boundary >= 0)
-    return { used: standingTokens(messages) + sentTokens(messages.slice(boundary)), limit, cost, estimated: true }
+    return {
+      used: standingTokens(messages) + sentTokens(messages.slice(boundary)),
+      limit,
+      cost,
+      ...costEstimated,
+      estimated: true,
+    }
   return {
     used: (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0),
     limit,
     cost,
+    ...costEstimated,
   }
 }
 
@@ -367,6 +387,18 @@ type ToolPartState = {
   output?: string
   error?: string | { message?: string }
   content?: Array<{ text?: string }>
+}
+
+/**
+ * Money, to the cent when it is money and to four places when it is not yet.
+ *
+ * A run that cost $0.0034 shows as $0.00 at two places, which reads as free. It was not free — it
+ * is the number that turns into real money once it happens two hundred times. Every cost the app
+ * prints goes through here, so the same value reads the same on every screen (TI-05).
+ */
+export function money(value: number) {
+  if (value === 0) return "$0"
+  return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
 }
 
 export function formatTokens(value: number) {
