@@ -93,5 +93,6 @@ export function initRemoteHost() {
   ipcMain.handle("flupcode:remote-cancel-pair", () => host.cancelPairing())
   ipcMain.handle("flupcode:remote-revoke", (_event, id: string) => host.revokeDevice(String(id)))
 
-  return { stop: host.stop }
+  // The renderer's CSP lets the page reach this relay and no other remote origin (TI-17).
+  return { stop: host.stop, relay: () => host.state().relay }
 }
