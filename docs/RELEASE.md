@@ -141,6 +141,7 @@ plate. The approved geometry (defined in `script/branding.swift` `targets`) is:
 | `packages/harness/public/icon-maskable-512.png` | 512x512 | full-bleed | `fraction: 0.50` (~256x324, maskable safe zone) |
 | `packages/landing/assets/apple-touch-icon.png` | 180x180 | full-bleed | `fraction: 0.52` (~93x118) |
 | `packages/landing/assets/icon-192.png` | 192x192 | full-bleed | `fraction: 0.52` (~99x126) |
+| `packages/bridge-extension/icons/icon-{16,32,48,128}.png` | 16 to 128 | full-bleed, plate shape read from `harness/public/icon-512.png` | `fraction: 0.52` (~66x84 at 128) |
 | `packages/landing/assets/og.png` | 1200x630 | full-bleed | `fraction: 0.68` on height basis (~337x428) |
 | `packages/harness/src/assets/flupcode-logo.png`, `packages/landing/assets/flupcode-logo.png` | 256 / 320 | transparent (no plate) | artwork fit `0.90` |
 

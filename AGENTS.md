@@ -6,7 +6,8 @@ What FlupCode adds to the engine ships as plugins (`packages/remote/src/engine-p
 
 - Packages: `harness` (web app), `harness-desktop` (Electron), `harness-server` (loopback server),
   `remote` (engine install, plugins, proxy, remote control), `relay`, `flupcode-cli`,
-  `engine-contract` (tests against the real binary), `landing`.
+  `engine-contract` (tests against the real binary), `bridge-extension` (FlupCode Bridge, the MV3
+  extension for the user's own browser), `landing`.
 - The engine version is one pin: `OPENCODE_V2_VERSION` in `packages/remote/src/opencode-v2.ts` and
   `@opencode/client` in the `package.json` files. Move it with `bun script/opencode-pin.ts bump`
   (see `docs/UPSTREAM.md`); CI checks they agree.
@@ -42,7 +43,7 @@ Examples: `fix(harness): keep the scroll position`, `docs: update contributing g
 
 - Never hand-edit raster brand assets. Regenerate them with `swift script/branding.swift` (macOS only).
 - Source of truth is `assets/flupcode-tentative-logo.png` on a `#FFEDD5` plate.
-- Brand geometry lives in `script/branding.swift` (`targets`): desktop `icon.png` full-bleed plate at artwork `fraction: 0.60`; mac `icon-mac.png` plate `scale: 0.805` (macOS 824/1024 grid) with artwork `fraction: 0.60`; web/PWA plate icons (`apple-touch-icon.png`, `icon-192.png`, `icon-512.png` in harness and landing) at `fraction: 0.52`; `icon-maskable-512.png` at `0.50` (maskable safe zone); `og.png` (1200x630) at `fraction: 0.68` on height basis; transparent `flupcode-logo.png` artwork fit at `0.90`. See "Icon geometry" in `docs/RELEASE.md` and keep these values so every build mounts the same icon.
+- Brand geometry lives in `script/branding.swift` (`targets`): desktop `icon.png` full-bleed plate at artwork `fraction: 0.60`; mac `icon-mac.png` plate `scale: 0.805` (macOS 824/1024 grid) with artwork `fraction: 0.60`; web/PWA plate icons (`apple-touch-icon.png`, `icon-192.png`, `icon-512.png` in harness and landing, and the bridge extension's `icons/icon-16..128.png`) at `fraction: 0.52`; `icon-maskable-512.png` at `0.50` (maskable safe zone); `og.png` (1200x630) at `fraction: 0.68` on height basis; transparent `flupcode-logo.png` artwork fit at `0.90`. See "Icon geometry" in `docs/RELEASE.md` and keep these values so every build mounts the same icon.
 
 ## Style Guide
 

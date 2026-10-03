@@ -1,0 +1,12 @@
+{
+  "name": { "message": "FlupCode Bridge" },
+  "description": { "message": "Permite que el agente de FlupCode trabaje en el grupo de pestañas FlupCode de este navegador, y en ningún otro sitio." },
+  "offline": { "message": "Sin conexión. Abre FlupCode en este ordenador." },
+  "pairing": { "message": "Esperando a FlupCode. Pulsa Emparejar allí y comprueba que muestra este código:" },
+  "connected": { "message": "Conectado a FlupCode. El agente solo trabaja en el grupo de pestañas FlupCode." },
+  "handTab": { "message": "Ceder esta pestaña a FlupCode" },
+  "takeBack": { "message": "Recuperar todas las pestañas" },
+  "indicator": { "message": "FlupCode está usando esta pestaña" },
+  "indicatorTakeBack": { "message": "Recuperar" },
+  "port": { "message": "Puerto de FlupCode" }
+}

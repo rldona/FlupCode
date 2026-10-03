@@ -178,3 +178,7 @@ export type BrowserErrorCode =
   | "tab_unavailable"
   | "stale_ref"
   | "not_editable"
+  /** FlupCode Bridge: a tab outside the browser's FlupCode tab group (BU-04). */
+  | "out_of_scope"
+  /** FlupCode Bridge: no paired browser is connected (BU-04). */
+  | "browser_unavailable"

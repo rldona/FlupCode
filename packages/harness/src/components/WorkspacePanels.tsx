@@ -12,7 +12,7 @@ import {
 } from "solid-js"
 import { createResource } from "../resource"
 import type { SessionInfo } from "../engine-types"
-import { createClient, createHarnessClient, type AgentBrowserSession } from "../client"
+import { createClient, createHarnessClient, type AgentBrowserSession, type BridgeStatus } from "../client"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 import { FileDiff } from "./FileDiff"
@@ -27,6 +27,8 @@ type WorkspacePanelsProps = {
   harnessServerUrl: string
   session: SessionInfo | undefined
   width: number
+  /** Whether the harness offers FlupCode Bridge (BU-04): the person's own browser, paired from here. */
+  bridge?: boolean
   /** Changes whenever messages or VCS status refresh, so the diff panel stays in sync. */
   revision?: unknown
   /** Project-relative paths in session order, most recently changed last. */
@@ -40,6 +42,8 @@ type WorkspacePanelsProps = {
 
 /** How often the live view polls the latest frame while a browser session is open. */
 const AGENT_FRAME_POLL_MS = 2000
+/** How often the panel looks for a browser waiting to pair while it shows no session (BU-04). */
+const BRIDGE_POLL_MS = 3000
 /** How long the live view waits after a resize settles before asking the page to match it. */
 const VIEWPORT_DEBOUNCE_MS = 200
 /** The same ceiling the server clamps to, so the echoed size matches the one that was asked for. */
@@ -51,7 +55,9 @@ const MAX_VIEWPORT = 4096
  * Release lets it carry on; Stop ends the run. Without the desktop's token the controls are refused
  * and the panel only watches.
  */
-const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string | undefined }> = (props) => {
+const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string | undefined; bridge?: boolean }> = (
+  props,
+) => {
   // The run's status: `undefined` while it loads, `null` when no browser session is open.
   const [status, setStatus] = createSignal<AgentBrowserSession | null | undefined>(undefined)
   const [frame, setFrame] = createSignal<string | undefined>()
@@ -145,7 +151,8 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
 
   const refreshFrame = () => {
     const sessionID = props.sessionID
-    if (!sessionID || inflight) return Promise.resolve()
+    // The person's own browser has no frame here: they are looking at it.
+    if (!sessionID || inflight || status()?.driver === "bridge") return Promise.resolve()
     inflight = (async () => {
       try {
         const next = await client().agentBrowser.frame(sessionID, { store: false })
@@ -304,6 +311,13 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
               >
                 {busy() === "attach" ? t("Loading…") : t("Give the agent a browser")}
               </button>
+              <Show when={props.bridge}>
+                <BridgeSection
+                  harnessServerUrl={props.harnessServerUrl}
+                  busy={busy() !== undefined}
+                  onAttach={() => act("bridge", (id) => client().agentBrowser.attach(id, "bridge"))}
+                />
+              </Show>
               <Show when={notice()}>
                 <span class="fc-agent-browser-notice">{notice()}</span>
               </Show>
@@ -311,7 +325,33 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
           }
         >
           {(live) => (
-            <>
+            <Show
+              when={live().driver !== "bridge"}
+              fallback={
+                <div class="fc-empty-state fc-agent-browser-empty">
+                  <span class="fc-empty-title">{t("Your browser")}</span>
+                  <span class="fc-agent-browser-url" title={live().url}>
+                    {live().title || live().url}
+                  </span>
+                  <span class="fc-empty-hint">
+                    {t(
+                      "The agent works in your browser, only in the FlupCode tab group. Take it back there: Cancel on the bar at the top of the browser, or Take back on the page.",
+                    )}
+                  </span>
+                  <button
+                    class="fc-button"
+                    type="button"
+                    disabled={busy() !== undefined}
+                    onClick={() => act("stop", (id) => client().agentBrowser.stop(id))}
+                  >
+                    {busy() === "stop" ? t("Loading…") : t("Stop")}
+                  </button>
+                  <Show when={notice()}>
+                    <span class="fc-agent-browser-notice">{notice()}</span>
+                  </Show>
+                </div>
+              }
+            >
               <div class="fc-agent-browser-viewport" ref={(element) => setViewportHost(element)}>
                 <Show when={frame()} fallback={<div class="fc-agent-browser-frame fc-agent-browser-waiting" />}>
                   {(src) => <img class="fc-agent-browser-frame" src={src()} alt={live().title || live().url} />}
@@ -352,7 +392,7 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
               <Show when={notice()}>
                 <span class="fc-agent-browser-notice">{notice()}</span>
               </Show>
-            </>
+            </Show>
           )}
         </Show>
       </Show>
@@ -453,6 +493,103 @@ const TITLES: Record<string, string> = {
     the left sidebar by design, so both rails match. */
 export const WORKSPACE_WIDTH_DEFAULT = SIDEBAR_WIDTH_DEFAULT
 
+/**
+ * FlupCode Bridge in the panel (BU-04): pairing is the one click on Pair, for the browser that shows
+ * the same code in its toolbar popup; once paired, the agent can be handed that browser. Polled while
+ * shown, because a browser that starts looking for the app is not an event the harness announces.
+ */
+const BridgeSection: Component<{ harnessServerUrl: string; busy: boolean; onAttach: () => void }> = (props) => {
+  const [bridge, setBridge] = createSignal<BridgeStatus | undefined>()
+  const [pending, setPending] = createSignal(false)
+  const [notice, setNotice] = createSignal("")
+  const client = () => createHarnessClient(props.harnessServerUrl)
+  const refresh = () =>
+    void client()
+      .bridge.status()
+      .then(setBridge)
+      .catch(() => undefined)
+  const run = (call: () => Promise<unknown>) => {
+    setPending(true)
+    setNotice("")
+    void call()
+      .catch((cause) => setNotice(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => {
+        setPending(false)
+        refresh()
+      })
+  }
+  createEffect(() => {
+    refresh()
+    const timer = setInterval(refresh, BRIDGE_POLL_MS)
+    onCleanup(() => clearInterval(timer))
+  })
+  return (
+    <div class="fc-agent-browser-bridge">
+      <span class="fc-empty-title">{t("Your browser")}</span>
+      <Show
+        when={bridge()?.connected}
+        fallback={
+          <Show
+            when={(bridge()?.waiting.length ?? 0) > 0}
+            fallback={
+              <span class="fc-empty-hint">
+                {t("Install FlupCode Bridge in Chrome or Edge with this app open: your browser shows up here to pair.")}
+              </span>
+            }
+          >
+            <For each={bridge()?.waiting ?? []}>
+              {(waiting) => (
+                <div class="fc-agent-browser-bridge-row">
+                  <span class="fc-empty-hint">
+                    {t("{browser} wants to connect. Check that FlupCode Bridge shows {code}.", {
+                      browser: waiting.browser,
+                      code: waiting.code,
+                    })}
+                  </span>
+                  <button
+                    class="fc-button"
+                    type="button"
+                    disabled={pending()}
+                    onClick={() => run(() => client().bridge.pair(waiting.id))}
+                  >
+                    {t("Pair")}
+                  </button>
+                </div>
+              )}
+            </For>
+          </Show>
+        }
+      >
+        {(connected) => (
+          <>
+            <span class="fc-empty-hint">
+              {t("{browser} is connected. The agent works only in its FlupCode tab group.", {
+                browser: connected().browser,
+              })}
+            </span>
+            <div class="fc-agent-browser-bridge-row">
+              <button class="fc-button" type="button" disabled={props.busy || pending()} onClick={() => props.onAttach()}>
+                {t("Give the agent your browser")}
+              </button>
+              <button
+                class="fc-button"
+                type="button"
+                disabled={pending()}
+                onClick={() => run(() => client().bridge.forget(connected().id))}
+              >
+                {t("Forget")}
+              </button>
+            </div>
+          </>
+        )}
+      </Show>
+      <Show when={notice()}>
+        <span class="fc-agent-browser-notice">{notice()}</span>
+      </Show>
+    </div>
+  )
+}
+
 export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
   const [container, setContainer] = createSignal<HTMLElement>()
 
@@ -494,7 +631,11 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                 </button>
               </div>
               <Show when={kind === "agent-browser"}>
-                <AgentBrowserPanel harnessServerUrl={props.harnessServerUrl} sessionID={props.session?.id} />
+                <AgentBrowserPanel
+                  harnessServerUrl={props.harnessServerUrl}
+                  sessionID={props.session?.id}
+                  bridge={props.bridge}
+                />
               </Show>
               <Show when={kind === "diff"}>
                 <DiffPanel

@@ -346,6 +346,16 @@ export type AgentBrowserSession = {
   title: string
   /** The page's current viewport, so the panel knows whether its own size was applied. */
   viewport?: { width: number; height: number }
+  /** The person's own browser through FlupCode Bridge (BU-04): no frame, no takeover, it is theirs. */
+  driver?: "bridge"
+}
+
+/** FlupCode Bridge as the app shows it (BU-04): the browser connected, the ones waiting to pair. */
+export type BridgeStatus = {
+  connected: { id: string; browser: string } | null
+  waiting: Array<{ id: string; browser: string; code: string }>
+  paired: Array<{ id: string; browser: string; created: number; lastSeen: number }>
+  sessionID: string | null
 }
 
 /**
@@ -538,9 +548,15 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      */
     agentBrowser: {
       session: (sessionID: string) => agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/session"),
-      /** Hands the agent a browser for this session (BU-05): the engine's browser tools then work there. */
-      attach: (sessionID: string) =>
-        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/attach", { method: "POST" }),
+      /**
+       * Hands the agent a browser for this session (BU-05): the engine's browser tools then work there.
+       * `bridge` hands it the person's own browser through FlupCode Bridge instead (BU-04).
+       */
+      attach: (sessionID: string, driver?: "bridge") =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/attach", {
+          method: "POST",
+          ...(driver ? { body: JSON.stringify({ driver }) } : {}),
+        }),
       pause: (sessionID: string) =>
         agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/pause", { method: "POST" }),
       resume: (sessionID: string) =>
@@ -583,6 +599,19 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       },
     },
     // The browser policy's standing grants (BU-01): listed and revoked from the settings.
+    /** FlupCode Bridge's pairing (BU-04): one click pairs the browser waiting with a code. */
+    bridge: {
+      status: () => harnessAuthorizedJson<BridgeStatus>(baseUrl, "/harness/bridge"),
+      pair: (id: string) =>
+        harnessAuthorizedJson<{ id: string }>(baseUrl, "/harness/bridge/pair", {
+          method: "POST",
+          body: JSON.stringify({ id }),
+        }),
+      forget: (id: string) =>
+        harnessAuthorizedJson<{ forgotten: boolean }>(baseUrl, `/harness/bridge/paired/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+        }),
+    },
     browserPolicy: {
       grants: () => harnessAuthorizedJson<BrowserGrant[]>(baseUrl, "/harness/browser-policy/grants"),
       revoke: (id: string) =>
