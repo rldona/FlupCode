@@ -14,17 +14,19 @@
 
 import type { Arm } from "./holdout"
 import { createHash } from "node:crypto"
-import type { EpisodeOutcome } from "./episode"
 import type { CompletionAnswer, CompletionState } from "./decisions/completion"
 import type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
 import type { ContextItemAnswer, ContextItemState } from "./decisions/context-item"
 import type { FailureAnswer, FailureState } from "./decisions/failure"
+import type { SkillReflectionAnswer, SkillReflectionState } from "./decisions/skill-reflection"
 
 export type { CompletionAnswer, CompletionState } from "./decisions/completion"
 export type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
 export type { ContextItemAnswer, ContextItemState, ItemDisposition } from "./decisions/context-item"
 export { ITEM_DISPOSITIONS } from "./decisions/context-item"
 export type { FailureAnswer, FailureState } from "./decisions/failure"
+export type { ReflectionIntent, SkillReflectionAnswer, SkillReflectionState } from "./decisions/skill-reflection"
+export { REFLECTION_INTENTS, isReflectionIntent } from "./decisions/skill-reflection"
 export type { ContextItem, ContextItemKind } from "./context-items"
 export {
   CONTEXT_ITEM_KINDS,
@@ -32,43 +34,6 @@ export {
   PROTECTED_CONTEXT_KINDS,
   isContextItemKind,
 } from "./context-items"
-
-/**
- * The change a reusable lesson calls for (FH-031). `merge` and `drop` are declared so the vocabulary
- * is closed and a model adapter can parse them, but Phase 3b rejects both with a reason: only `add`
- * and `patch` are implemented, and `merge`/`drop` are later phases (ADR-0020 §9).
- */
-export const REFLECTION_INTENTS = ["add", "patch", "merge", "drop"] as const
-export type ReflectionIntent = (typeof REFLECTION_INTENTS)[number]
-
-export const isReflectionIntent = (value: unknown): value is ReflectionIntent =>
-  typeof value === "string" && (REFLECTION_INTENTS as readonly string[]).includes(value)
-
-export type SkillReflectionAnswer = {
-  reusable: boolean
-  intent: ReflectionIntent
-  /** The name of the existing skill a `patch`/`merge` points at, when one was chosen. */
-  target?: string
-}
-
-// ---- states per kind (bounded; never a session's raw state) ----------------------------------
-
-/**
- * What a closed episode offers a reflection decision (FH-031).
- *
- * Bounded signals and a roster, never a transcript: the decision is *whether* a lesson is reusable
- * and *what* it calls for, and the small model drafts the text afterwards. `skills` is the current
- * roster so a `patch`/`merge` can point at a real skill by name.
- */
-export type SkillReflectionState = {
-  episodeID: string
-  objective: string
-  outcome: EpisodeOutcome
-  toolCalls: number
-  /** Bounded, deterministic signals ("verify:test ok", "file:src/x.ts", "failure:…"). */
-  signals: string[]
-  skills: Array<{ name: string; description: string; learned: boolean }>
-}
 
 /**
  * The map that defines the kinds and correlates each state with its answer. Each has a caller:

@@ -10,14 +10,13 @@
  * one before any model sees them; `readAnswers` maps the answers back by position.
  */
 
-import { REFLECTION_INTENTS, isReflectionIntent } from "./decision"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
 import type { Answer, Question } from "./predictive/model"
 import { completion } from "./decisions/completion"
 import { skillRelevance } from "./decisions/skill-relevance"
 import { contextItem } from "./decisions/context-item"
 import { failure } from "./decisions/failure"
-import { chosen, isOneOf, weakest, yes } from "./decisions/define"
+import { skillReflection } from "./decisions/skill-reflection"
 
 /** The questions one state asks, one plan per kind so adding a kind does not compile until it is asked. */
 type QuestionPlanner = {
@@ -29,31 +28,7 @@ const questionPlans: QuestionPlanner = {
   skillRelevance: skillRelevance.questions,
   contextItem: contextItem.questions,
   failure: failure.questions,
-  // One request per episode: `reusable` is the gate, `intent` is what the lesson calls for, and
-  // `target` is only asked when there is a roster to point at (a state with no skills asks two).
-  skillReflection: (state) => [
-    {
-      id: "reusable",
-      type: "binary",
-      prompt: `Does this episode contain a reusable, non-obvious lesson for a future task? Objective: ${state.objective}. Signals: ${state.signals.join("; ")}`,
-    },
-    {
-      id: "intent",
-      type: "choice",
-      prompt: "Which change does the lesson call for?",
-      options: [...REFLECTION_INTENTS],
-    },
-    ...(state.skills.length > 0
-      ? [
-          {
-            id: "target",
-            type: "choice" as const,
-            prompt: "Which existing skill should it target, if any?",
-            options: state.skills.map((skill) => skill.name).slice(0, 255),
-          },
-        ]
-      : []),
-  ],
+  skillReflection: skillReflection.questions,
 }
 
 /** The questions a request asks, from its kind and state; the one planner every caller shares. */
@@ -86,25 +61,7 @@ const answerReaders: AnswerReader = {
   skillRelevance: skillRelevance.read,
   contextItem: contextItem.read,
   failure: failure.read,
-  // The binary gate decides reusable; a missing or unrecognised intent falls to the safe `add`, and
-  // the target is only carried when the model named one. The service folds the gate's certainty into
-  // the reported confidence and keeps the weakest, so a noisy intent can pull a confident gate below
-  // the policy and the service degrades to inert.
-  skillReflection: (answers) => {
-    const reusable = yes(answers.reusable)
-    if (reusable === undefined) return undefined
-    const intent = chosen(answers.intent)
-    const target = chosen(answers.target)
-    return {
-      answer: {
-        reusable: reusable >= 0.5,
-        intent: isReflectionIntent(intent) ? intent : "add",
-        ...(target ? { target } : {}),
-      },
-      ...weakest([answers.reusable, answers.intent]),
-      probabilities: { reusable },
-    }
-  },
+  skillReflection: skillReflection.read,
 }
 
 /**
