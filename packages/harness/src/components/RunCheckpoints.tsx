@@ -46,7 +46,7 @@ export const RunCheckpoints: Component<RunCheckpointsProps> = (props) => {
     setTick((value) => value + 1)
   }
   return (
-    <details class="fc-run-files fc-run-timeline" onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details class="fc-run-timeline" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>
         {t("Checkpoints")} <span class="fc-run-count">{props.count}</span>
       </summary>

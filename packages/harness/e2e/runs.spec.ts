@@ -805,9 +805,11 @@ test("a worktree task opens the tree it ran in", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
 
-  // The run's footer opens its points, in the tree they were taken in (UX-04).
+  // The run's footer opens its timeline of points (CL-3), and from it the folder's list, in the tree
+  // they were taken in (UX-04).
   await expect(page.locator(".fc-run-node")).toHaveCount(1)
-  await page.locator(".fc-run-foot").getByRole("button", { name: /Checkpoints|Puntos de retorno/ }).click()
+  await page.locator(".fc-run-foot .fc-run-timeline summary").click()
+  await page.getByRole("button", { name: /Every checkpoint of this folder|Todos los puntos de retorno/ }).click()
 
   // The Changes screen opened for the worktree folder, not for the run's: the kicker names it.
   await expect(page.locator(".fc-routines-kicker").first()).toHaveText("review")
@@ -895,7 +897,7 @@ test("a running workflow's graph shows each task's state, and no label repeats o
 
   // What it left behind is its footer: its checkpoints, the files they changed and its artifacts.
   const foot = card.locator(".fc-run-foot")
-  await expect(foot.getByRole("button", { name: /Checkpoints|Puntos de retorno/ })).toContainText("1")
+  await expect(foot.locator(".fc-run-timeline summary")).toContainText("1")
   await expect(foot.locator(".fc-run-files summary")).toHaveText(/1 files|1 archivos/)
   await expect(foot.locator(".fc-artifact-kind")).toHaveText([/handoff|traspaso/, /verdict|veredicto/])
 

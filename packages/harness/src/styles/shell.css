@@ -12308,6 +12308,15 @@ button.fc-status {
 }
 
 /* A run's timeline of checkpoints (CL-3): one point per task, what was decided and spent by then. */
+.fc-run-timeline {
+  font-size: var(--fc-text-xs);
+}
+
+.fc-run-timeline summary {
+  color: var(--fc-text-muted);
+  cursor: pointer;
+}
+
 .fc-run-foot .fc-run-timeline[open] {
   flex-basis: 100%;
 }
