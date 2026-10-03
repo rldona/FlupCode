@@ -21,5 +21,5 @@ test("a screen and a dialog never opened before still open offline", async ({ pa
   await expect(page.getByRole("heading", { name: "Routines", exact: true })).toBeVisible()
 
   await page.goto("/?dialog=settings")
-  await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible()
 })

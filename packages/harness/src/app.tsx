@@ -101,7 +101,6 @@ export const App: Component = () => {
                 onCollapse={app.settings.toggleSidebar}
                 onCopyPath={app.sessions.copyPath}
                 onRefresh={app.sessions.refresh}
-                onSettings={() => app.router.setSettingsOpen(true)}
                 onRoutines={(focus) => {
                   app.runs.setRoutineFocus(focus)
                   app.router.showScreen("routines")
@@ -109,20 +108,13 @@ export const App: Component = () => {
                 routines={app.runs.routines()}
                 onSearch={() => app.router.setPaletteOpen(true)}
                 activeScreen={app.router.screen()}
-                onRuns={() => app.router.showScreen("runs")}
-                onUsage={() => app.router.showScreen("usage")}
-                onContext={() => app.router.showScreen("context")}
-                onDecisions={() => app.router.showScreen("decisions")}
-                onAgents={() => app.router.showScreen("agents")}
-                onSkills={() => app.router.showScreen("skills")}
-                onWorkflows={() => app.router.showScreen("workflows")}
-                onActions={() => app.router.showScreen("actions")}
-                showActions={app.settings.desktopWindow()}
-                onArtifacts={() => app.router.showScreen("artifacts")}
-                onProviders={() => app.router.openSettings("providers")}
-                onConfig={() => app.router.setConfigOpen(true)}
-                onRemote={() => app.router.setRemoteOpen(true)}
-                onMcp={() => app.router.openSettings("mcp")}
+                onGo={(id) => {
+                  // The nav's Routines is the list, not the routine a row last focused.
+                  if (id === "routines") app.runs.setRoutineFocus(undefined)
+                  app.router.go(id)
+                }}
+                desktop={app.settings.desktopWindow()}
+                keybinds={app.settings.keybinds()}
               />
             </PanelBoundary>
           </Show>
@@ -156,7 +148,7 @@ export const App: Component = () => {
               />
             </PanelBoundary>
             <Show when={app.settings.contextPanelShown()}>
-              <PanelBoundary name={t("The context panel")}>
+              <PanelBoundary name={t("The details panel")}>
                 <RightAside
                   subagents={app.sessions.visibleSubagents()}
                   onClearSubagents={app.sessions.clearSubagents}

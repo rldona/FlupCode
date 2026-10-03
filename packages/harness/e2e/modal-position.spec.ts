@@ -61,10 +61,8 @@ test("Settings sits in the middle of the window, whatever is open around it", as
   await serve(page)
   await page.goto("/")
 
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
   await expect(page.getByRole("heading", { name: /^Appearance$|^Apariencia$/ })).toBeVisible()
   expect(await offsetFromCentre(page, ".fc-modal")).toBeLessThan(2)
 })

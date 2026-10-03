@@ -145,10 +145,8 @@ test("Settings names the engine it is talking to", async ({ page }) => {
   })
   await page.goto("/")
 
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
   await page.getByRole("tab", { name: /Server|Servidor/ }).click()
   const engine = page.locator(".fc-settings-row").filter({ hasText: /^Engine|^Motor/ })
   await expect(engine).toContainText("OpenCode 2.0.18")

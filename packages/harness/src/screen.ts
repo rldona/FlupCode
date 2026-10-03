@@ -1,3 +1,5 @@
+import { MOVED_PATHS, SCREENS, type Screen } from "./navigation"
+
 /**
  * Which full screen is open, written in the URL so a reload comes back to it.
  *
@@ -5,41 +7,18 @@
  * `/runs` with `index.html` instead of a 404: Vite does it on its own, `vercel.json` rewrites it,
  * and the desktop app's renderer protocol falls back to the page for any address that is not a file.
  */
-export type Screen =
-  | "routines"
-  | "runs"
-  | "artifacts"
-  | "changes"
-  | "usage"
-  | "context"
-  | "decisions"
-  | "agents"
-  | "skills"
-  | "files"
-  | "workflows"
-  | "actions"
-  | "compare"
-
-const SCREENS: readonly Screen[] = [
-  "routines",
-  "runs",
-  "artifacts",
-  "changes",
-  "usage",
-  "context",
-  "decisions",
-  "agents",
-  "skills",
-  "files",
-  "workflows",
-  "actions",
-  "compare",
-]
+export type { Screen } from "./navigation"
 
 /** The screen the path names, if it names one. Anything else is the home screen. */
 export function screenFromPath(pathname: string): Screen | undefined {
   const name = pathname.replace(/^\/+/, "").replace(/\/+$/, "")
   return SCREENS.find((screen) => screen === name)
+}
+
+/** The destination an address from before UX-01 leads to now (see `MOVED_PATHS`), if it is one. */
+export function movedFromPath(pathname: string) {
+  const name = pathname.replace(/^\/+/, "").replace(/\/+$/, "")
+  return Object.hasOwn(MOVED_PATHS, name) ? MOVED_PATHS[name] : undefined
 }
 
 /**

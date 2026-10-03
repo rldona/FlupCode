@@ -153,10 +153,11 @@ async function setup(page: Page, desktop: boolean) {
 }
 
 async function open(page: Page) {
-  // The editor is desktop-only: the e2e browser fakes the desktop bridge so the nav item renders.
+  // The editor is desktop-only: the e2e browser fakes the desktop bridge so the menu item renders.
   const { calls } = await setup(page, true)
-  // The nav item, not a session that happens to be called "Actions".
-  await page.locator(".fc-nav").getByRole("button", { name: /Actions|Acciones/ }).click()
+  // The profile menu's item (UX-01), not a session that happens to be called "Actions".
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Actions|Acciones)$/).click()
   const screen = page.locator(".fc-actions-screen")
   await expect(screen).toBeVisible()
   return { screen, calls }
@@ -221,11 +222,14 @@ test("/actions with a request sends it to the agent instead of opening the scree
   await expect(page.locator(".fc-actions-screen")).toHaveCount(0)
 })
 
-test("hides the Actions nav and the agent browser toggle outside the desktop app", async ({ page }) => {
+test("hides Actions and the agent browser toggle outside the desktop app", async ({ page }) => {
   await setup(page, false)
   // The Code nav rendered, so absence below is the web build hiding entries, not a loading page.
   await expect(page.locator(".fc-nav").getByRole("button", { name: /Runs/ })).toBeVisible()
-  await expect(page.locator(".fc-nav").getByRole("button", { name: /Actions|Acciones/ })).toHaveCount(0)
+  await page.locator(".fc-profile-button").click()
+  await expect(page.locator(".fc-menu").getByText("Remote control", { exact: true })).toBeVisible()
+  await expect(page.locator(".fc-menu").getByText(/^(Actions|Acciones)$/)).toHaveCount(0)
+  await page.keyboard.press("Escape")
   await expect(page.getByRole("button", { name: /Agent browser|Navegador del agente/ })).toHaveCount(0)
 })
 

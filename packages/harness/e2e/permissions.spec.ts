@@ -145,10 +145,8 @@ test("a permission granted once and remembered forever can be taken back", async
   const recorded = await openBlockedSession(page, {
     saved: [{ id: "sav_1", projectID: "p", action: "bash", resource: "rm -rf *" }],
   })
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
   await page.getByRole("tab", { name: /Permissions|Permisos/ }).click()
 
   const row = page.locator(".fc-saved-permissions li").filter({ hasText: "rm -rf *" })

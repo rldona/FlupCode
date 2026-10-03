@@ -13,10 +13,6 @@ export default function RemoteRoute() {
         app.router.setRemoteOpen(false)
         remote.dismissPairing()
       }}
-      onBack={() => {
-        app.router.setRemoteOpen(false)
-        app.router.setSettingsOpen(true)
-      }}
     />
   )
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { BUILTIN_COMMANDS, COMMAND_GROUPS, builtinCommand, runBuiltin, type CommandContext } from "./commands"
+import { DESTINATIONS } from "./navigation"
 
 /** A context that writes down what it was asked to do, as `name(args)`. */
 function recorder(input: { session?: string; draft?: string } = {}) {
@@ -14,9 +15,7 @@ function recorder(input: { session?: string; draft?: string } = {}) {
     draft: input.draft ?? "",
     notify: record("notify"),
     newSession: record("newSession"),
-    showScreen: record("showScreen"),
-    openSettings: record("openSettings"),
-    open: record("open"),
+    go: record("go"),
     send: record("send"),
     stash: record("stash"),
     compact: record("compact"),
@@ -42,7 +41,6 @@ const EXPECTED: Record<string, string> = {
   resume: "resume()",
   skillify: "skillify()",
   stash: "stash(draft)",
-  stashes: "open(stashes)",
   rename: "rename(ses_1)",
   pin: "pin(ses_1)",
   split: "split(ses_1)",
@@ -50,23 +48,10 @@ const EXPECTED: Record<string, string> = {
   "next-tab": "cycleTab(1)",
   "prev-tab": "cycleTab(-1)",
   "close-tab": "closeTab(ses_1)",
-  files: "showScreen(files)",
-  artifacts: "showScreen(artifacts)",
-  skills: "open(skills)",
-  workflows: "showScreen(workflows)",
-  routines: "showScreen(routines)",
-  actions: "showScreen(actions)",
-  compare: "showScreen(compare)",
-  "best-of-n": "open(best-of-n)",
-  memory: "open(memory)",
   steps: "toggleSteps()",
   "toggle-sidebar": "toggleSidebar()",
-  settings: "open(settings)",
-  providers: "openSettings(providers)",
-  mcp: "openSettings(mcp)",
-  config: "open(config)",
-  remote: "open(remote)",
-  about: "open(about)",
+  // A destination's `/name` opens that destination, the way the sidebar and the search do (UX-01).
+  ...Object.fromEntries(DESTINATIONS.flatMap((entry) => (entry.command ? [[entry.command, `go(${entry.id})`]] : []))),
 }
 
 describe("the built-in commands", () => {
@@ -113,6 +98,33 @@ describe("the built-in commands", () => {
     const actions = recorder()
     runBuiltin("actions", "book a table", actions.context)
     expect(actions.calls).toEqual(["send(book a table)"])
+  })
+
+  test("every name typed before UX-01 still opens the same place", () => {
+    // Muscle memory: these were the `/` names of screens and dialogs, some under other titles.
+    const before: Record<string, string> = {
+      files: "files",
+      artifacts: "artifacts",
+      skills: "skills",
+      workflows: "workflows",
+      routines: "routines",
+      actions: "actions",
+      compare: "compare",
+      "best-of-n": "best-of-n",
+      memory: "memory",
+      stashes: "stashes",
+      settings: "settings",
+      providers: "settings-providers",
+      mcp: "settings-mcp",
+      config: "config",
+      remote: "remote",
+      about: "about",
+    }
+    for (const [name, id] of Object.entries(before)) {
+      const { context, calls } = recorder()
+      expect(runBuiltin(name, "", context)).toBe(true)
+      expect(calls).toEqual([`go(${id})`])
+    }
   })
 
   test("a name that is not a built-in is left for the engine", () => {

@@ -25,7 +25,6 @@ const SettingsRoute = lazy(() => import("../settings/SettingsRoute"))
 const FilesRoute = lazy(() => import("../workspace/FilesRoute"))
 const FolderRoute = lazy(() => import("../composer/FolderRoute"))
 const RemoteRoute = lazy(() => import("../settings/RemoteRoute"))
-const SkillPickerRoute = lazy(() => import("../catalog/SkillPickerRoute"))
 const MemoryRoute = lazy(() => import("../workspace/MemoryRoute"))
 const ConfigRoute = lazy(() => import("../catalog/ConfigRoute"))
 const ConfigFilesRoute = lazy(() => import("../catalog/ConfigFilesRoute"))
@@ -161,9 +160,6 @@ export function Dialogs() {
       <Lazily when={app.router.remoteOpen()}>
         <RemoteRoute />
       </Lazily>
-      <Lazily when={app.router.skillsOpen()}>
-        <SkillPickerRoute />
-      </Lazily>
       <Lazily when={app.router.memoryOpen()}>
         <MemoryRoute />
       </Lazily>
@@ -174,7 +170,7 @@ export function Dialogs() {
         <ConfigFilesRoute />
       </Lazily>
       <ImagePreview />
-      {/* Drawn last: the warning opens over the modal that asked for the change (Customize, the picker). */}
+      {/* Drawn last: the warning opens over the modal that asked for the change (Settings, the picker). */}
       <ModelSwitchDialog
         open={!!app.composer.pendingModelSwitch()}
         from={app.composer.pendingModelSwitch()?.from ?? ""}

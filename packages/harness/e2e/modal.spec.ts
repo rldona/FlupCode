@@ -115,7 +115,6 @@ const LINKED = [
   "about",
   "stashes",
   "remote",
-  "skills",
   "best-of-n",
   "memory",
   "config",

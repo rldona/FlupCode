@@ -107,25 +107,9 @@ export default function SettingsRoute() {
       consoleActive={app.catalog.consoleActive()}
       consoleOrgs={app.catalog.consoleOrgs() ?? []}
       onSwitchConsole={app.catalog.switchConsoleOrg}
-      onOpenSkills={() => {
+      onOpen={(id) => {
         app.router.setSettingsOpen(false)
-        app.router.showScreen("skills")
-      }}
-      onOpenRemote={() => {
-        app.router.setSettingsOpen(false)
-        app.router.setRemoteOpen(true)
-      }}
-      onOpenConfig={() => {
-        app.router.setSettingsOpen(false)
-        app.router.setConfigOpen(true)
-      }}
-      onOpenConfigFiles={() => {
-        app.router.setSettingsOpen(false)
-        app.router.setConfigFilesOpen(true)
-      }}
-      onOpenAbout={() => {
-        app.router.setSettingsOpen(false)
-        app.router.setAboutOpen(true)
+        app.router.go(id)
       }}
       adaptive={{
         view: app.catalog.adaptiveSettings(),

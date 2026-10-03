@@ -29,6 +29,9 @@ import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
 import { AdaptiveSettingsPanel, type AdaptiveSettingsState, type ModelKeyChange } from "./AdaptiveSettingsPanel"
 import { Modal } from "./Modal"
+import { DESTINATIONS, SETTINGS_GROUPS, type DestinationId, type SettingsSection } from "../navigation"
+
+export type { SettingsSection }
 
 type SettingsPanelProps = {
   open: boolean
@@ -145,12 +148,8 @@ type SettingsPanelProps = {
   consoleActive?: ConsoleState
   consoleOrgs?: ConsoleOrg[]
   onSwitchConsole?: (org: ConsoleOrg) => void
-  onOpenSkills: () => void
-  onOpenRemote: () => void
-  onOpenConfig: () => void
-  /** The rest of the engine's config files: tools, guards and the global config. */
-  onOpenConfigFiles: () => void
-  onOpenAbout: () => void
+  /** Opens a dialog Settings › Advanced links to (Config, Config files), over Settings' place. */
+  onOpen: (id: DestinationId) => void
   /** The adaptive settings (FH-070): the view, the health capabilities and the write handler. */
   adaptive: AdaptiveSettingsState
   onAdaptivePatch: (patch: Record<string, unknown>, confirm: boolean) => void
@@ -161,84 +160,14 @@ type SettingsPanelProps = {
 
 /** What each bindable action is called, reusing the command names already translated. */
 const KEYBIND_LABELS: Record<KeybindAction, string> = {
-  palette: "Command palette",
+  palette: "Search",
   newSession: "New session",
   toggleSidebar: "Toggle sidebar",
-  toggleContextPanel: "Toggle context panel",
+  toggleContextPanel: "Toggle details panel",
   settings: "Settings",
   compact: "Compact the current session",
   split: "Split view",
 }
-
-export type SettingsSection =
-  | "appearance"
-  | "profile"
-  | "model"
-  | "providers"
-  | "conversation"
-  | "notifications"
-  | "shortcuts"
-  | "permissions"
-  | "commands"
-  | "agents"
-  | "mcp"
-  | "adaptive"
-  | "server"
-  | "advanced"
-
-type SettingsGroup = {
-  label: string
-  items: Array<{ id: SettingsSection; label: string }>
-}
-
-/** The sections, grouped the way the rail shows them. */
-export const SETTINGS_GROUPS: SettingsGroup[] = [
-  {
-    label: "General",
-    items: [
-      { id: "appearance", label: "Appearance" },
-      { id: "profile", label: "Profile" },
-    ],
-  },
-  {
-    label: "Models",
-    items: [
-      { id: "model", label: "Model" },
-      { id: "providers", label: "Providers" },
-    ],
-  },
-  {
-    label: "Interface",
-    items: [
-      { id: "conversation", label: "Conversation" },
-      { id: "notifications", label: "Notifications" },
-      { id: "shortcuts", label: "Shortcuts" },
-    ],
-  },
-  {
-    label: "Automation",
-    items: [
-      { id: "permissions", label: "Permissions" },
-      { id: "commands", label: "Commands" },
-      { id: "agents", label: "Agents" },
-      { id: "mcp", label: "MCP servers" },
-    ],
-  },
-  {
-    label: "Adaptive",
-    items: [{ id: "adaptive", label: "Adaptive" }],
-  },
-  {
-    label: "System",
-    items: [
-      { id: "server", label: "Server" },
-      { id: "advanced", label: "Advanced" },
-    ],
-  },
-]
-
-/** The sections, in the order the rail shows them. */
-export const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((group) => group.items)
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   // The section lives in app (CU-1): resource keys and the sidebar read it, so tab clicks
@@ -282,7 +211,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       onClose={props.onClose}
       backdropClass="fc-modal-backdrop fc-modal-backdrop-settings"
       class="fc-modal fc-modal-wide fc-modal-settings"
-      label={t("Customize")}
+      label={t("Settings")}
     >
       <div class="fc-settings-layout">
         <header class="fc-settings-header">
@@ -748,36 +677,17 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </Show>
 
           <Show when={section() === "advanced"}>
+            {/* Settings holds configuration only (UX-01): the dialogs that edit the engine's own files. */}
             <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Editors")}</h3>
-              <p class="fc-settings-note">
-                {t("Agents live under their own section now; skills keep their screen, where the files they came from are shown.")}
-              </p>
+              <h3 class="fc-settings-title">{t("Advanced")}</h3>
               <div class="fc-settings-grid">
-                <button class="fc-button" type="button" onClick={() => setSection("agents")}>
-                  {t("Agents")}
-                </button>
-                <button class="fc-button" type="button" onClick={props.onOpenSkills}>
-                  {t("Skills")}
-                </button>
-              </div>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Integrations")}</h3>
-              <div class="fc-settings-grid">
-                <button class="fc-button" type="button" onClick={props.onOpenRemote}>
-                  {t("Remote control")}
-                </button>
-                <button class="fc-button" type="button" onClick={props.onOpenConfig}>
-                  {t("Config (advanced)")}
-                </button>
-                <button class="fc-button" type="button" onClick={props.onOpenConfigFiles}>
-                  {t("Config files")}
-                </button>
-                <button class="fc-button" type="button" onClick={props.onOpenAbout}>
-                  {t("About FlupCode")}
-                </button>
+                <For each={DESTINATIONS.filter((entry) => entry.home === "advanced")}>
+                  {(entry) => (
+                    <button class="fc-button" type="button" onClick={() => props.onOpen(entry.id)}>
+                      {t(entry.title)}
+                    </button>
+                  )}
+                </For>
               </div>
             </section>
           </Show>

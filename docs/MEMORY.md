@@ -131,7 +131,7 @@ Open the command palette and run **Memory** (or the memory command). The manager
 - edit content and title, verify anchors, approve candidates, or delete;
 - add a memory manually.
 
-The context panel of a session shows a **Memory** section listing the memories that were retrieved
+The details panel of a session shows a **Memory** section listing the memories that were retrieved
 for that session, so you can see what the agent is relying on.
 
 ## HTTP API

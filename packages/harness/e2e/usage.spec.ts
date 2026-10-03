@@ -126,7 +126,7 @@ const tile = (page: Page, lens: string) => page.locator(`.fc-usage-tile[data-len
 test("the three money lenses read apart, what had no price is counted apart, and nothing is a dash", async ({
   page,
 }) => {
-  await open(page, "/usage")
+  await open(page, "/cost")
 
   // Thirty days: every pay-per-use row ($0.30 + $0.05 + $0.08 + $0.50 + $0.02 + $1.00), as an estimate.
   await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$1.95")
@@ -152,7 +152,7 @@ test("the three money lenses read apart, what had no price is counted apart, and
 })
 
 test("the period is a choice, and it reaches the ledger", async ({ page }) => {
-  const asked = await open(page, "/usage")
+  const asked = await open(page, "/cost")
   await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$1.95")
 
   await page.getByRole("button", { name: /^(7 days|7 días)$/ }).click()
@@ -163,7 +163,7 @@ test("the period is a choice, and it reaches the ledger", async ({ page }) => {
 })
 
 test("the project selector narrows every figure to that project", async ({ page }) => {
-  await open(page, "/usage")
+  await open(page, "/cost")
   await expect(tile(page, "estimated").locator(".fc-usage-tile-value")).toHaveText("~$1.95")
 
   await page.locator(".fc-usage-toolbar select").selectOption("/work/landing")
@@ -177,7 +177,7 @@ test("the project selector narrows every figure to that project", async ({ page 
 test("the group-by switch asks the ledger by that dimension, and every row's figure opens its basis", async ({
   page,
 }) => {
-  const asked = await open(page, "/usage")
+  const asked = await open(page, "/cost")
   const grouped = page.locator(".fc-usage-block").filter({ has: page.locator("#fc-usage-grouped") })
   await expect(grouped.locator(".fc-usage-row").first()).toContainText("anthropic/sonnet")
 
@@ -197,7 +197,7 @@ test("the group-by switch asks the ledger by that dimension, and every row's fig
 })
 
 test("the daily series draws money per lens, and a day opens its figure with its basis", async ({ page }) => {
-  await open(page, "/usage")
+  await open(page, "/cost")
 
   const days = page.locator(".fc-usage-day")
   await expect(days).toHaveCount(30)
@@ -215,7 +215,7 @@ test("the daily series draws money per lens, and a day opens its figure with its
 })
 
 test("the same run costs the same on its card, in the Center and in its session", async ({ page }) => {
-  await open(page, "/usage", "ses_task_a")
+  await open(page, "/cost", "ses_task_a")
   const center = page
     .locator(".fc-usage-block")
     .filter({ has: page.locator("#fc-usage-runs") })
@@ -256,7 +256,7 @@ test("a run's budget is a meter on its card, and a day's budget is set on the Co
   await expect(meter.locator(".fc-budget-meter-note")).toHaveText("1 unpriced model calls not counted")
   await expect(meter.getByRole("meter")).toHaveAttribute("aria-valuetext", "~$0.08 of $0.05")
 
-  await page.goto("/usage")
+  await page.goto("/cost")
   const block = page.locator(".fc-usage-block").filter({ has: page.locator("#fc-usage-budgets") })
   await block.locator(".fc-budget-form label", { hasText: "Limit" }).locator("input").fill("1")
   await block.getByRole("button", { name: "Add" }).click()

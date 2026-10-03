@@ -47,8 +47,8 @@ async function openSettings(page: Page) {
   // The palette itself opens Settings, which is also what the changed key must keep doing.
   await page.keyboard.press("Control+k")
   await page.locator(".fc-palette-input").fill("settings")
-  await page.locator(".fc-palette-item", { hasText: "Customize" }).first().click()
-  await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
+  await page.locator(".fc-palette-item", { hasText: "Settings" }).first().click()
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible()
   // Settings is a rail of sections now, so the shortcuts have to be asked for.
   await page.getByRole("tab", { name: "Shortcuts" }).click()
 }
@@ -57,13 +57,13 @@ test("the palette key can be changed, and the new one opens it", async ({ page }
   await open(page)
   await openSettings(page)
 
-  const keycap = page.locator(".fc-settings-row", { hasText: "Command palette" }).locator(".fc-keycap")
+  const keycap = page.locator(".fc-settings-row", { hasText: "Search" }).locator(".fc-keycap")
   await keycap.click()
   await page.keyboard.press("Control+Shift+J")
   // The capture writes the binding it read, in symbols.
   await expect(keycap).toHaveText("⌘⇧J")
 
-  await page.getByRole("dialog", { name: "Customize" }).getByRole("button", { name: "Close" }).click()
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Close" }).click()
 
   // The old key no longer opens it; the new one does.
   await page.keyboard.press("Control+k")

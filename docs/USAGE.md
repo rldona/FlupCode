@@ -124,8 +124,8 @@ protected your PC": click **More info → Run anyway**.
 
 ## Layout
 
-- **Sidebar** — New session, navigation (Runs, Routines, Artifacts, Personalize), projects with quick
-  create and pinning, and the session list.
+- **Sidebar** — New session, the work (Runs, Workflows, Routines, Artifacts, Cost), projects with quick
+  create and pinning, the session list, and the profile menu at the bottom.
 - **Canvas** — the usage dashboard on the home screen, or the conversation when a session is open.
 - **Composer** — the input dock with attachments, voice, context chips, model/effort and permission modes.
 
@@ -133,7 +133,8 @@ protected your PC": click **More info → Run anyway**.
 
 | Shortcut | Action |
 | --- | --- |
-| `Cmd/Ctrl+K` or `Cmd/Ctrl+P` | Search (sessions, projects, artifacts, routines, runs, commands, files) |
+| `Cmd/Ctrl+K` or `Cmd/Ctrl+P` | Search (every screen and Settings section, sessions, projects, artifacts, routines, runs, commands, files) |
+| `Cmd/Ctrl+,` | Settings |
 | `Enter` | Send |
 | `Shift+Enter` | New line |
 | `Esc` | Close dialogs / palette |
@@ -159,7 +160,7 @@ code sessions; each tab has its own list, home and input.
 
 - A chat is a plain conversation: the model can search and read the web, but cannot read, write or
   run anything on your computer. Chats have no folder, agent, permission mode, workspace panels
-  or context panel.
+  or details panel.
 - Chats are sessions the engine keeps in its own state folder (`GET /path` → `state`), so every
   device paired with the same computer sees the same chats.
 - They are sent through the engine's legacy prompt (the one that accepts a system prompt), and
@@ -189,7 +190,7 @@ Run and follow several sessions side by side (usually two). Right-click a sessio
 choose **Split view**: it opens next to the open session, each with its own header, transcript, live
 stream, permission and question prompts, and input.
 
-- Click a pane to focus it. The sidebar, the top bar and the context panel follow the focused pane, and
+- Click a pane to focus it. The sidebar, the top bar and the details panel follow the focused pane, and
   opening another session from the sidebar shows it there.
 - Chats and code sessions can share a split. Up to four panes; closing down to one returns to the
   single view. The split is remembered across reloads.
@@ -202,6 +203,17 @@ stream, permission and question prompts, and input.
 **New** and, beside it, a magnifier. There is no filter box any more: it could only narrow the list
 already on screen, and searching now reaches further than that list goes.
 
+Under them, the work, in both the Chat and the Code tab: **Runs**, **Workflows**, **Routines**,
+**Artifacts** and **Cost**. A run waiting for you shows on **Runs** from any screen.
+
+The profile menu at the bottom holds the rest: **Settings** (`Cmd/Ctrl+,`), then **Skills**,
+**Actions** (desktop app), **Context**, **Decisions** and **Memory**, then **Remote control** and
+**About FlupCode**. Settings holds configuration only, including **Agents**, **Providers** and **MCP
+servers**. Each of these has one name, the same in the sidebar, the menu, the search and the `/`
+commands, and an address of its own: a screen is a path (`/runs`, `/cost`), a dialog a link
+(`?dialog=memory`, `?dialog=settings&section=providers`). Older addresses still work: `/usage` opens
+Cost, `/agents` Settings → Agents, and `?dialog=skills` the Skills screen.
+
 **Routines** get a section of their own at the top, but only when there are any. They run whether or
 not this window is open, which makes them the one thing on that column not waiting for you to click
 it. A dot marks each one: green while it is active, grey while it is paused. Clicking one opens the
@@ -211,8 +223,8 @@ Then **Pinned**, then the projects with their sessions.
 
 ### Search
 
-`Cmd/Ctrl+K`, or the magnifier. It searches **sessions, projects, artifacts, routines, runs,
-commands and files** at once, and the tabs across the top are only the kinds your query actually
+`Cmd/Ctrl+K`, or the magnifier. It searches **places (every screen, dialog and Settings section),
+sessions, projects, artifacts, routines, runs, commands and files** at once, and the tabs across the top are only the kinds your query actually
 matched — a tab that always finds nothing is not offered.
 
 | | |
@@ -328,8 +340,8 @@ does not stop the run unless a later task says `require: verified`.
 
 ## Agents
 
-Each agent is a markdown file: the frontmatter is how it runs, the body is what it is told. **Agents**
-in the sidebar edits the file — description, mode, model, variant, temperature, steps, colour, which
+Each agent is a markdown file: the frontmatter is how it runs, the body is what it is told. **Settings →
+Agents** edits the file — description, mode, model, variant, temperature, steps, colour, which
 tools it may use, its permissions, and the prompt — and writes it where the engine looks:
 `.opencode/agent/<name>.md` in the project, or the same under your config folder for one you want
 everywhere.
@@ -342,7 +354,7 @@ are listed separately and cannot be edited here.
 
 ## Skills
 
-**Skills** in the sidebar shows what the model can reach for — and, first, what it cannot. The engine
+**Skills** in the profile menu shows what the model can reach for — and, first, what it cannot. The engine
 drops a skill whose file is not called `SKILL.md`, and one with no `name` in its frontmatter, without
 saying anything about either. Both look identical from the outside: nothing happens. Both are named
 here, with the file and what the engine wants.
@@ -643,7 +655,7 @@ hour and favorite model, with Todo / 30d / 7d ranges, a Models tab and a one-yea
 
 ## MCP
 
-Open **Personalize → Servers MCP** or run `/mcp` to list, connect, disconnect, add and remove MCP
+Open **Settings → MCP servers** or run `/mcp` to list, connect, disconnect, add and remove MCP
 servers.
 
 ## See your existing OpenCode (TUI) sessions
@@ -666,7 +678,7 @@ Drive your computer's sessions from a phone, on any network, like Claude Code's 
 The desktop app (1.0.10 or later) connects out to a relay and the phone talks to it through that
 relay; everything is end-to-end encrypted, so the relay cannot read your sessions (ADR-0010).
 
-1. In the desktop app, open **Remote control** (sidebar menu, Settings or the command palette) and
+1. In the desktop app, open **Remote control** (profile menu or the search) and
    turn **Allow remote control** on. Wait for **Online**.
 2. Click **Pair a device** and scan the QR code with the phone's camera. Open the link **in your
    browser** (in Google Lens, use ⋮ → *Open in Chrome*): pairing is stored in the browser that opens

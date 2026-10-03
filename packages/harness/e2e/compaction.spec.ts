@@ -100,7 +100,7 @@ async function openSession(page: Page, messages: unknown[] = history, live?: { e
   })
   await page.goto("/")
   // The panel opens itself for work, and these sessions have none: the meter tests ask for it.
-  await page.getByRole("button", { name: /Toggle context panel|Alternar panel de contexto/ }).click()
+  await page.getByRole("button", { name: /Toggle details panel|Alternar panel de detalles/ }).click()
 }
 
 test("a compaction is a marked boundary, not one more answer", async ({ page }) => {

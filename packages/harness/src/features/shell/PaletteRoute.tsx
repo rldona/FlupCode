@@ -1,5 +1,9 @@
 import { CommandPalette } from "../../components/CommandPalette"
 import { useApp } from "../../app-context"
+import { DESTINATIONS, offered } from "../../navigation"
+
+/** The `/name`s that open a destination: the palette lists the destination itself instead. */
+const DESTINATION_COMMANDS = new Set(DESTINATIONS.flatMap((entry) => (entry.command ? [entry.command] : [])))
 
 /** The command palette. */
 export default function PaletteRoute() {
@@ -7,7 +11,8 @@ export default function PaletteRoute() {
   return (
     <CommandPalette
       open={app.router.paletteOpen()}
-      commands={app.composer.commandOptions()}
+      places={offered(app.settings.desktopWindow())}
+      commands={app.composer.commandOptions().filter((command) => command.source !== "builtin" || !DESTINATION_COMMANDS.has(command.name))}
       sessions={app.sessions.sessionList() ?? []}
       projects={app.sessions.projects()}
       artifacts={app.workspace.artifactList()}
@@ -16,6 +21,7 @@ export default function PaletteRoute() {
       workflows={app.runs.workflows() ?? []}
       onClose={() => app.router.setPaletteOpen(false)}
       onCommand={app.composer.runCommand}
+      onPlace={app.router.go}
       onSession={app.sessions.selectSession}
       onProject={(directory) => {
         app.router.leaveScreen()

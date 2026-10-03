@@ -30,11 +30,10 @@ async function open(page: Page, address: string) {
 }
 
 const DIALOGS = [
-  ["settings", "Customize"],
+  ["settings", "Settings"],
   ["about", "About FlupCode"],
   ["stashes", "Saved prompts"],
   ["remote", "Remote control"],
-  ["skills", "Skills"],
   ["best-of-n", "Best of N"],
   ["memory", "Memory"],
   ["config", "Config (advanced)"],
@@ -54,12 +53,12 @@ for (const [dialog, name] of DIALOGS) {
 
 test("Settings opens on the section its link names, over the screen in the path", async ({ page }) => {
   await open(page, "/runs?dialog=settings&section=shortcuts")
-  await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible()
   await expect(page.getByRole("tab", { name: "Shortcuts" })).toHaveAttribute("aria-selected", "true")
   // The screen stays, and the link is gone: closing the dialog leaves no trace in the address.
   await expect(page).toHaveURL(/\/runs$/)
   await page.keyboard.press("Escape")
-  await expect(page.getByRole("dialog", { name: "Customize" })).toHaveCount(0)
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0)
   await expect(page).toHaveURL(/\/runs$/)
 })
 

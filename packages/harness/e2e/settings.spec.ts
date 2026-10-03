@@ -100,12 +100,10 @@ async function openApp(page: Page) {
 }
 
 const openSettings = async (page: Page) => {
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
-  await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
-  return page.getByRole("dialog", { name: "Customize" })
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible()
+  return page.getByRole("dialog", { name: "Settings" })
 }
 
 test("settings is a rail of sections, and the editors live inside it", async ({ page }) => {
@@ -127,9 +125,11 @@ test("settings is a rail of sections, and the editors live inside it", async ({ 
   await dialog.getByRole("tab", { name: "MCP servers" }).click()
   await expect(dialog.locator(".fc-mcp-row")).toHaveCount(1)
 
+  // Settings holds configuration only (UX-01): Skills is a screen of its own, Agents a section.
   await dialog.getByRole("tab", { name: "Advanced" }).click()
-  await expect(dialog.getByRole("button", { name: "Agents" })).toBeVisible()
-  await expect(dialog.getByRole("button", { name: "Skills" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Config (advanced)" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Config files" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Skills" })).toHaveCount(0)
 })
 
 test("a command is written to the harness server from the form", async ({ page }) => {
@@ -344,7 +344,7 @@ test("a conversation toggle survives a reload", async ({ page }) => {
 test("on a narrow screen the rail becomes a horizontally scrollable tab strip", async ({ page }) => {
   await page.setViewportSize({ width: 640, height: 800 })
   await openApp(page)
-  // On narrow screens the Customize button lives in the off-canvas sidebar.
+  // On narrow screens the profile menu, where Settings lives, is in the off-canvas sidebar.
   await page.getByTitle("Toggle sidebar").click()
   const dialog = await openSettings(page)
 

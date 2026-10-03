@@ -12,6 +12,7 @@ import { SIDEBAR_WIDTH_DEFAULT } from "../../components/Sidebar"
 import { CONTEXT_PANEL_WIDTH } from "../../components/RightAside"
 import { WORKSPACE_WIDTH_DEFAULT } from "../../components/WorkspacePanels"
 import { desktopRemote, remote, touchDevice } from "../../remote"
+import { DESTINATIONS } from "../../navigation"
 import type { AppStores } from "../../app-context"
 
 // The FlupCode palette is the default, so anything unknown falls back to it. "default" was the
@@ -107,10 +108,12 @@ export function createSettings(app: AppStores) {
   // Every editable shortcut runs here, read from the registry, so one changed in Settings takes
   // effect without a reload (H-24). The old code hard-coded each one.
   const runShortcut = (action: KeybindAction) => {
+    // A shortcut that opens a destination opens it the way every other entry point does (UX-01).
+    const target = DESTINATIONS.find((entry) => entry.keybind === action)
+    if (target) return app.router.go(target.id)
     if (action === "palette") return app.router.setPaletteOpen(true)
     if (action === "toggleSidebar") return toggleSidebar()
     if (action === "toggleContextPanel") return toggleContextPanel()
-    if (action === "settings") return app.router.setSettingsOpen(true)
     if (action === "newSession") return app.sessions.newSession()
     if (action === "compact") return app.sessions.compactSession()
     if (action === "split" && app.sessions.selected() && !app.sessions.splitActive())
