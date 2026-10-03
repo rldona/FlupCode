@@ -19,6 +19,7 @@ import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
 import { completion } from "../decisions/completion"
 import { skillRelevance } from "../decisions/skill-relevance"
 import { contextItem } from "../decisions/context-item"
+import { failure } from "../decisions/failure"
 
 /** One handler per kind; the mapped type obliges every kind to be implemented. */
 export type DeterministicHandler = {
@@ -37,20 +38,7 @@ export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
   completion: completion.baseline,
   skillRelevance: skillRelevance.baseline,
   contextItem: contextItem.baseline,
-  // A repeated identical call or error is an intervention; anything below the policy threshold is a
-  // plain continue. Calls are checked first, mirroring the run that ends the observation ring
-  // (FH-060/061, ADR-0023 §6).
-  failure: (request) => {
-    const repeatedCalls = request.state.repeatedCalls
-    const repeatedErrors = request.state.repeatedErrors
-    if (repeatedCalls >= (request.policy.repeatedCalls ?? 3)) {
-      return { answer: { verdict: "intervene" }, rule: "repeated-calls" }
-    }
-    if (repeatedErrors >= (request.policy.repeatedErrors ?? 3)) {
-      return { answer: { verdict: "intervene" }, rule: "repeated-errors" }
-    }
-    return { answer: { verdict: "continue" }, rule: "safe-default" }
-  },
+  failure: failure.baseline,
   // Inert on purpose: without a classifier nothing is reusable, so an idle project learns nothing.
   skillReflection: () => ({ answer: { reusable: false, intent: "add" }, rule: "no-reflection" }),
 }

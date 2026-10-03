@@ -18,11 +18,13 @@ import type { EpisodeOutcome } from "./episode"
 import type { CompletionAnswer, CompletionState } from "./decisions/completion"
 import type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
 import type { ContextItemAnswer, ContextItemState } from "./decisions/context-item"
+import type { FailureAnswer, FailureState } from "./decisions/failure"
 
 export type { CompletionAnswer, CompletionState } from "./decisions/completion"
 export type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
 export type { ContextItemAnswer, ContextItemState, ItemDisposition } from "./decisions/context-item"
 export { ITEM_DISPOSITIONS } from "./decisions/context-item"
+export type { FailureAnswer, FailureState } from "./decisions/failure"
 export type { ContextItem, ContextItemKind } from "./context-items"
 export {
   CONTEXT_ITEM_KINDS,
@@ -42,7 +44,6 @@ export type ReflectionIntent = (typeof REFLECTION_INTENTS)[number]
 export const isReflectionIntent = (value: unknown): value is ReflectionIntent =>
   typeof value === "string" && (REFLECTION_INTENTS as readonly string[]).includes(value)
 
-export type FailureAnswer = { verdict: "continue" | "intervene" }
 export type SkillReflectionAnswer = {
   reusable: boolean
   intent: ReflectionIntent
@@ -52,12 +53,6 @@ export type SkillReflectionAnswer = {
 
 // ---- states per kind (bounded; never a session's raw state) ----------------------------------
 
-export type FailureState = {
-  repeatedCalls: number
-  repeatedErrors: number
-  stepsUsed: number
-  stepsBudget?: number
-}
 /**
  * What a closed episode offers a reflection decision (FH-031).
  *

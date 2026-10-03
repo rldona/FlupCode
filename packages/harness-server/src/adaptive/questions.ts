@@ -16,6 +16,7 @@ import type { Answer, Question } from "./predictive/model"
 import { completion } from "./decisions/completion"
 import { skillRelevance } from "./decisions/skill-relevance"
 import { contextItem } from "./decisions/context-item"
+import { failure } from "./decisions/failure"
 import { chosen, isOneOf, weakest, yes } from "./decisions/define"
 
 /** The questions one state asks, one plan per kind so adding a kind does not compile until it is asked. */
@@ -27,13 +28,7 @@ const questionPlans: QuestionPlanner = {
   completion: completion.questions,
   skillRelevance: skillRelevance.questions,
   contextItem: contextItem.questions,
-  failure: (state) => [
-    {
-      id: "verdict",
-      type: "binary",
-      prompt: `Should the harness intervene? repeatedErrors=${state.repeatedErrors}, stepsUsed=${state.stepsUsed}`,
-    },
-  ],
+  failure: failure.questions,
   // One request per episode: `reusable` is the gate, `intent` is what the lesson calls for, and
   // `target` is only asked when there is a roster to point at (a state with no skills asks two).
   skillReflection: (state) => [
@@ -90,15 +85,7 @@ const answerReaders: AnswerReader = {
   completion: completion.read,
   skillRelevance: skillRelevance.read,
   contextItem: contextItem.read,
-  failure: (answers) => {
-    const probability = yes(answers.verdict)
-    if (probability === undefined) return undefined
-    return {
-      answer: { verdict: probability >= 0.5 ? "intervene" : "continue" },
-      ...weakest([answers.verdict]),
-      probabilities: { continue: 1 - probability, intervene: probability },
-    }
-  },
+  failure: failure.read,
   // The binary gate decides reusable; a missing or unrecognised intent falls to the safe `add`, and
   // the target is only carried when the model named one. The service folds the gate's certainty into
   // the reported confidence and keeps the weakest, so a noisy intent can pull a confident gate below
