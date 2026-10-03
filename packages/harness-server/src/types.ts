@@ -15,6 +15,7 @@
 import type { SessionAttribution } from "./usage-ledger"
 import type { Arm } from "./adaptive/holdout"
 import type { BrowserTier } from "./browser-policy"
+import type { ActionStep } from "./actions"
 import type {
   EpisodeFailure,
   EpisodeFilter,
@@ -477,6 +478,55 @@ export type TaskInput = {
    * through. Absent is the default and does not block: a verdict is shown, not enforced.
    */
   require?: "verified"
+  /** On a verify task: a look at the project's page in the desktop's preview, compared with the last (CL-4). */
+  visual?: VisualCheck
+}
+
+/**
+ * A verify task's look at the project's page (CL-4): open it in the desktop's preview, walk a script
+ * in the web recipe's grammar, capture, and compare each capture with the one the same step took the
+ * time before. The captures are versions of one screenshot artifact per step (RP-03).
+ */
+export type VisualCheck = {
+  /** The page on this machine to open first. Absent, `preview` in `.flupcode/project.yaml`. */
+  url?: string
+  /**
+   * What to do on the page: `goto`, `waitFor`, `click`, `fill` (with text), `assert` and `screenshot`,
+   * as a web recipe writes them. Nothing that sends a form or a file. A script with no `screenshot`
+   * ends with one named after the task.
+   */
+  steps: VisualStep[]
+  /** Selectors whose boxes are not compared: a clock, a timestamp, an avatar. */
+  mask: string[]
+  /** The share of the compared pixels that may differ and still be the same page, 0 to 1. */
+  tolerance: number
+  /** A capture is kept once two in a row agree within the tolerance, after at most `captures`. */
+  settle: { captures: number; intervalMs: number }
+}
+
+export type VisualStep = Exclude<ActionStep, { upload: unknown } | { submit: unknown }>
+
+/** What one `screenshot` of a visual check found, against the capture before it of the same step. */
+export type VisualShot = {
+  name: string
+  /** `first`: nothing to compare with yet. `same`: within the tolerance. `changed`: beyond it. */
+  outcome: "first" | "same" | "changed"
+  /** The share of the compared pixels that differ from the capture before; 0 for the first. */
+  changed: number
+  /** Whether two captures in a row agreed before this one was kept. */
+  stable: boolean
+  /** The capture now, the one before it (the previous version of the same artifact), and their difference. */
+  after: string
+  before?: string
+  diff?: string
+}
+
+/** What a visual check did: it ran, it could not run (and why), or a step failed (and which). */
+export type VisualResult = {
+  status: "ran" | "not-run" | "failed"
+  url?: string
+  problem?: string
+  shots: VisualShot[]
 }
 
 export type Task = TaskInput & {
@@ -506,6 +556,8 @@ export type Task = TaskInput & {
   verdict?: TaskVerdict
   /** The model it was sent to and why (PI-04), once an agent task has started. */
   route?: TaskRoute
+  /** What a verify task's visual check found (CL-4), once it ran. */
+  visualResult?: VisualResult
 }
 
 /**
@@ -556,6 +608,11 @@ export type ArtifactInput = {
   sessionID?: string
   /** The message whose turn wrote it (RP-03), when the engine's plugin said so at write time. */
   messageID?: string
+  /**
+   * The document this is the next version of, when the caller names it rather than a folder and path
+   * do (RP-03): a visual check's captures of one step each have a file of their own (CL-4).
+   */
+  logicalID?: string
   /** Kept in front of the rest, and never swept, however old it gets (H-14). */
   pinned?: boolean
   /**
@@ -571,7 +628,8 @@ export type Artifact = ArtifactInput & {
   createdAt: number
   /**
    * The document this row is a version of (RP-03): the id of its first version. Rows kept for the
-   * same folder and path share it; anything without a path is its own, at version 1.
+   * same folder and path share it; anything without a path is its own, at version 1. A caller that
+   * names the document (`logicalID` on the input, CL-4) keeps that name instead.
    */
   logicalID: string
   /** Which version of its document this row is, from 1. */

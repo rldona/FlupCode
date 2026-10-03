@@ -384,6 +384,31 @@ export type TaskRoute = {
   fallback: boolean
   reason: string
   source: "rule" | "model"
+  /** What a verify task's look at the page found (CL-4), once it ran. */
+  visualResult?: VisualResult
+}
+
+/**
+ * One capture of a verify task's look at the page (CL-4), against the capture the same step took the
+ * time before: the artifact ids of before, after and their difference.
+ */
+export type VisualShot = {
+  name: string
+  outcome: "first" | "same" | "changed"
+  /** The share of the compared pixels that differ, 0 to 1. */
+  changed: number
+  /** Whether two captures in a row agreed before this one was kept. */
+  stable: boolean
+  after: string
+  before?: string
+  diff?: string
+}
+
+export type VisualResult = {
+  status: "ran" | "not-run" | "failed"
+  url?: string
+  problem?: string
+  shots: VisualShot[]
 }
 
 export type RoutineRun = {

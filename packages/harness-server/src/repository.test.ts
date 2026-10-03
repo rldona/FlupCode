@@ -318,6 +318,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 14, name: "budget-policy", backup: join(dirname(path), backup!) },
       { version: 15, name: "quota-sample", backup: join(dirname(path), backup!) },
       { version: 17, name: "task-route", backup: join(dirname(path), backup!) },
+      { version: 20, name: "task-visual", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -332,7 +333,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }, { version: 20 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -357,6 +358,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 14, backup: null },
       { version: 15, backup: null },
       { version: 17, backup: null },
+      { version: 20, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -364,7 +366,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }, { version: 20 }])
     repository.close()
   })
 
@@ -1593,6 +1595,48 @@ describe("the task-verdict migration (RP-06)", () => {
   })
 })
 
+describe("the task-visual migration (CL-4)", () => {
+  test("a populated database at version 17 is backed up and migrated with its tasks intact, and keeps a visual check", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
+    const [task] = before.addTasks(run.id, [{ name: "check", prompt: "", kind: "verify", retries: 1 }])
+    before.finishTask(task!.id, "success", { output: "Verification: passed" }, 1_500)
+    before.setTaskVerdict(task!.id, { value: "verified", reason: "Verification passed: test", source: "check" })
+    before.db.exec(`
+      DELETE FROM schema_version WHERE version >= 20;
+      ALTER TABLE tasks DROP COLUMN visual_json;
+      ALTER TABLE tasks DROP COLUMN visual_result_json;
+    `)
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v17-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 20").all()).toEqual([
+      { version: 20, name: "task-visual" },
+    ])
+    // The old task is as it was, with no look at a page it never took.
+    expect(repository.getTask(task!.id)).toMatchObject({
+      status: "success",
+      output: "Verification: passed",
+      retries: 1,
+      verdict: { value: "verified", source: "check" },
+    })
+    expect(repository.getTask(task!.id)?.visual).toBeUndefined()
+    expect(repository.getTask(task!.id)?.visualResult).toBeUndefined()
+    // A new one keeps what it declares and what it found.
+    const visual = { url: "http://localhost:5173/", steps: [{ screenshot: "home" }], mask: [], tolerance: 0.001, settle: { captures: 2, intervalMs: 0 } }
+    const [looked] = repository.addTasks(run.id, [{ name: "look", prompt: "", kind: "verify", visual }])
+    repository.finishTask(looked!.id, "success", { visual: { status: "not-run", problem: "no preview", shots: [] } })
+    expect(repository.getTask(looked!.id)).toMatchObject({ visual, visualResult: { status: "not-run", problem: "no preview" } })
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(1)
+    copy.close()
+    repository.close()
+  })
+})
+
 describe("the browser-policy migration (BU-01)", () => {
   test("a populated database at version 9 is backed up, and the approver's always answers become grants", () => {
     const path = scratch()
@@ -1641,6 +1685,24 @@ describe("artifact versions (RP-03)", () => {
     for (const own of [elsewhere, otherKind, pathless, pathlessAgain]) expect(own).toMatchObject({ logicalID: own.id, version: 1 })
     expect(repository.getArtifact(second.id)).toMatchObject({ logicalID: first.id, version: 2 })
     expect(repository.listArtifactVersions(first.id).map((version) => version.id)).toEqual([second.id, first.id])
+    repository.close()
+  })
+
+  test("a document the caller names keeps its versions under that name, each with a file of its own (CL-4)", () => {
+    const repository = open()
+    const shot = { kind: "screenshot" as const, title: "look — home", producer: "harness" as const, directory: "/data", mime: "image/png" }
+    expect(repository.newestVersion("visual:home")).toBeUndefined()
+    const first = repository.addArtifact({ ...shot, path: "visual/a.png", logicalID: "visual:home" }, 1_000)
+    const second = repository.addArtifact({ ...shot, path: "visual/b.png", logicalID: "visual:home" }, 2_000)
+    const other = repository.addArtifact({ ...shot, path: "visual/c.png", logicalID: "visual:settings" }, 3_000)
+    expect(first).toMatchObject({ logicalID: "visual:home", version: 1 })
+    expect(second).toMatchObject({ logicalID: "visual:home", version: 2, path: "visual/b.png" })
+    expect(other).toMatchObject({ logicalID: "visual:settings", version: 1 })
+    expect(repository.newestVersion("visual:home")?.id).toBe(second.id)
+    expect(repository.listArtifactVersions(first.id).map((version) => version.path)).toEqual(["visual/b.png", "visual/a.png"])
+    // Gone with its runs, a name starts again at version 1.
+    repository.removeArtifact(first.id, { document: true })
+    expect(repository.addArtifact({ ...shot, path: "visual/d.png", logicalID: "visual:home" }, 4_000)).toMatchObject({ version: 1 })
     repository.close()
   })
 

@@ -53,6 +53,7 @@ import { createBrowserAttach } from "./browser-attach"
 import { createBrowserBridge } from "./browser-bridge"
 import { SOCKET_PATH } from "@flupcode/bridge-extension/protocol"
 import { PREVIEW_HOST_PATH, PREVIEW_SOCKET, createPreview, createPreviewCapture, upgradePreviewHost, type PreviewSocket } from "./browser-preview"
+import { createVisualCheck } from "./visual-verify"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
 import { createRouter, parseModelKey } from "./policy"
@@ -331,7 +332,12 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     engineURL,
     intervalMs: options.intervalMs,
     ...(actions ? { actions } : {}),
-    ...(preview ? { previewCapture: createPreviewCapture({ preview, policy: browserPolicy }) } : {}),
+    ...(preview
+      ? {
+          previewCapture: createPreviewCapture({ preview, policy: browserPolicy }),
+          visualCheck: createVisualCheck({ preview, policy: browserPolicy, repository }),
+        }
+      : {}),
     episodes,
     context,
     // Every agent task is judged (RP-06); the `completion` decision asks a model only where one is

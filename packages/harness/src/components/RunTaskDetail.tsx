@@ -11,6 +11,7 @@ import { elapsed } from "./RunGraph"
 import { taskState } from "../run-state"
 import { ResumeConfirm } from "./ResumeConfirm"
 import { Icon } from "./Icon"
+import { VisualCompare } from "./VisualCompare"
 
 type RunTaskDetailProps = {
   run: Run
@@ -23,6 +24,8 @@ type RunTaskDetailProps = {
   tools?: TaskTools
   /** What this task left behind (H-14). The run's own, like its report, are on the run's card. */
   artifacts: Artifact[]
+  /** An artifact's bytes as a blob URL: a verify task's before and after (CL-4). */
+  rawArtifact?: (id: string) => Promise<string>
   /** What the task spent, from the usage ledger (UL-06); undefined draws a dash. */
   cost?: UsageBucket
   models: ModelInfo[]
@@ -294,6 +297,14 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
             <pre class="fc-run-detail-pre">{command()}</pre>
           </section>
         )}
+      </Show>
+
+      {/* A verify task's look at the page (CL-4): before and after, next to its evidence. */}
+      <Show when={props.rawArtifact && (props.task.visualResult?.shots.length ?? 0) > 0}>
+        <section class="fc-run-detail-section">
+          <h3>{t("Before / after")}</h3>
+          <VisualCompare shots={props.task.visualResult!.shots} rawArtifact={props.rawArtifact!} />
+        </section>
       </Show>
 
       <Show when={(props.task.kind === "verify" || props.task.kind === "external") && props.task.output}>

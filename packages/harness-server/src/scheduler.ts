@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { Engine } from "./engine"
 import type { PreviewCapture } from "./browser-preview"
 import { parseModelKey, type Router } from "./policy"
+import type { VisualRunner } from "./visual-verify"
 import { announce, runStandings, standingBudgets, type BudgetStanding } from "./budget"
 import { TaskRunner, resumePoint } from "./runner"
 import { FAILED_IN_A_ROW_NOTICE, nextFiring } from "./schedule"
@@ -36,6 +37,8 @@ type SchedulerOptions = {
   previewCapture?: PreviewCapture
   /** The routing model a run's next task may be moved to its fallback by (PI-04). Absent routes by the rule alone. */
   router?: Router
+  /** A verify task's look at the desktop's preview (CL-4). Absent, a task that declares one does not run it. */
+  visualCheck?: VisualRunner
 }
 
 const unwrap = async <T>(call: Promise<Result<T>>) => {
@@ -89,6 +92,7 @@ export class RoutineScheduler {
   readonly auditor?: Auditor
   readonly previewCapture?: PreviewCapture
   readonly router?: Router
+  readonly visualCheck?: VisualRunner
   private readonly owner = crypto.randomUUID()
   private readonly stopping = new Set<string>()
   /**
@@ -112,6 +116,7 @@ export class RoutineScheduler {
     this.auditor = options.auditor
     this.previewCapture = options.previewCapture
     this.router = options.router
+    this.visualCheck = options.visualCheck
   }
 
   start() {
@@ -283,7 +288,7 @@ export class RoutineScheduler {
   private async drive(runID: string, directory?: string) {
     const run = this.repository.getRun(runID)
     if (!run) return
-    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router)
+    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router, this.visualCheck)
     try {
       const outcome = await runner.execute(run, {
         directory,
@@ -348,6 +353,7 @@ export class RoutineScheduler {
         kind: task.kind,
         ...(task.command ? { command: task.command } : {}),
         ...(task.action ? { action: task.action } : {}),
+        ...(task.visual ? { visual: task.visual } : {}),
         agent: task.agent,
         model: options.model ?? task.model,
         attempt: (task.attempt ?? 1) + 1,
@@ -679,7 +685,7 @@ export class RoutineScheduler {
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
-      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router)
+      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router, this.visualCheck)
       const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),
@@ -785,6 +791,7 @@ function againOf(task: Task): TaskInput {
     ...(task.when ? { when: task.when } : {}),
     ...(task.foreach ? { foreach: task.foreach } : {}),
     ...(task.require ? { require: task.require } : {}),
+    ...(task.visual ? { visual: task.visual } : {}),
     attempt: task.attempt + 1,
     retryOf: task.id,
   }
