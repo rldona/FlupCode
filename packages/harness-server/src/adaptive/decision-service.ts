@@ -39,6 +39,7 @@ import { boundAnswer, boundSummary, decisionID } from "./decision-record"
 import { questionsFor, readAnswers } from "./questions"
 import { completion } from "./decisions/completion"
 import { skillRelevance } from "./decisions/skill-relevance"
+import { contextItem } from "./decisions/context-item"
 import type { PredictiveModel, Question } from "./predictive/model"
 import { deterministicBaseline } from "./providers/deterministic"
 import type { DeterministicBaseline } from "./providers/deterministic"
@@ -136,7 +137,7 @@ type Improved<Q extends DecisionKind> = {
 const QUESTIONS: Record<DecisionKind, string> = {
   completion: completion.question,
   skillRelevance: skillRelevance.question,
-  contextItem: "What disposition should each context item take?",
+  contextItem: contextItem.question,
   failure: "Should the harness intervene in this loop?",
   skillReflection: "Does this episode carry a reusable lesson, and what change does it call for?",
 }
@@ -157,7 +158,7 @@ const GATE_SKIPS: Partial<Record<DegradedReason, string>> = {
 const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
   completion: completion.probabilities,
   skillRelevance: skillRelevance.probabilities,
-  contextItem: "distribution",
+  contextItem: contextItem.probabilities,
   failure: "distribution",
   skillReflection: "gates",
 }

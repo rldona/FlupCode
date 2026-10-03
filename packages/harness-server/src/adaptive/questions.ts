@@ -10,11 +10,12 @@
  * one before any model sees them; `readAnswers` maps the answers back by position.
  */
 
-import { ITEM_DISPOSITIONS, REFLECTION_INTENTS, isReflectionIntent } from "./decision"
+import { REFLECTION_INTENTS, isReflectionIntent } from "./decision"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
 import type { Answer, Question } from "./predictive/model"
 import { completion } from "./decisions/completion"
 import { skillRelevance } from "./decisions/skill-relevance"
+import { contextItem } from "./decisions/context-item"
 import { chosen, isOneOf, weakest, yes } from "./decisions/define"
 
 /** The questions one state asks, one plan per kind so adding a kind does not compile until it is asked. */
@@ -25,13 +26,7 @@ type QuestionPlanner = {
 const questionPlans: QuestionPlanner = {
   completion: completion.questions,
   skillRelevance: skillRelevance.questions,
-  contextItem: (state) =>
-    state.items.map((item) => ({
-      id: item.id,
-      type: "choice",
-      prompt: `Disposition for the ${item.kind} item "${item.id}" against: ${state.objective}`,
-      options: [...ITEM_DISPOSITIONS],
-    })),
+  contextItem: contextItem.questions,
   failure: (state) => [
     {
       id: "verdict",
@@ -94,19 +89,7 @@ type AnswerReader = {
 const answerReaders: AnswerReader = {
   completion: completion.read,
   skillRelevance: skillRelevance.read,
-  // An item whose confidence was not reported counts as zero: the weakest item sets the confidence,
-  // and an unreported one must not read as certain.
-  contextItem: (answers) => {
-    const decisions = Object.entries(answers).flatMap(([id, answer]) => {
-      const disposition = chosen(answer)
-      return isOneOf(ITEM_DISPOSITIONS, disposition) ? [{ id, disposition, confidence: answer.confidence ?? 0 }] : []
-    })
-    if (decisions.length === 0) return { answer: { decisions: [] } }
-    return {
-      answer: { decisions: decisions.map((decision) => ({ id: decision.id, disposition: decision.disposition })) },
-      confidence: Math.min(...decisions.map((decision) => decision.confidence)),
-    }
-  },
+  contextItem: contextItem.read,
   failure: (answers) => {
     const probability = yes(answers.verdict)
     if (probability === undefined) return undefined

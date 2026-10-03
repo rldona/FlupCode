@@ -11,8 +11,8 @@
  * classifier will emit it; until then a test asserts its absence.
  */
 
-import type { ContextItem, ContextItemKind } from "./decision"
-import { isContextItemKind } from "./decision"
+import type { ContextItem, ContextItemKind } from "./context-items"
+import { isContextItemKind } from "./context-items"
 import { opaqueItemID } from "./opaque-id"
 import type { SessionEpisode } from "../types"
 
