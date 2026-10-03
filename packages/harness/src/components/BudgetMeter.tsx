@@ -2,7 +2,7 @@ import { For, Show, type Component } from "solid-js"
 import { t } from "../i18n"
 import { money } from "../cost"
 import { formatTokens } from "../metrics"
-import type { BudgetScope, BudgetStanding } from "../types"
+import type { BudgetScope, BudgetStanding, Run } from "../types"
 
 /**
  * A budget as a labelled meter (UL-08): what it is a budget of, how much of it the ledger says was
@@ -80,4 +80,42 @@ export function budgetNotice(event: Record<string, unknown>) {
     budget,
     amount: budgetAmount(standing),
   })
+}
+
+/**
+ * What a run did at 80% of a budget (CL-2), as one sentence for its card: which budget and how far,
+ * and what its remaining tasks do — wait for the person with what they would add, run one at a time,
+ * move to the fallback. Undefined for a run that never got there.
+ */
+export function nearBudgetText(run: Pick<Run, "workflow" | "status" | "paused" | "nearBudget">) {
+  const near = run.nearBudget
+  if (!near) return undefined
+  const budget =
+    near.scope === "run"
+      ? t("its budget")
+      : near.scope === "day"
+        ? t("today's budget")
+        : t("{name}'s daily budget", { name: near.name })
+  return t("{subject} is at {share} of {budget}; remaining tasks {action}", {
+    subject: run.workflow ? t("This workflow") : t("This run"),
+    share: `${Math.round(near.share * 100)}%`,
+    budget,
+    action: nearBudgetAction(run, near),
+  })
+}
+
+function nearBudgetAction(run: Pick<Run, "status" | "paused">, near: NonNullable<Run["nearBudget"]>) {
+  const gate = near.gate
+  if (gate && !gate.answer && run.status === "awaiting" && run.paused === "threshold") {
+    if (gate.projected === undefined) return t("wait for you: {count} left, and none has finished yet to estimate them from", { count: gate.remaining })
+    const projected =
+      near.unit === "usd" ? `~${money(gate.projected)}` : t("{tokens} tokens", { tokens: formatTokens(gate.projected) })
+    return t("wait for you: {count} left, about {projected} more at the pace so far", { count: gate.remaining, projected })
+  }
+  // A person who chose to keep the run's models at the gate keeps them (PI-04 would move them).
+  const model = gate?.answer === "continue" ? undefined : near.fallback
+  if (near.serial && model) return t("run one at a time on {model}", { model })
+  if (model) return t("move to {model}", { model })
+  if (near.serial) return t("run one at a time")
+  return t("go on on the run's models")
 }

@@ -3,7 +3,8 @@ import { t } from "../i18n"
 import { ATTENTION, type Attention } from "../attention"
 import { runTitle } from "../run-title"
 import { heldForRequest, runState, stateLabel } from "../run-state"
-import type { Run } from "../types"
+import type { NearBudgetAnswer, Run } from "../types"
+import { nearBudgetText } from "./BudgetMeter"
 import { AttentionMark, attentionLabel } from "./AttentionMark"
 import { Icon } from "./Icon"
 
@@ -23,7 +24,7 @@ export type RemoteRunsProps = {
   serverAvailable: boolean
   /** The run a home card asked for, scrolled to once. */
   focus?: string
-  onApprove: (runID: string) => void
+  onApprove: (runID: string, answer?: NearBudgetAnswer) => void
   onStop: (runID: string) => Promise<void>
   onOpenSession: (sessionID: string) => void
   onBack: () => void
@@ -100,6 +101,10 @@ export const RemoteRuns: Component<RemoteRunsProps> = (props) => {
                       </span>
                     </span>
                   </div>
+                  {/* What it did at 80% of a budget (CL-2), while it is still going. */}
+                  <Show when={going(run) && nearBudgetText(run)}>
+                    {(text) => <p class="fc-remote-run-note">{text()}</p>}
+                  </Show>
                   <Show when={going(run) || session()}>
                     <div class="fc-remote-run-actions">
                       {/* A gate is a question: let it through, or stop it. There is no third answer. */}
@@ -110,8 +115,19 @@ export const RemoteRuns: Component<RemoteRunsProps> = (props) => {
                           disabled={!props.serverAvailable}
                           onClick={() => props.onApprove(run.id)}
                         >
-                          {run.paused === "budget" ? t("Carry on") : t("Approve")}
+                          {run.paused === "budget" || run.paused === "threshold" ? t("Carry on") : t("Approve")}
                         </button>
+                        {/* Near its budget (CL-2): carry on on the policy's fallback. */}
+                        <Show when={run.paused === "threshold" && run.nearBudget?.fallback}>
+                          <button
+                            class="fc-remote-pill"
+                            type="button"
+                            disabled={!props.serverAvailable}
+                            onClick={() => props.onApprove(run.id, "fallback")}
+                          >
+                            {t("Carry on with the fallback model")}
+                          </button>
+                        </Show>
                       </Show>
                       <Show when={going(run)}>
                         <button

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { setLocale } from "../i18n"
-import { budgetAmount, budgetLabel, budgetNotice } from "./BudgetMeter"
+import { budgetAmount, budgetLabel, budgetNotice, nearBudgetText } from "./BudgetMeter"
+import type { NearBudget, Run } from "../types"
 
 describe("a budget, in words (UL-08)", () => {
   test("a run's budget is named as the launcher names it; a standing one says it is per day", () => {
@@ -25,6 +26,59 @@ describe("a budget, in words (UL-08)", () => {
     setLocale("es")
     expect(budgetNotice({ ...event, scope: "day", name: "today", level: "hard" })).toBe(
       "Presupuesto de hoy (coste) alcanzado: ~$0.11 de $0.10",
+    )
+    setLocale("en")
+  })
+})
+
+describe("a run near its budget, in words (CL-2)", () => {
+  const near = (extra: Partial<NearBudget> = {}): NearBudget => ({
+    scope: "run",
+    name: "review",
+    unit: "usd",
+    spent: 0.0083,
+    limit: 0.01,
+    share: 0.83,
+    at: 0,
+    serial: true,
+    reason: "",
+    ...extra,
+  })
+  const run = (extra: Partial<Run>): Pick<Run, "workflow" | "status" | "paused" | "nearBudget"> => ({
+    status: "running",
+    workflow: { name: "review", scope: "project", hash: "h", inputs: {} },
+    ...extra,
+  })
+
+  test("a run that never got there says nothing", () => {
+    expect(nearBudgetText(run({}))).toBeUndefined()
+  })
+
+  test("it says how far the budget is spent and what the remaining tasks do", () => {
+    setLocale("en")
+    expect(nearBudgetText(run({ nearBudget: near({ fallback: "cheap/small" }) }))).toBe(
+      "This workflow is at 83% of its budget; remaining tasks run one at a time on cheap/small",
+    )
+    expect(nearBudgetText(run({ workflow: undefined, nearBudget: near({ serial: false, fallback: "cheap/small", scope: "day" }) }))).toBe(
+      "This run is at 83% of today's budget; remaining tasks move to cheap/small",
+    )
+    expect(nearBudgetText(run({ nearBudget: near() }))).toBe("This workflow is at 83% of its budget; remaining tasks run one at a time")
+  })
+
+  test("at the gate it says what is left and what it would add; once answered, what was chosen", () => {
+    const gate = { remaining: 3, projected: 0.006 }
+    expect(nearBudgetText(run({ status: "awaiting", paused: "threshold", nearBudget: near({ gate }) }))).toBe(
+      "This workflow is at 83% of its budget; remaining tasks wait for you: 3 left, about ~$0.0060 more at the pace so far",
+    )
+    expect(nearBudgetText(run({ status: "awaiting", paused: "threshold", nearBudget: near({ gate: { remaining: 2 } }) }))).toBe(
+      "This workflow is at 83% of its budget; remaining tasks wait for you: 2 left, and none has finished yet to estimate them from",
+    )
+    expect(nearBudgetText(run({ nearBudget: near({ serial: false, fallback: "cheap/small", gate: { ...gate, answer: "continue" } }) }))).toBe(
+      "This workflow is at 83% of its budget; remaining tasks go on on the run's models",
+    )
+    setLocale("es")
+    expect(nearBudgetText(run({ nearBudget: near({ serial: false, fallback: "cheap/small", gate: { ...gate, answer: "fallback" } }) }))).toBe(
+      "Este flujo de trabajo lleva el 83% de su presupuesto; las tareas restantes pasan a cheap/small",
     )
     setLocale("en")
   })

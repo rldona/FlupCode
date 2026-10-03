@@ -6605,6 +6605,14 @@ button.fc-status {
   min-width: 0;
 }
 
+/* What a run did at 80% of a budget (CL-2), under its head on the phone. */
+.fc-remote-run-note {
+  margin: 0;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+  overflow-wrap: anywhere;
+}
+
 .fc-remote-run-actions {
   display: flex;
   flex-wrap: wrap;
@@ -10217,6 +10225,13 @@ button.fc-status {
 
 .fc-run-route-reason {
   color: var(--fc-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* What a run did at 80% of a budget (CL-2): one sentence under its meters. */
+.fc-run-near-budget {
+  margin: 8px 0 0;
+  font-size: var(--fc-text-sm);
   overflow-wrap: anywhere;
 }
 

@@ -23,7 +23,13 @@ type WorkflowLaunchDialogProps = {
   onClose: () => void
 }
 
-const policyFrom = (fallback: string, tokens: string, cost: string, softPct: string): RunPolicy | undefined => {
+const policyFrom = (
+  fallback: string,
+  tokens: string,
+  cost: string,
+  softPct: string,
+  near: { serial: boolean; gate: boolean },
+): RunPolicy | undefined => {
   const budget: { tokens?: number; cost?: number } = {}
   const parsedTokens = Number(tokens.replace(/[\s,_]/g, ""))
   if (tokens.trim() && Number.isFinite(parsedTokens) && parsedTokens > 0) budget.tokens = Math.floor(parsedTokens)
@@ -32,9 +38,15 @@ const policyFrom = (fallback: string, tokens: string, cost: string, softPct: str
   // A warning share belongs to a budget (UL-08): with no limit there is nothing to warn about.
   const share = Number(softPct.trim())
   const warn = Object.keys(budget).length > 0 && softPct.trim() && share > 0 && share < 100 ? { softPct: share } : {}
+  // What the run does at 80% of the budget (CL-2), only when it differs from the server's default.
+  const nearBudget = {
+    ...(near.serial ? {} : { serial: false }),
+    ...(near.gate ? { gate: true } : {}),
+  }
   const policy: RunPolicy = {
     ...(fallback.trim() ? { fallback: fallback.trim() } : {}),
     ...(Object.keys(budget).length > 0 ? { budget: { ...budget, ...warn } } : {}),
+    ...(Object.keys(budget).length > 0 && Object.keys(nearBudget).length > 0 ? { nearBudget } : {}),
   }
   return Object.keys(policy).length > 0 ? policy : undefined
 }
@@ -55,6 +67,8 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
   const [budgetTokens, setBudgetTokens] = createSignal("")
   const [budgetCost, setBudgetCost] = createSignal("")
   const [budgetWarn, setBudgetWarn] = createSignal("")
+  const [nearSerial, setNearSerial] = createSignal(true)
+  const [nearGate, setNearGate] = createSignal(false)
 
   createEffect(
     on(
@@ -79,6 +93,8 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
         setBudgetTokens("")
         setBudgetCost("")
         setBudgetWarn("")
+        setNearSerial(true)
+        setNearGate(false)
       },
     ),
   )
@@ -91,7 +107,7 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
       inputs: Object.fromEntries(Object.entries(inputs()).map(([name, value]) => [name, value.trim()])),
       packs: packs(),
       worktrees: worktrees(),
-      policy: policyFrom(fallback(), budgetTokens(), budgetCost(), budgetWarn()),
+      policy: policyFrom(fallback(), budgetTokens(), budgetCost(), budgetWarn(), { serial: nearSerial(), gate: nearGate() }),
       ...(until().trim() ? { until: until().trim() } : {}),
     })
   }
@@ -207,6 +223,17 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
           />
         </label>
       </div>
+      {/* What the run does at 80% of its budget (CL-2): only a run with a budget gets there. */}
+      <Show when={budgetTokens().trim() || budgetCost().trim()}>
+        <label class="fc-field-row">
+          <input type="checkbox" checked={nearSerial()} onChange={(event) => setNearSerial(event.currentTarget.checked)} />
+          <span>{t("One task at a time past 80% of the budget")}</span>
+        </label>
+        <label class="fc-field-row">
+          <input type="checkbox" checked={nearGate()} onChange={(event) => setNearGate(event.currentTarget.checked)} />
+          <span>{t("Ask before going past 80% of the budget")}</span>
+        </label>
+      </Show>
 
       <div class="fc-dialog-actions">
         <button class="fc-button" type="button" onClick={props.onClose}>

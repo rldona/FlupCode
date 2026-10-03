@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
 import { createResource } from "../../resource"
 import { searchForCompare } from "../../screen"
-import type { TaskActivity, TaskTools, TouchedFiles, Unattended } from "../../types"
+import type { NearBudgetAnswer, TaskActivity, TaskTools, TouchedFiles, Unattended } from "../../types"
 import { createClient, createHarnessClient, HarnessError } from "../../client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "../../storage"
 import { runAttention, worstAttention } from "../../attention"
@@ -720,9 +720,9 @@ export function createRuns(app: AppStores) {
     return runSnapshot(run, tasks, files)
   }
 
-  const approveRun = (id: string) => {
+  const approveRun = (id: string, answer?: NearBudgetAnswer) => {
     void createHarnessClient(app.connection.harnessServerUrl())
-      .runs.approve(id)
+      .runs.approve(id, answer)
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 

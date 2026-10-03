@@ -12,6 +12,7 @@ export type RunState =
   | "running"
   | "approval"
   | "budget"
+  | "threshold"
   | "queued"
   | "skipped"
   | "stopped"
@@ -26,6 +27,7 @@ const LABELS: Record<RunState, string> = {
   running: "Running",
   approval: "Needs approval",
   budget: "Paused at its budget",
+  threshold: "Paused near its budget",
   queued: "Queued",
   skipped: "Skipped",
   stopped: "Stopped",
@@ -41,6 +43,7 @@ export function taskState(task: Task): RunState {
 
 /** How a run stands, said once on its card: the gate or the budget it waits at, or how it ended. */
 export function runState(run: Pick<Run, "status" | "paused" | "verdict">): RunState {
+  if (run.status === "awaiting" && run.paused === "threshold") return "threshold"
   if (run.status === "awaiting") return run.paused === "budget" ? "budget" : "approval"
   if (run.status !== "success") return run.status
   return run.verdict?.value ?? "succeeded"
@@ -53,6 +56,7 @@ export function runState(run: Pick<Run, "status" | "paused" | "verdict">): RunSt
 export function runReason(run: Run) {
   const state = runState(run)
   if (state === "budget") return run.overBudget
+  if (state === "threshold") return run.nearBudget?.reason
   return state === run.verdict?.value ? run.verdict.reason : run.error
 }
 
