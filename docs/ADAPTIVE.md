@@ -77,9 +77,18 @@ The layer keeps what something uses (principle P8). Each decision kind has a pro
 | `contextItem` | the context manager's plans (`context.enabled`, applied to run prompts with `context.apply`) |
 | `failure` | the loop guardrails behind the "Possible loop" banner (`guardrails.enabled`) |
 | `skillReflection` | learning (`learning.enabled`), with a person approving every proposal |
+| `modelRoute` | the runner, before each agent task of a run whose policy names a fallback, when a budget or a quota reading exists (PI-04) |
 
-`modelRoute` and `agentRoute` had no caller and `toolRisk` was asked and never read: they were
-removed, and a routing decision comes back with its consumer (PI-04). Audit rows written before read
+`agentRoute` had no caller and `toolRisk` was asked and never read: they were removed. `modelRoute`
+was removed with them (PI-03) and came back with its consumer (PI-04) as a different question:
+should the run's next task move to its policy's fallback model? Its deterministic baseline says yes
+at 80% of the budget furthest spent that covers the run (its own or a standing one, on the usage
+ledger) or of the shortest quota window of the provider the task would use (a reading of the whole
+key, use outside FlupCode included, and only when it is under an hour old). The route and its reason
+are kept on the task (`tasks.route_json`, migration 17) and shown on the run card and in the task's
+detail. A model assigned to `modelRoute` can only move a task to the fallback sooner, never keep it
+on its model past the line, and its state is model keys, a role and shares: no folder, no name, no
+prompt (the kind's `egress`), with the guard's secret sweep over it as over every kind. Audit rows written before read
 back as an `unknown` kind with the stored name; config keys that name them still load and resolve to
 nothing. The offline evaluation tools (the reflection eval, the heuristics dry run, the promotion
 criteria and the live evaluation) live in `packages/adaptive-eval`, a dev-only package the server never
