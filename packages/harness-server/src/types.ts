@@ -109,9 +109,44 @@ export type RunPolicy = {
    * the project has none.
    */
   unattended?: Unattended
+  /**
+   * What the run does once it has spent 80% of a budget, besides moving to `fallback` (CL-2): `serial`
+   * starts the remaining tasks one at a time (on unless set to `false`); `gate` waits for a person with
+   * what the remaining tasks would cost (off unless set to `true`).
+   */
+  nearBudget?: { serial?: boolean; gate?: boolean }
 }
 
 export type RunBudget = { tokens?: number; cost?: number; softPct?: number }
+
+/**
+ * What a run did when it reached 80% of a budget (CL-2), kept on the run so its card can say it: the
+ * budget and how far it was spent, whether the remaining tasks start one at a time, the fallback they
+ * move to, and the gate it waited at with the person's answer.
+ */
+export type NearBudget = {
+  scope: "run" | Budget["scope"]
+  /** What it is a budget of: the run's workflow, a workflow or routine by name, or today. */
+  name: string
+  unit: Budget["unit"]
+  spent: number
+  limit: number
+  share: number
+  at: number
+  serial: boolean
+  /** The policy's fallback, "provider/model", when it names one (PI-04). */
+  fallback?: string
+  /** Why, in a sentence: the server's words, like a route's reason. */
+  reason: string
+  /**
+   * The gate: how many agent tasks were left and what they would add at the run's spend per finished
+   * agent task so far (absent when none had finished), and the answer once given — carry on on the
+   * run's models, or on the fallback. Stopping is stopping the run.
+   */
+  gate?: { remaining: number; projected?: number; answer?: NearBudgetAnswer }
+}
+
+export type NearBudgetAnswer = "continue" | "fallback"
 
 /**
  * A standing budget over a day of spend (UL-08): everything (`day`), one workflow by name, or one
@@ -195,11 +230,13 @@ export type Run = {
   /** How this run spends (H-30): a model per role, a fallback, and a budget. */
   policy?: RunPolicy
   /**
-   * Why it is waiting: a person at a gate, a budget that was reached, or a task's session asking a
-   * person something mid-turn (RP-05). Only the last is still being driven: answering the request in
-   * the engine is what lets it go on.
+   * Why it is waiting: a person at a gate, a budget that was reached, 80% of one with the gate in its
+   * policy (CL-2), or a task's session asking a person something mid-turn (RP-05). Only the last is
+   * still being driven: answering the request in the engine is what lets it go on.
    */
-  paused?: "gate" | "budget" | "request"
+  paused?: "gate" | "budget" | "request" | "threshold"
+  /** What the run did on reaching 80% of a budget (CL-2); `paused: "threshold"` is its gate. */
+  nearBudget?: NearBudget
   /** Somebody said to carry on past the budget, so it is not checked again. */
   budgetApproved?: boolean
   /** Which budget a run paused at said, while it waits there (UL-08). */
@@ -804,13 +841,15 @@ export type RunRepository = {
   /** Let it through, and say whether there was anything to let through. */
   resumeRun(runID: string): boolean
   /** Why a run is waiting (H-30). */
-  setPaused(runID: string, paused: "gate" | "budget", overBudget?: string): void
+  setPaused(runID: string, paused: "gate" | "budget" | "threshold", overBudget?: string): void
   /** A task's session waits on a person mid-turn (RP-05): the run is `awaiting` while it does. */
   holdForRequest(runID: string): void
   /** Nothing waits any more: back to running, still driven by the same runner (RP-05). */
   releaseRequest(runID: string): void
   /** A person let it past the budget (H-30). */
   approveBudget(runID: string): void
+  /** What the run did on reaching 80% of a budget (CL-2), kept on it. */
+  setNearBudget(runID: string, nearBudget: NearBudget): void
   /** Put a finished run back to running so a manual retry can add a task to it (H-12). */
   reopenRun(runID: string): boolean
   /** Give a run the work it is made of, in the order it will be done. */

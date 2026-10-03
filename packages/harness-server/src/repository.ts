@@ -87,6 +87,7 @@ import type {
   StoredSkillProposal,
   StoredSkillProposalInput,
   WorkflowVersion,
+  NearBudget,
   TaskRoute,
   TaskVerdict,
   VisualCheck,
@@ -1197,7 +1198,7 @@ const decodeOptions = (
   value: string | null,
 ): Pick<
   Run,
-  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt"
+  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt" | "nearBudget"
 > => {
   if (!value) return {}
   try {
@@ -1211,6 +1212,7 @@ const decodeOptions = (
       paused?: unknown
       budgetApproved?: unknown
       overBudget?: unknown
+      nearBudget?: unknown
       allow?: unknown
       attempt?: unknown
     }
@@ -1226,8 +1228,12 @@ const decodeOptions = (
       ...(parsed.policy && typeof parsed.policy === "object" && !Array.isArray(parsed.policy)
         ? { policy: parsed.policy as Run["policy"] }
         : {}),
-      ...(parsed.paused === "gate" || parsed.paused === "budget" || parsed.paused === "request"
+      ...(parsed.paused === "gate" || parsed.paused === "budget" || parsed.paused === "request" || parsed.paused === "threshold"
         ? { paused: parsed.paused }
+        : {}),
+      // Written by this server only (CL-2), so it is read back as it was kept.
+      ...(parsed.nearBudget && typeof parsed.nearBudget === "object" && !Array.isArray(parsed.nearBudget)
+        ? { nearBudget: parsed.nearBudget as Run["nearBudget"] }
         : {}),
       ...(parsed.budgetApproved === true ? { budgetApproved: true } : {}),
       ...(typeof parsed.overBudget === "string" ? { overBudget: parsed.overBudget } : {}),
@@ -1242,7 +1248,7 @@ const decodeOptions = (
 const encodeOptions = (
   run: Pick<
     Run,
-    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt"
+    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt" | "nearBudget"
   >,
 ) => {
   const options = {
@@ -1256,6 +1262,7 @@ const encodeOptions = (
     ...(run.paused ? { paused: run.paused } : {}),
     ...(run.budgetApproved ? { budgetApproved: true } : {}),
     ...(run.overBudget ? { overBudget: run.overBudget } : {}),
+    ...(run.nearBudget ? { nearBudget: run.nearBudget } : {}),
     ...(run.allow && run.allow.length > 0 ? { allow: run.allow } : {}),
   }
   return Object.keys(options).length > 0 ? JSON.stringify(options) : null
@@ -2311,8 +2318,13 @@ export class SqliteRoutineRepository implements RoutineRepository {
   }
 
   /** Why a run is waiting: a person at a gate, or a budget it reached (H-30), and which one (UL-08). */
-  setPaused(runID: string, paused: "gate" | "budget", overBudget?: string) {
+  setPaused(runID: string, paused: "gate" | "budget" | "threshold", overBudget?: string) {
     this.patchOptions(runID, { paused, overBudget })
+  }
+
+  /** What the run did on reaching 80% of a budget (CL-2): its card says it, and its gate's answer is kept here. */
+  setNearBudget(runID: string, nearBudget: NearBudget) {
+    this.patchOptions(runID, { nearBudget })
   }
 
   /**
@@ -2338,7 +2350,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.patchOptions(runID, { budgetApproved: true, paused: undefined, overBudget: undefined })
   }
 
-  private patchOptions(runID: string, patch: Partial<Pick<Run, "paused" | "budgetApproved" | "overBudget">>) {
+  private patchOptions(runID: string, patch: Partial<Pick<Run, "paused" | "budgetApproved" | "overBudget" | "nearBudget">>) {
     const run = this.getRun(runID)
     if (!run) return
     this.db.query("UPDATE runs SET options = ?1 WHERE id = ?2").run(encodeOptions({ ...run, ...patch }), runID)

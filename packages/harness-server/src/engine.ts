@@ -542,6 +542,8 @@ export class Engine {
     directory?: string
     task: string
     answer: string
+    /** The model to write it on; absent, the engine's default (CL-2 moves it to a run's fallback). */
+    model?: { providerID: string; id: string; variant?: string }
     onSession?: (sessionID: string) => void
   }): Promise<string> {
     const session = await this.createSession({
@@ -552,6 +554,7 @@ export class Engine {
     await this.prompt({
       sessionID: session.id,
       ...(input.directory ? { directory: input.directory } : {}),
+      ...(input.model ? { model: input.model } : {}),
       text: [
         "Summarise this step for the next one.",
         "Answer with at most 15 lines under these headings, facts only, no preamble:",

@@ -1,6 +1,6 @@
 import { NeedsPerson, sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
-import type { Run, Task, TaskStatus, TaskVerdict, Artifact, Unattended } from "./types"
+import type { NearBudget, Run, Task, TaskStatus, TaskVerdict, Artifact, Unattended } from "./types"
 import { VERDICTS } from "./types"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
@@ -11,7 +11,7 @@ import { take, type Checkpoint } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { artifactQuote, packFiles, packRefs, expandArtifactRefs } from "./packs"
 import { parsePlan } from "./plan"
-import { fallbackModel, routeTask, runPressure, modelForTask, type Router } from "./policy"
+import { fallbackModel, nearBudget, noteModel, routeTask, runPressure, modelForTask, type Model, type Pressure, type Router } from "./policy"
 import { announce, hardReason, runStandings } from "./budget"
 import { ActionRunError } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
@@ -255,8 +255,10 @@ type RunContext = {
    * does not carry an error: the run was called off, it did not fail.
    */
   halted?: boolean
-  /** Why the run stopped taking new work: a gate, or a budget. */
-  pause?: "gate" | "budget"
+  /** Why the run stopped taking new work: a gate, a budget, or 80% of one with the gate in its policy (CL-2). */
+  pause?: "gate" | "budget" | "threshold"
+  /** What the run did on reaching 80% of a budget (CL-2), once it has: read back when it is driven again. */
+  near?: NearBudget
   /** The tasks whose session waits on a person right now (RP-05); the run is held while any does. */
   waiting: Set<string>
 }
@@ -472,13 +474,38 @@ export class TaskRunner {
   }
 
   /**
+   * What the run does once it has spent 80% of a budget (CL-2), decided between tasks like the budget
+   * gate: recorded on the run the first time, with why, and from then on its remaining tasks start one
+   * at a time when the policy says so. With the gate in its policy it waits there once, with what the
+   * remaining tasks would cost, until a person says to carry on, on its models or on the fallback, or
+   * stops it. Moving tasks to the fallback is the route's (PI-04), which reads the same pressure.
+   */
+  private reactNearBudget(run: Run, tasks: Task[], context: RunContext) {
+    if (context.near) return
+    const near = nearBudget(this.repository, run, tasks, runPressure(this.repository, run, undefined))
+    if (!near) return
+    context.near = near
+    this.repository.setNearBudget(run.id, near)
+    if (!near.gate) return
+    this.repository.setPaused(run.id, "threshold")
+    context.pause = "threshold"
+  }
+
+  /** The pressure a task's route reads: without the budget once a person chose at the gate to keep the run's models. */
+  private routePressure(run: Run, context: RunContext, providerID: string | undefined): Pressure {
+    const pressure = runPressure(this.repository, run, providerID)
+    if (context.near?.gate?.answer !== "continue") return pressure
+    return pressure.quota ? { quota: pressure.quota } : {}
+  }
+
+  /**
    * A closing note for a task, for the next one and for the record (H-31).
    *
    * Written by the engine in a session of its own, so it costs no turn of the task it is about, and
    * kept as a `handoff` artifact so a run can be read back without the transcripts. The raw answer is
    * the fallback: a note that could not be written must not lose what the task actually said.
    */
-  private async handoffNote(run: Run, task: Task, answer: string | undefined, directory?: string) {
+  private async handoffNote(run: Run, task: Task, answer: string | undefined, directory?: string, model?: Model) {
     if (!answer) return undefined
     const engine = this.engine as Engine & { handoff?: unknown }
     // A test that fakes the engine has no note to write; the caller gets the answer it already had.
@@ -488,6 +515,7 @@ export class TaskRunner {
         directory,
         task: task.name,
         answer,
+        ...(model ? { model } : {}),
         // The note's session is the run's too, labelled as what it is (UL-04).
         onSession: (sessionID) =>
           this.repository.attributeSession(sessionID, { runID: run.id, taskID: task.id, purpose: "handoff" }),
@@ -682,6 +710,7 @@ export class TaskRunner {
       handoffs: new Map(),
       directories: new Map(),
       waiting: new Set(),
+      ...(run.nearBudget ? { near: run.nearBudget } : {}),
     }
     this.rehydrate(run, all, context)
     const running = new Set<Promise<void>>()
@@ -699,9 +728,11 @@ export class TaskRunner {
       let started = 0
       let skipped = false
       // A budget reached by the work in flight, or before the first task (UL-08): nothing new starts.
-      if (queued.length > 0) this.pauseForBudget(run, context)
+      // Near one, the run reacts as its policy says (CL-2): one task at a time, or a gate.
+      if (queued.length > 0 && !this.pauseForBudget(run, context)) this.reactNearBudget(run, tasks, context)
+      const ceiling = context.near?.serial ? 1 : RUN_CONCURRENCY
       for (const task of queued) {
-        if (running.size >= RUN_CONCURRENCY || context.failure || context.pause || context.halted) break
+        if (running.size >= ceiling || context.failure || context.pause || context.halted) break
         const decision = this.decide(task, tasks)
         if (decision.action === "skip") {
           this.repository.finishTask(task.id, "skipped", { error: decision.reason }, Date.now())
@@ -917,7 +948,7 @@ export class TaskRunner {
       const routed = await routeTask({
         task,
         policy: run.policy,
-        pressure: runPressure(this.repository, run, modelForTask(task, run.policy)?.providerID),
+        pressure: this.routePressure(run, context, modelForTask(task, run.policy)?.providerID),
         ...(this.router
           ? {
               router: (state) =>
@@ -925,7 +956,12 @@ export class TaskRunner {
             }
           : {}),
       })
-      this.repository.setTaskRoute(task.id, routed.route)
+      // Kept on its models by a person at the gate (CL-2): said, since the figures alone would not say it.
+      const route =
+        context.near?.gate?.answer === "continue" && !routed.route.fallback
+          ? { ...routed.route, reason: `${routed.route.reason}. At the budget gate a person chose to keep the run's models` }
+          : routed.route
+      this.repository.setTaskRoute(task.id, route)
       await this.engine.prompt({
         sessionID: session.id,
         text,
@@ -997,7 +1033,16 @@ export class TaskRunner {
       // cannot be written. A run of a single task has no next task and no thread of its own (see
       // `parentID`), so its closing note would open a session nobody reads: the answer stands as it is.
       const wantsHandoff = tasks.length > 1
-      context.handoffs.set(task.id, wantsHandoff ? await this.handoffNote(run, task, answer?.text, directory) : answer?.text)
+      // On the fallback once the run is near its budget (CL-2): a note is spend like any other.
+      const note = wantsHandoff
+        ? noteModel({
+            policy: run.policy,
+            route,
+            pressure: runPressure(this.repository, run, undefined),
+            kept: context.near?.gate?.answer === "continue",
+          })
+        : undefined
+      context.handoffs.set(task.id, wantsHandoff ? await this.handoffNote(run, task, answer?.text, directory, note) : answer?.text)
       // Findings (H-32). Tried after every agent task rather than only after a review: an answer with
       // no parseable block simply has none, and it costs one regular expression. A task that was asked
       // for them and produced none has genuinely found nothing.
