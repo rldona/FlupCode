@@ -214,7 +214,7 @@ const toAnswer = (question: Question, answer: JevAnswer): Answer => {
 }
 
 /**
- * Jev as a `PredictiveModel`: remote, able to answer every kind. It applies no thresholds — that is
+ * Jev as a `PredictiveModel`: a remote classifier fast enough for the live path. It applies no thresholds — that is
  * the service's job — and it never touches the network itself: the `JevClient` owns the request.
  * Jev does not report usage, so the body's token estimate is the usage and its declared price the cost.
  */
@@ -224,6 +224,8 @@ export function createJevModel(input: { client: JevClient; now?: () => number })
     ...JEV,
     name: "Jev",
     needsKey: true,
+    capabilities: ["classify"],
+    latencyClass: "hot",
     supports: decisionKinds(),
     async predict(state, questions, options): Promise<Prediction> {
       // Jev cannot answer an empty question set; a state with nothing to ask is not a Jev answer.

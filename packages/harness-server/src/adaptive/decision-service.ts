@@ -30,6 +30,7 @@ import { boundAnswer, boundSummary, decisionID } from "./decision-record"
 import { readWith } from "./questions"
 import type { DecisionDefinition, DecisionRegistry, KindOf, KindSpec } from "./decisions/define"
 import { DECISIONS } from "./decisions/registry"
+import { canAnswer } from "./predictive/model"
 import type { PredictiveModel, Question } from "./predictive/model"
 import { DecisionUnavailable, degradedReasonOf } from "./providers/provider"
 import { governorKey } from "./providers/governor"
@@ -195,8 +196,9 @@ export function createDecisionService<S extends KindSpec = DecisionSpec>(deps: {
   if (registry.size !== (deps.models ?? []).length) throw new Error("predictive model ids must be unique")
 
   /**
-   * The model a request may ask, or none. It must be assigned to the kind, registered, and support
-   * the kind; the policy must allow a model; and the egress guard must let the model out: a remote
+   * The model a request may ask, or none. It must be assigned to the kind, registered, and able to
+   * answer the kind (`canAnswer`: its capability, latency class and, when it lists them, its kinds);
+   * the policy must allow a model; and the egress guard must let the model out: a remote
    * model needs its own provider's consent for the project and kind, a local one only the kill switch. Anything short of that is the opt-in posture, not a degradation: the
    * baseline answers and the row says no model was consulted.
    */
@@ -206,7 +208,7 @@ export function createDecisionService<S extends KindSpec = DecisionSpec>(deps: {
     config: AdaptiveConfig,
   ): PredictiveModel | undefined => {
     const model = registry.get(config.models[request.kind] ?? "")
-    if (!model || !model.supports.includes(definition.kind) || !allowsModel(request.policy)) return undefined
+    if (!model || !canAnswer(model, definition) || !allowsModel(request.policy)) return undefined
     if (!deps.egress.allows(model, request.kind, request.projectID)) return undefined
     return model
   }

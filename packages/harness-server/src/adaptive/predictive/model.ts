@@ -13,6 +13,7 @@
  * service degrades to the baseline with that reason.
  */
 
+import type { Capability, LatencyClass } from "../decisions/define"
 import type { KeySlot } from "../model-key"
 
 /**
@@ -92,7 +93,30 @@ export type PredictiveModel = {
   readonly needsKey?: boolean
   /** Where that key lives, read live from its settings: set exactly when `needsKey` is (PI-01). */
   readonly keySlot?: () => KeySlot
-  /** The kinds it can answer; a kind assigned to a model that does not support it keeps the baseline. */
-  readonly supports: readonly string[]
+  /**
+   * What it can answer (PI-02): a kind is asked of it only when the kind's capability is one of these.
+   * Absent reads as `["classify"]`, which is what every model answered before capabilities existed.
+   */
+  readonly capabilities?: readonly Capability[]
+  /** How fast it usually answers; a `batch` model is never asked a `hot` kind. Absent reads as `hot`. */
+  readonly latencyClass?: LatencyClass
+  /**
+   * The kinds it is limited to, when it is: a kind outside them keeps the baseline even when its
+   * capability matches. Absent means every kind its capabilities answer.
+   */
+  readonly supports?: readonly string[]
   predict(state: PredictionState, questions: readonly Question[], options: PredictOptions): Promise<Prediction>
+}
+
+/**
+ * Whether `model` can answer `kind`: it has the kind's capability, it is not a background model asked
+ * on a live turn, and, when it lists the kinds it is limited to, the kind is one of them.
+ */
+export function canAnswer(
+  model: Pick<PredictiveModel, "capabilities" | "latencyClass" | "supports">,
+  kind: { kind: string; capability: Capability; latencyClass: LatencyClass },
+): boolean {
+  if (!(model.capabilities ?? ["classify"]).includes(kind.capability)) return false
+  if (kind.latencyClass === "hot" && model.latencyClass === "batch") return false
+  return model.supports === undefined || model.supports.includes(kind.kind)
 }
