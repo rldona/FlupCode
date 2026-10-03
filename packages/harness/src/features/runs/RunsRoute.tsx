@@ -3,6 +3,9 @@ import { Show } from "solid-js"
 import { RunsPanel } from "../../components/RunsPanel"
 import { RemoteRuns } from "../../components/RemoteRuns"
 import { useApp } from "../../app-context"
+import type { RunCheckpointActions } from "../../components/RunCheckpoints"
+import { t } from "../../i18n"
+import { toast } from "../../toast"
 import { createHarnessClient } from "../../client"
 
 /**
@@ -44,6 +47,7 @@ function PhoneRuns() {
 
 function DeskRuns() {
   const app = useApp()
+  const checkpoints = runCheckpoints(app)
   return (
     <RunsPanel
       open={app.router.runsOpen()}
@@ -71,7 +75,7 @@ function DeskRuns() {
       onCancelTask={app.runs.cancelTask}
       onResume={app.runs.resumeRun}
       onResumePlan={app.runs.resumePlan}
-      checkpoints={app.runs.runCheckpoints}
+      checkpoints={checkpoints}
       onFocusRun={(runID) => app.runs.setRunFocus({ runID })}
       onBestOfN={() => app.router.setBestOfNOpen(true)}
       requests={app.runs.runRequests() ?? {}}
@@ -98,4 +102,39 @@ function DeskRuns() {
       onFocused={() => app.runs.setRunFocus(undefined)}
     />
   )
+}
+
+/**
+ * A run's checkpoints (CL-3): restoring one takes the folder and the task's conversation back
+ * together, and forking from one starts a new run there, which is brought into view. Here rather
+ * than in the store, so it loads with the screen that uses it.
+ */
+function runCheckpoints(app: ReturnType<typeof useApp>): RunCheckpointActions {
+  const client = () => createHarnessClient(app.connection.harnessServerUrl())
+  const failed = (cause: unknown) => toast(cause instanceof Error ? cause.message : String(cause), "error")
+  return {
+    list: (runID) => client().checkpoints.ofRun(runID),
+    plan: (id) => client().checkpoints.plan(id),
+    restore: (id) =>
+      client()
+        .checkpoints.restore(id)
+        .then((done) =>
+          toast(t("Checkpoint restored"), "success", {
+            description: t("Restored: {written} rewritten, {removed} deleted", {
+              written: done?.plan.files.write.length ?? 0,
+              removed: done?.plan.files.remove.length ?? 0,
+            }),
+          }),
+        )
+        .catch(failed),
+    forkPlan: (id) => client().checkpoints.forkPlan(id),
+    fork: (id) =>
+      client()
+        .checkpoints.fork(id)
+        .then((run) => {
+          toast(t("Run forked"), "success")
+          if (run) app.runs.setRunFocus({ runID: run.id })
+        })
+        .catch(failed),
+  }
 }

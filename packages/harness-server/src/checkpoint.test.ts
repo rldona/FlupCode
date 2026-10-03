@@ -304,7 +304,10 @@ describe("checkpoints in the harness", () => {
   test("a fork carries over a done task's route and its visual check with what it found", async () => {
     const repository = new SqliteRoutineRepository(":memory:")
     const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
-    const parent = repository.startRun({ type: "manual" }, 1_000, directory)
+    const policy = { fallback: "cheap/small", budget: { cost: 2 }, nearBudget: { serial: true, gate: true } }
+    const parent = repository.startRun({ type: "manual" }, 1_000, directory, { policy })
+    // What the parent did near its budget is its own state, not the fork's.
+    repository.setNearBudget(parent.id, { scope: "run", name: "this run", unit: "usd", spent: 1.64, limit: 2, share: 0.82, at: 2_500, serial: true, reason: "The run has spent 82% of its cost budget" })
     const visual = { steps: [{ screenshot: "home" }], mask: [".clock"], tolerance: 0.01, settle: { captures: 3, intervalMs: 100 } }
     const [build, look, ship] = repository.addTasks(parent.id, [
       { name: "build", prompt: "Build it", agent: "build" },
@@ -325,6 +328,9 @@ describe("checkpoints in the harness", () => {
     expect(plan.kept.map((task) => task.name)).toEqual(["build", "look"])
     expect(plan.tasks.map((task) => task.name)).toEqual(["ship"])
     const child = await scheduler.fork(after.id)
+    // The same policy, what it does near its budget included (CL-2); none of the parent's state there.
+    expect(repository.getRun(child!.id)).toMatchObject({ policy, forkOf: { runID: parent.id, checkpointID: after.id } })
+    expect(repository.getRun(child!.id)!.nearBudget).toBeUndefined()
     const [carriedBuild, carriedLook, again] = repository.listTasks(child!.id)
     expect(carriedBuild).toMatchObject({ name: "build", status: "success", output: "Built", route })
     expect(carriedLook).toMatchObject({
