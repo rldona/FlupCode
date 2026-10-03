@@ -201,13 +201,28 @@ for (const locale of ["en", "es"] as const) {
 test("a closed dialog plays its exit on a copy that leaves when the motion ends", async ({ page }) => {
   await open(page, "/?dialog=about", "en")
   await expect(topDialog(page)).toBeVisible()
+  // The copy lives for one long duration (200 ms): too short to be sure of catching by polling on a
+  // busy machine, so the page itself records it coming and going.
+  await page.evaluate(() => {
+    const seen: string[] = []
+    ;(window as unknown as { seen: string[] }).seen = seen
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes)
+          if (node instanceof HTMLElement && node.dataset.modal === "closing")
+            seen.push(`added hidden=${node.getAttribute("aria-hidden")} inert=${node.inert}`)
+        for (const node of record.removedNodes)
+          if (node instanceof HTMLElement && node.dataset.modal === "closing") seen.push("removed")
+      }
+    }).observe(document.body, { childList: true, subtree: true })
+  })
   await page.keyboard.press("Escape")
   // The dialog itself is gone at once: the copy is hidden from assistive technology and the pointer.
   await expect(page.getByRole("dialog")).toHaveCount(0)
-  const copy = page.locator('[data-modal="closing"]')
-  await expect(copy).toHaveCount(1)
-  await expect(copy).toHaveAttribute("aria-hidden", "true")
-  await expect(copy).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { seen: string[] }).seen))
+    .toEqual(["added hidden=true inert=true", "removed"])
+  await expect(page.locator('[data-modal="closing"]')).toHaveCount(0)
 })
 
 test("under reduced motion nothing moves: no exit copy, and the tokens are zero", async ({ page }) => {

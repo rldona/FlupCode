@@ -239,18 +239,25 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     return [...props.sessions, ...remoteSessions().filter((session) => !known.has(session.id))]
   })
 
-  const all = createMemo(() =>
-    search(query(), {
-      places: props.places,
-      commands: props.commands,
-      sessions: sessions(),
-      projects: props.projects,
-      artifacts: props.artifacts,
-      routines: props.routines,
-      runs: props.runs,
-      workflows: props.workflows,
-      files: files(),
-    }),
+  // A row that is still the same row keeps its object, so the list draws it once: rebuilt on every
+  // answer (the sessions refetched, the debounced search coming back empty), each row was a new
+  // element, and the one the reader was on lost its focus and its place under the arrows.
+  const all = createMemo<PaletteItem[]>((previous) =>
+    keepSame(
+      previous,
+      search(query(), {
+        places: props.places,
+        commands: props.commands,
+        sessions: sessions(),
+        projects: props.projects,
+        artifacts: props.artifacts,
+        routines: props.routines,
+        runs: props.runs,
+        workflows: props.workflows,
+        files: files(),
+      }),
+    ),
+    [],
   )
   const tabs = createMemo(() => kindsIn(all()))
   const items = createMemo(() => {
@@ -263,15 +270,9 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     if (only && !tabs().includes(only)) setTab(undefined)
   })
 
-  const groups = createMemo(() => {
-    const seen: Array<{ kind: Kind; items: PaletteItem[] }> = []
-    for (const item of items()) {
-      const last = seen.at(-1)
-      if (last?.kind === item.kind) last.items.push(item)
-      else seen.push({ kind: item.kind, items: [item] })
-    }
-    return seen
-  })
+  // Drawn by kind, a string, so a group that is still there is not drawn again either.
+  const kinds = createMemo(() => [...new Set(items().map((item) => item.kind))])
+  const itemsOf = (kind: Kind) => items().filter((item) => item.kind === kind)
 
   const select = (item: PaletteItem | undefined) => {
     if (!item || item.disabled) return
@@ -393,13 +394,13 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
       <Show when={items().length > 0} fallback={<div class="fc-palette-empty">{t("No results")}</div>}>
         <div class="fc-palette-list" ref={list}>
-          <For each={groups()}>
-            {(group) => (
+          <For each={kinds()}>
+            {(kind) => (
               <>
                 <Show when={!tab()}>
-                  <div class="fc-palette-group">{t(LABELS[group.kind])}</div>
+                  <div class="fc-palette-group">{t(LABELS[kind])}</div>
                 </Show>
-                <For each={group.items}>
+                <For each={itemsOf(kind)}>
                   {(item) => {
                     const index = () => items().indexOf(item)
                     return (
@@ -454,4 +455,18 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
       </div>
     </Modal>
   )
+}
+
+/** The new rows, each replaced by the previous object for it when nothing about it changed. */
+export function keepSame(previous: PaletteItem[], next: PaletteItem[]) {
+  const known = new Map(previous.map((item) => [item.id, item]))
+  return next.map((item) => {
+    const was = known.get(item.id)
+    return was && sameItem(was, item) ? was : item
+  })
+}
+
+function sameItem(a: PaletteItem, b: PaletteItem) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as Array<keyof PaletteItem>)
+  return [...keys].every((key) => a[key] === b[key])
 }
