@@ -81,6 +81,54 @@ export type DecisionDefinition<K extends string, S, A> = {
  */
 export const defineDecision = <K extends string, S, A>(definition: DecisionDefinition<K, S, A>) => definition
 
+// ---- the registry ----------------------------------------------------------------------------
+
+/** Any definition, whatever its kind, state and answer: what a registry is built from. */
+export type AnyDecisionDefinition = DecisionDefinition<string, never, unknown>
+
+/** The state and answer of each kind, keyed by kind: the shape `DecisionSpec` has. */
+export type KindSpec = Record<string, { state: unknown; answer: unknown }>
+
+/** The spec a set of definitions declares. */
+export type SpecOf<D extends AnyDecisionDefinition> = {
+  [Definition in D as Definition["kind"]]: Definition extends DecisionDefinition<string, infer S, infer A>
+    ? { state: S; answer: A }
+    : never
+}
+
+/** A kind of a spec. */
+export type KindOf<S extends KindSpec> = keyof S & string
+
+export type DecisionRegistry<S extends KindSpec> = {
+  /** The kinds, in the order they were registered. */
+  readonly kinds: readonly KindOf<S>[]
+  has(kind: unknown): kind is KindOf<S>
+  get<Q extends KindOf<S>>(kind: Q): DecisionDefinition<Q, S[Q]["state"], S[Q]["answer"]>
+}
+
+/**
+ * The registry of a set of definitions. Every map the layer keeps per kind (questions, readers,
+ * baselines, policies, consent, value-of-information weights) is read from it, so a kind is added by
+ * registering its definition and nothing else. Two definitions of one kind are refused.
+ */
+export function createDecisionRegistry<const D extends readonly AnyDecisionDefinition[]>(
+  definitions: D,
+): DecisionRegistry<SpecOf<D[number]>> {
+  const byKind = new Map(definitions.map((definition) => [definition.kind, definition]))
+  if (byKind.size !== definitions.length) throw new Error("decision kinds must be unique")
+  const has = (kind: unknown): kind is KindOf<SpecOf<D[number]>> => typeof kind === "string" && byKind.has(kind)
+  return {
+    kinds: definitions.map((definition) => definition.kind),
+    has,
+    get: (kind) => {
+      const definition = byKind.get(kind)
+      if (!definition) throw new Error(`unknown decision kind: ${kind}`)
+      // The map was built from `definitions`, so the entry under `kind` is that kind's own definition.
+      return definition as never
+    },
+  }
+}
+
 // ---- reading helpers every kind shares --------------------------------------------------------
 
 /** `p(yes)` of a binary answer; `no` is accepted when `yes` is missing, anything else is no answer. */

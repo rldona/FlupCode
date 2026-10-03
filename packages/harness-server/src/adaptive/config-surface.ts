@@ -400,7 +400,7 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
       id: model.id,
       name: model.name ?? model.id,
       locality: model.locality,
-      supports: [...(model.supports ?? decisionKinds())],
+      supports: (model.supports ?? decisionKinds()).filter(isDecisionKind),
       needsConsent: model.locality === "remote",
       needsKey: model.needsKey === true,
       ...(model.needsKey === true && Object.hasOwn(keys, model.id) ? { key: keys[model.id] } : {}),

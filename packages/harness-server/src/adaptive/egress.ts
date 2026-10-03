@@ -13,13 +13,14 @@
  * from it in its own provider module, so the guard stays the same whichever model is asked.
  */
 
-import { createHash } from "node:crypto"
-import type { AnyDecisionRequest, DecisionKind } from "./decision"
-import { decisionInputsHash } from "./decision"
+import type { DecisionSpec, SpecRequest } from "./decision"
+import { decisionInputsHash, isDecisionKind } from "./decision"
+import type { DecisionRegistry, KindOf, KindSpec } from "./decisions/define"
+import { DECISIONS } from "./decisions/registry"
 import type { AdaptiveConfig } from "./config"
 import { DEFAULT_MAX_INPUT_CHARS } from "./config"
 import { redactText } from "./redaction"
-import { questionID, questionsFor } from "./questions"
+import { questionID } from "./questions"
 import type { PredictionState, PredictiveModel, Question } from "./predictive/model"
 
 /** What the guard needs to know about the model it is asked about: who it is and where it runs. */
@@ -36,17 +37,18 @@ export type PreparedInput = {
   summary: Record<string, unknown>
 }
 
-export type EgressGuard = {
+export type EgressGuard<S extends KindSpec = DecisionSpec> = {
   /** Whether `model` may be asked about `kind` for `projectID`: its provider's consent, or local. */
-  allows(model: EgressSubject, kind: DecisionKind, projectID: string | undefined): boolean
+  allows(model: EgressSubject, kind: string, projectID: string | undefined): boolean
   /**
    * Builds the whole model input, redacting and bounding it; it never returns the raw state.
    *
    * The state *and* the questions are written here, so no other path can hand a model a prompt built
    * from raw state. When no questions are given the shared planner derives them from the request, so
    * the input is complete whichever caller asks and the hash always covers what a model receives.
+   * The state is the kind's own outward view of it (its definition's `egress`).
    */
-  prepare(request: AnyDecisionRequest, questions?: readonly Question[]): PreparedInput
+  prepare<Q extends KindOf<S>>(request: SpecRequest<S, Q>, questions?: readonly Question[]): PreparedInput
   /**
    * The same redaction `prepare` applies, over any value, for a writer that persists a decision.
    *
@@ -68,21 +70,6 @@ const redactValue = (value: unknown, secrets: readonly string[]): unknown => {
     return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactValue(entry, secrets)]))
   return value
 }
-
-/**
- * The state as a model may see it. A project is named by its absolute path on the acting paths (a
- * run's directory), which says who the person is and how their disk is laid out (PI-03): the state
- * carries a stable digest of it instead, so one project still reads as one project. The request's own
- * `projectID` keeps the path, because the consent check and a local engine session need it, and it
- * never leaves.
- */
-const outwardState = (state: unknown): unknown =>
-  isPlainObject(state) && typeof state.projectID === "string" && state.projectID !== ""
-    ? { ...state, projectID: projectDigest(state.projectID) }
-    : state
-
-const projectDigest = (projectID: string): string =>
-  `project:${createHash("sha256").update(projectID).digest("hex").slice(0, 16)}`
 
 /** Counters, lengths and field names only: a summary that can never carry a secret or raw text. */
 const summarize = (state: unknown): Record<string, unknown> => {
@@ -142,12 +129,17 @@ const boundInput = (state: string, questions: Question[], budget: number): { sta
   return { state: stateText, questions: asked }
 }
 
-export function createAdaptiveEgressGuard(deps: {
+export function createAdaptiveEgressGuard<S extends KindSpec = DecisionSpec>(deps: {
   config: () => AdaptiveConfig
   /** Known values to delete outright (for example an active credential); none by default. */
   secrets?: () => string[]
-}): EgressGuard {
-  const allows = (model: EgressSubject, kind: DecisionKind, projectID: string | undefined): boolean => {
+  /** The decision kinds it prepares (PI-02); the server's own registry unless a caller brings one. */
+  decisions?: DecisionRegistry<S>
+}): EgressGuard<S> {
+  // Without a registry of its own the guard prepares the server's kinds, which is the spec `S`
+  // defaults to; only a caller that brings a registry names another spec.
+  const decisions = deps.decisions ?? (DECISIONS as unknown as DecisionRegistry<S>)
+  const allows = (model: EgressSubject, kind: string, projectID: string | undefined): boolean => {
     const config = deps.config()
     if (!config.enabled) return false
     if (model.locality === "local") return true
@@ -157,13 +149,15 @@ export function createAdaptiveEgressGuard(deps: {
       consent.enabled &&
       projectID !== undefined &&
       consent.projects.includes(projectID) &&
+      // Consent is given per configured kind; a kind a caller registered beyond them has none.
+      isDecisionKind(kind) &&
       consent.kinds[kind]
     )
   }
 
-  const prepare = (
-    request: AnyDecisionRequest,
-    questions: readonly Question[] = questionsFor(request),
+  const prepare = <Q extends KindOf<S>>(
+    request: SpecRequest<S, Q>,
+    questions: readonly Question[] = decisions.get(request.kind).questions(request.state),
   ): PreparedInput => {
     const config = deps.config()
     const secrets = deps.secrets?.() ?? []
@@ -187,7 +181,7 @@ export function createAdaptiveEgressGuard(deps: {
     const provider =
       assigned !== undefined && Object.hasOwn(config.providers, assigned) ? config.providers[assigned] : undefined
     const bounded = boundInput(
-      redactText(JSON.stringify(outwardState(request.state)), secrets),
+      redactText(JSON.stringify(decisions.get(request.kind).egress(request.state)), secrets),
       asked,
       Math.max(0, provider?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS),
     )

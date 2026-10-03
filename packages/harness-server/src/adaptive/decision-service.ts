@@ -21,30 +21,16 @@
  * which is what makes the answer reproducible.
  */
 
-import { allowsModel } from "./decision"
-import type {
-  AnyDecisionRequest,
-  DecisionKind,
-  DecisionPolicy,
-  DecisionRequest,
-  DecisionResult,
-  DecisionSource,
-  DecisionSpec,
-  DegradedReason,
-} from "./decision"
+import { allowsModel, isDecisionKind } from "./decision"
+import type { DecisionPolicy, DecisionSource, DecisionSpec, DegradedReason, SpecRequest, SpecResult } from "./decision"
 import type { AdaptiveConfig } from "./config"
 import { estimateTokens } from "./context"
 import type { EgressGuard, PreparedInput } from "./egress"
 import { boundAnswer, boundSummary, decisionID } from "./decision-record"
-import { questionsFor, readAnswers } from "./questions"
-import { completion } from "./decisions/completion"
-import { skillRelevance } from "./decisions/skill-relevance"
-import { contextItem } from "./decisions/context-item"
-import { failure } from "./decisions/failure"
-import { skillReflection } from "./decisions/skill-reflection"
+import { readWith } from "./questions"
+import type { DecisionDefinition, DecisionRegistry, KindOf, KindSpec } from "./decisions/define"
+import { DECISIONS } from "./decisions/registry"
 import type { PredictiveModel, Question } from "./predictive/model"
-import { deterministicBaseline } from "./providers/deterministic"
-import type { DeterministicBaseline } from "./providers/deterministic"
 import { DecisionUnavailable, degradedReasonOf } from "./providers/provider"
 import { governorKey } from "./providers/governor"
 import type { Governor } from "./providers/governor"
@@ -102,24 +88,24 @@ export type DecisionExplanation = {
  */
 export type PredictionMode = "hot" | "batch"
 
-export type DecisionService = {
+export type DecisionService<S extends KindSpec = DecisionSpec> = {
   /**
    * `shadow` marks the audit row: `true` (the default) records a decision the harness does not act
    * on, which is every episode decision; an acting path — the relevance line — passes `false`. The
    * default keeps the Phase 2/3a/3b shadow byte-identical when no flag is given.
    */
-  predict<Q extends DecisionKind>(
-    request: DecisionRequest<Q>,
+  predict<Q extends KindOf<S>>(
+    request: SpecRequest<S, Q>,
     mode?: PredictionMode,
     shadow?: boolean,
-  ): Promise<DecisionResult<Q>>
+  ): Promise<SpecResult<S, Q>>
   decisions(filter?: DecisionFilter): StoredDecision[]
   explain(id: string): DecisionExplanation | undefined
 }
 
 /** What the model attempt yields, before the deterministic baseline is folded back in. */
-type Improved<Q extends DecisionKind> = {
-  answer: DecisionSpec[Q]["answer"]
+type Improved<A> = {
+  answer: A
   source: DecisionSource
   provider: string
   attemptedProvider?: string
@@ -135,14 +121,9 @@ type Improved<Q extends DecisionKind> = {
   degradedReason?: DegradedReason
 }
 
-/** A readable question per kind; a summary is all the row kept, so the question is generic. */
-const QUESTIONS: Record<DecisionKind, string> = {
-  completion: completion.question,
-  skillRelevance: skillRelevance.question,
-  contextItem: contextItem.question,
-  failure: failure.question,
-  skillReflection: skillReflection.question,
-}
+/** One kind's definition and baseline, in the spec a service answers. */
+type KindDefinition<S extends KindSpec, Q extends KindOf<S>> = DecisionDefinition<Q, S[Q]["state"], S[Q]["answer"]>
+type KindBaseline<S extends KindSpec, Q extends KindOf<S>> = { answer: S[Q]["answer"]; rule: string }
 
 /** Why the value-of-information gate (AH-C05) did not consult the assigned model, as `explain` says it. */
 const GATE_SKIPS: Partial<Record<DegradedReason, string>> = {
@@ -153,31 +134,21 @@ const GATE_SKIPS: Partial<Record<DegradedReason, string>> = {
 }
 
 /**
- * What a kind's `probabilities` map means. Most kinds report one **distribution** over the labels
- * they can answer; `skillRelevance` and `skillReflection` report independent binary **gates**, one
- * `p(yes)` per key, which do not sum to one and whose maximum says nothing about a confident "no".
- */
-const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
-  completion: completion.probabilities,
-  skillRelevance: skillRelevance.probabilities,
-  contextItem: contextItem.probabilities,
-  failure: failure.probabilities,
-  skillReflection: skillReflection.probabilities,
-}
-
-/**
  * The probability of the answer actually chosen, read from the answer's `probabilities`.
  *
  * For a distribution it is the top label's probability, so `{ complete: 0.05, not_complete: 0.95 }`
  * is a 0.95-certain `not_complete`, not a 0.05 one. For gates each gate answered yes or no with
  * `max(p, 1 - p)`, and the whole answer is only as certain as its least certain gate: every gate at
  * 0.02 is a confident "load nothing", while one gate at 0.5 makes the set ambiguous. An absent or
- * empty map reports nothing, so it is not an axis.
+ * empty map reports nothing, so it is not an axis. What the map means is the kind's own declaration.
  */
-const chosenProbability = (kind: DecisionKind, probabilities: Record<string, number> | undefined) => {
+const chosenProbability = (
+  shape: DecisionDefinition<string, never, unknown>["probabilities"],
+  probabilities: Record<string, number> | undefined,
+) => {
   const values = Object.values(probabilities ?? {})
   if (values.length === 0) return undefined
-  if (PROBABILITY_SHAPE[kind] === "gates") return Math.min(...values.map((p) => Math.max(p, 1 - p)))
+  if (shape === "gates") return Math.min(...values.map((p) => Math.max(p, 1 - p)))
   return Math.max(...values)
 }
 
@@ -198,10 +169,12 @@ const passesGate = (
   return true
 }
 
-export function createDecisionService(deps: {
+export function createDecisionService<S extends KindSpec = DecisionSpec>(deps: {
   repository: DecisionServiceRepository
   config: () => AdaptiveConfig
-  egress: EgressGuard
+  egress: EgressGuard<S>
+  /** The decision kinds it answers (PI-02); the server's own registry unless a caller brings one. */
+  decisions?: DecisionRegistry<S>
   /** The static model registry; `config.models` assigns one of these ids per kind. */
   models?: readonly PredictiveModel[]
   governor?: Governor
@@ -210,8 +183,13 @@ export function createDecisionService(deps: {
   /** The session override (AH-E02): a paused session asks no model and records a row that did not act. */
   paused?: (sessionID: string) => boolean
   now?: () => number
-}): DecisionService {
+}): DecisionService<S> {
   const now = deps.now ?? Date.now
+  // Without a registry of its own the service answers the server's kinds, which is the spec `S`
+  // defaults to; only a caller that brings a registry names another spec.
+  const decisions = deps.decisions ?? (DECISIONS as unknown as DecisionRegistry<S>)
+  type Kind<Q extends KindOf<S>> = KindDefinition<S, Q>
+  type Baseline<Q extends KindOf<S>> = KindBaseline<S, Q>
   const governor = deps.governor
   const registry = new Map((deps.models ?? []).map((model) => [model.id, model]))
   if (registry.size !== (deps.models ?? []).length) throw new Error("predictive model ids must be unique")
@@ -222,23 +200,28 @@ export function createDecisionService(deps: {
    * model needs its own provider's consent for the project and kind, a local one only the kill switch. Anything short of that is the opt-in posture, not a degradation: the
    * baseline answers and the row says no model was consulted.
    */
-  const modelFor = (request: AnyDecisionRequest, config: AdaptiveConfig): PredictiveModel | undefined => {
+  const modelFor = <Q extends KindOf<S>>(
+    request: SpecRequest<S, Q>,
+    definition: Kind<Q>,
+    config: AdaptiveConfig,
+  ): PredictiveModel | undefined => {
     const model = registry.get(config.models[request.kind] ?? "")
-    if (!model || !model.supports.includes(request.kind) || !allowsModel(request.policy)) return undefined
+    if (!model || !model.supports.includes(definition.kind) || !allowsModel(request.policy)) return undefined
     if (!deps.egress.allows(model, request.kind, request.projectID)) return undefined
     return model
   }
 
   /** The model's answer, or the baseline marked degraded with the reason it did not win. */
-  const improve = async <Q extends DecisionKind>(
+  const improve = async <Q extends KindOf<S>>(
     model: PredictiveModel,
     governor: Governor,
-    request: DecisionRequest<Q>,
-    baseline: DeterministicBaseline<Q>,
+    request: SpecRequest<S, Q>,
+    definition: Kind<Q>,
+    baseline: Baseline<Q>,
     questions: readonly Question[],
     prepared: PreparedInput,
     mode: PredictionMode,
-  ): Promise<Improved<Q>> => {
+  ): Promise<Improved<S[Q]["answer"]>> => {
     const startedAt = now()
     try {
       // The hot path never acquires a limiter slot, so a saturating batch cannot delay a live turn
@@ -258,7 +241,7 @@ export function createDecisionService(deps: {
           mode,
           retry,
         })
-        const reading = readAnswers(request.kind, questions, prediction.answers)
+        const reading = readWith(definition, questions, prediction.answers)
         if (!reading) throw new DecisionUnavailable("malformed")
         return { prediction, reading }
       }
@@ -274,7 +257,7 @@ export function createDecisionService(deps: {
       // optionally, its own confidence in the chosen answer; the recorded confidence is the weakest of
       // the two, so no model can make a confident "no" read as a low-confidence "yes".
       const probabilities = raw.reading.probabilities
-      const probability = chosenProbability(request.kind, probabilities)
+      const probability = chosenProbability(definition.probabilities, probabilities)
       const axes = [raw.reading.confidence, probability].filter((axis) => axis !== undefined)
       const confidence = axes.length > 0 ? Math.min(...axes) : undefined
       const version = raw.prediction.model.version
@@ -331,23 +314,32 @@ export function createDecisionService(deps: {
    * gate decides whether the model is worth asking. A skipped model is not consulted at all: the row
    * keeps `source: "baseline"` and no provider, so it never feeds the stats it was gated by.
    */
-  const consult = async <Q extends DecisionKind>(
+  const consult = async <Q extends KindOf<S>>(
     model: PredictiveModel,
     governor: Governor,
-    request: DecisionRequest<Q>,
-    baseline: DeterministicBaseline<Q>,
+    request: SpecRequest<S, Q>,
+    definition: Kind<Q>,
+    baseline: Baseline<Q>,
     questions: readonly Question[],
     prepared: PreparedInput,
     mode: PredictionMode,
     scopeID: string,
-  ): Promise<Improved<Q>> => {
+  ): Promise<Improved<S[Q]["answer"]>> => {
     const gate = deps.valueGate
-    if (!gate) return improve(model, governor, request, baseline, questions, prepared, mode)
-    const cached = gate.recall(request.kind, model.id, prepared.hash)
-    if (cached && passesGate(cached.confidence, chosenProbability(request.kind, cached.probabilities), request.policy)) {
+    // The gate's statistics and per-kind weights are the configured kinds' (`voi.kinds`); a kind a
+    // caller registered beyond them is asked without the gate.
+    const kind = request.kind
+    if (!gate || !isDecisionKind(kind)) {
+      return improve(model, governor, request, definition, baseline, questions, prepared, mode)
+    }
+    const cached = gate.recall(kind, model.id, prepared.hash)
+    if (
+      cached &&
+      passesGate(cached.confidence, chosenProbability(definition.probabilities, cached.probabilities), request.policy)
+    ) {
       return {
         // The cache key carries the kind, so the answer was read for this kind's shape.
-        answer: cached.answer as DecisionSpec[Q]["answer"],
+        answer: cached.answer as S[Q]["answer"],
         source: "model",
         provider: cached.providerID,
         attemptedProvider: model.id,
@@ -361,7 +353,7 @@ export function createDecisionService(deps: {
       }
     }
     const verdict = gate.verdict({
-      kind: request.kind,
+      kind,
       modelID: model.id,
       scopeID,
       ...(mode === "hot" ? { deadlineMs: request.policy.timeoutMs } : {}),
@@ -376,9 +368,9 @@ export function createDecisionService(deps: {
         degradedReason: verdict.reason,
       }
     }
-    const improved = await improve(model, governor, request, baseline, questions, prepared, mode)
+    const improved = await improve(model, governor, request, definition, baseline, questions, prepared, mode)
     if (improved.source === "model") {
-      gate.remember(request.kind, model.id, prepared.hash, {
+      gate.remember(kind, model.id, prepared.hash, {
         answer: improved.answer,
         providerID: improved.providerID ?? model.id,
         ...(improved.providerVersion !== undefined ? { version: improved.providerVersion } : {}),
@@ -389,16 +381,16 @@ export function createDecisionService(deps: {
     return improved
   }
 
-  const predict = async <Q extends DecisionKind>(
-    request: DecisionRequest<Q>,
+  const predict = async <Q extends KindOf<S>>(
+    request: SpecRequest<S, Q>,
     mode: PredictionMode = "batch",
     shadow = true,
-  ): Promise<DecisionResult<Q>> => {
+  ): Promise<SpecResult<S, Q>> => {
     const config = deps.config()
-    const baseline = deterministicBaseline(request)
-    // A sound widening (`decision.test.ts` proves every `DecisionRequest<Q>` is a member of the union).
-    const questions = questionsFor(request)
-    const prepared = deps.egress.prepare(request as AnyDecisionRequest, questions)
+    const definition = decisions.get(request.kind)
+    const baseline = definition.baseline(request)
+    const questions = definition.questions(request.state)
+    const prepared = deps.egress.prepare(request, questions)
     const decidedAt = now()
     // The kill switch stops decisions: the deterministic answer is returned and nothing is written.
     if (!config.enabled) {
@@ -421,9 +413,9 @@ export function createDecisionService(deps: {
     const paused = request.sessionID !== undefined && deps.paused?.(request.sessionID) === true
     // Without an eligible model the deterministic answer is the answer, not a degraded one: the
     // harness is exactly as it was before any model existed, which is the opt-in posture.
-    const model = paused ? undefined : modelFor(request as AnyDecisionRequest, config)
+    const model = paused ? undefined : modelFor(request, definition, config)
     const scopeID = request.scopeID ?? request.episodeID ?? request.sessionID ?? request.projectID ?? "unknown"
-    const improved: Improved<Q> = paused
+    const improved: Improved<S[Q]["answer"]> = paused
       ? {
           answer: baseline.answer,
           source: "baseline",
@@ -433,11 +425,11 @@ export function createDecisionService(deps: {
           degradedReason: "session-paused",
         }
       : model !== undefined && governor !== undefined
-        ? await consult(model, governor, request, baseline, questions, prepared, mode, scopeID)
+        ? await consult(model, governor, request, definition, baseline, questions, prepared, mode, scopeID)
         : { answer: baseline.answer, source: "baseline", provider: "deterministic", latencyMs: 0, degraded: false }
     // The audit never retains what egress would not let out (ADR-0017 §3): the answer and the
     // baseline go through the same redaction and bound before they reach the writer.
-    const input: StoredDecisionInput = {
+    const input: StoredDecisionInput<string> = {
       id: decisionID(request.kind, scopeID),
       kind: request.kind,
       ...(request.sessionID !== undefined ? { sessionID: request.sessionID } : {}),
@@ -508,12 +500,14 @@ export function createDecisionService(deps: {
     const decision = deps.repository.getDecision(id)
     if (!decision) return undefined
     const episode = decision.episodeID ? deps.repository.getEpisode(decision.episodeID) : undefined
+    // A row reads its kind through the server's kinds; one a caller registered reads back `unknown`
+    // with its name in `raw`, and its own registry still knows the question.
+    const kind = decision.kind === "unknown" ? decision.raw?.kind : decision.kind
     return {
       id: decision.id,
-      question:
-        decision.kind === "unknown"
-          ? `A decision of kind "${decision.raw?.kind ?? ""}", which this build does not recognise.`
-          : QUESTIONS[decision.kind],
+      question: decisions.has(kind)
+        ? decisions.get(kind).question
+        : `A decision of kind "${decision.raw?.kind ?? ""}", which this build does not recognise.`,
       answer: decision.answer,
       baseline: { answer: decision.baselineAnswer, rule: decision.baselineRule },
       why: why(decision),

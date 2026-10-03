@@ -13,7 +13,6 @@
  * service degrades to the baseline with that reason.
  */
 
-import type { DecisionKind } from "../decision"
 import type { KeySlot } from "../model-key"
 
 /**
@@ -64,7 +63,7 @@ export type Prediction = {
  * allowlist before sending a byte.
  */
 export type PredictionState = {
-  kind: DecisionKind
+  kind: string
   projectID?: string
   text: string
 }
@@ -94,6 +93,6 @@ export type PredictiveModel = {
   /** Where that key lives, read live from its settings: set exactly when `needsKey` is (PI-01). */
   readonly keySlot?: () => KeySlot
   /** The kinds it can answer; a kind assigned to a model that does not support it keeps the baseline. */
-  readonly supports: readonly DecisionKind[]
+  readonly supports: readonly string[]
   predict(state: PredictionState, questions: readonly Question[], options: PredictOptions): Promise<Prediction>
 }

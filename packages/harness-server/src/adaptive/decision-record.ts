@@ -7,14 +7,14 @@
  * enforced by the writer (`EgressGuard.prepare`) and this module only serializes what it is handed.
  */
 
-import type { DecisionKind, DecisionLabel, DecisionPolicy, DecisionSource, DegradedReason } from "./decision"
+import type { DecisionLabel, DecisionPolicy, DecisionSource, DegradedReason } from "./decision"
 import { DEFAULT_DECISION_POLICY, DEGRADED_REASONS, isDecisionKind, isDecisionLabelOutcome, isDecisionSource } from "./decision"
 import type { StoredDecision, StoredDecisionInput } from "../types"
 import { isArm } from "./holdout"
 import { LEGACY_SOURCE, policyAllowsModel } from "./legacy"
 
 /** Deterministic id: a re-capture converges on the same row (the mirror of `runEpisodeID`). */
-export const decisionID = (kind: DecisionKind, scopeID: string): string => `${kind}:${scopeID}`
+export const decisionID = (kind: string, scopeID: string): string => `${kind}:${scopeID}`
 
 /** The bound a redacted summary may reach before it is trimmed; a summary is not a transcript. */
 export const SUMMARY_CHAR_LIMIT = 4_000
@@ -118,7 +118,7 @@ export const boundAnswer = (value: unknown, limit = ANSWER_CHAR_LIMIT): unknown 
 }
 
 /** The row as it is written: JSON fields serialized, absent optionals stored as `null`. */
-export const decisionRowFrom = (input: StoredDecisionInput, now: number): DecisionRow => ({
+export const decisionRowFrom = (input: StoredDecisionInput<string>, now: number): DecisionRow => ({
   id: input.id,
   session_id: input.sessionID ?? null,
   episode_id: input.episodeID ?? null,

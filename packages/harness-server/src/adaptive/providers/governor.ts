@@ -16,7 +16,7 @@
  * knows about work, not about HTTP.
  */
 
-import type { DecisionKind, DegradedReason } from "../decision"
+import type { DegradedReason } from "../decision"
 import { createBreaker } from "./breaker"
 import type { BreakerState } from "./breaker"
 import { createBudget } from "./budget"
@@ -81,7 +81,7 @@ export type Governor = {
 }
 
 /** The key single-flight and logging agree on: kind, redacted inputs and the model asked. */
-export const governorKey = (kind: DecisionKind, inputsHash: string, modelID?: string): string =>
+export const governorKey = (kind: string, inputsHash: string, modelID?: string): string =>
   `${kind}\u0000${inputsHash}\u0000${modelID ?? ""}`
 
 /** Reasons that are the provider's fault; governance rejections never count toward the breaker. */
