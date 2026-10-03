@@ -138,6 +138,26 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
         )}
       </Show>
 
+      {/* Which model it was sent to and why (PI-04): its own, its role's, or the run's fallback. */}
+      <Show when={props.task.route}>
+        {(route) => (
+          <section class="fc-run-detail-section">
+            <h3>{t("Model")}</h3>
+            <p class="fc-run-detail-note">
+              <bdi>{route().model ?? t("The engine's default model")}</bdi>
+              <Show when={route().fallback}>
+                {" "}
+                <span class="fc-run-rule fc-run-rule-open">{t("Fallback model")}</span>
+              </Show>
+            </p>
+            <p class="fc-run-meta">{route().reason}</p>
+            <Show when={route().source === "model"}>
+              <p class="fc-run-meta">{t("Chosen by the routing model")}</p>
+            </Show>
+          </section>
+        )}
+      </Show>
+
       <div class="fc-run-detail-actions">
         <Show when={props.task.sessionID}>
           {(id) => (

@@ -521,6 +521,19 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                   />
                   {/* The budgets it answers to, as the ledger measures them (UL-08). */}
                   <BudgetMeter standings={props.usage?.[run.id]?.budgets} />
+                  {/* The newest task the run moved to its fallback model, and why (PI-04). */}
+                  <Show when={(run.tasks ?? []).filter((task) => task.route?.fallback).at(-1)}>
+                    {(task) => (
+                      <p class="fc-run-route">
+                        <span class="fc-run-rule fc-run-rule-open">
+                          {t("Fallback model")}: <bdi>{task().route!.model ?? t("The engine's default model")}</bdi>
+                        </span>
+                        <span class="fc-run-route-reason">
+                          <bdi>{task().name}</bdi>: {task().route!.reason}
+                        </span>
+                      </p>
+                    )}
+                  </Show>
                   {/* What the run spent beyond its tasks (§8.4): handoffs and other purposes apart. */}
                   <Show when={(props.usage?.[run.id]?.byPurpose ?? []).some((group) => group.key !== "run-task")}>
                     <p class="fc-run-cost-breakdown">

@@ -99,6 +99,8 @@ export const RunGraph: Component<RunGraphProps> = (props) => {
               const fact = () =>
                 [
                   name() === task().name ? who() : undefined,
+                  // Moved to the run's fallback model near a budget or a quota (PI-04).
+                  task().route?.fallback ? t("Fallback model") : undefined,
                   (task().attempt ?? 1) > 1 ? t("attempt {n}", { n: task().attempt! }) : undefined,
                   doing()
                     ? `${doing()!.tool ?? t("working")} ${elapsed(Date.now() - doing()!.waitingMs, undefined)}`

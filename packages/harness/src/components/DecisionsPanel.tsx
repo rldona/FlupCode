@@ -44,6 +44,7 @@ export const DECISION_KIND_TITLES: Record<string, string> = {
   contextItem: "What context to keep",
   failure: "Why a step failed",
   skillReflection: "What to learn from a session",
+  modelRoute: "Whether a run moves to its fallback model",
 }
 
 /** Whether the harness acted on the answer, as a filter (AH-E05). */

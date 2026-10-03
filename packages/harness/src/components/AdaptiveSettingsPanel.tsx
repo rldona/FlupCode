@@ -569,6 +569,7 @@ export const KIND_LABELS: Record<string, string> = {
   contextItem: "Which context to keep",
   skillReflection: "Whether a session is worth learning from",
   failure: "Why a step failed",
+  modelRoute: "Whether a run moves to its fallback model",
 }
 
 export const GATE_LABELS: Record<ValueGateState, string> = {

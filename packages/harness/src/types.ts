@@ -371,6 +371,19 @@ export type Task = {
   require?: "verified"
   /** Whether it met its goal (RP-06), once judged. Agent and verify tasks are. */
   verdict?: TaskVerdict
+  /** The model it was sent to and why (PI-04), once an agent task has started. */
+  route?: TaskRoute
+}
+
+/**
+ * Which model an agent task was sent to, and why (PI-04). `model` is absent when the engine's default
+ * ran; `fallback` says the run's policy moved it there because a budget or a quota neared its limit.
+ */
+export type TaskRoute = {
+  model?: string
+  fallback: boolean
+  reason: string
+  source: "rule" | "model"
 }
 
 export type RoutineRun = {

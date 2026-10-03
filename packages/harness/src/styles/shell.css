@@ -10167,6 +10167,21 @@ button.fc-status {
   font-variant-numeric: tabular-nums;
 }
 
+/* A run that moved its tasks to the fallback model (PI-04): the model as a chip, then why. */
+.fc-run-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--fc-space-2);
+  margin: 8px 0 0;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-run-route-reason {
+  color: var(--fc-text-muted);
+  overflow-wrap: anywhere;
+}
+
 .fc-verdict-reason {
   flex-basis: 100%;
   margin: var(--fc-space-1) 0 0;

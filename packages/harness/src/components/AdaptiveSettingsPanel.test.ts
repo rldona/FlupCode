@@ -922,7 +922,7 @@ describe("choosing a model per decision (AH-C01)", () => {
   })
 
   test("every assignable kind has a plain name in both languages, with no jargon", () => {
-    for (const kind of ["completion", "skillRelevance", "contextItem", "skillReflection", "failure"]) {
+    for (const kind of ["completion", "skillRelevance", "contextItem", "skillReflection", "failure", "modelRoute"]) {
       const label = KIND_LABELS[kind]!
       expect(label).toBeDefined()
       expect(label).not.toMatch(/Jev|shadow|egress|skillRelevance|\w+\.\w+/i)
