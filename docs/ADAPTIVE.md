@@ -99,6 +99,26 @@ Nothing leaves the machine that names it: the egress guard sends a remote model 
 project (`project:<16 hex>`) in place of its path, and keeps the path itself for the local consent
 check.
 
+### A decision kind is one module (PI-02)
+
+Each kind lives in `adaptive/decisions/<kind>.ts` as one `defineDecision({ kind, capability,
+latencyClass, question, probabilities, questions, read, baseline, egress, policy? })`: the capability
+a provider needs (`classify` today; `score` and `rank` are declared for later), the class of the path
+that asks it (`hot`, `warm`, `batch`), the questions its state asks, how the answers read back, the
+deterministic baseline (required: a kind without one does not compile), what of its state may leave
+the machine (the `completion` module is where the project path becomes a digest) and what its policy
+carries from the config. `decisions/registry.ts` lists the modules; the kind list, `DecisionSpec`, the
+per-kind policies, consent and value-of-information slots are all derived from it, so a new kind is a
+new module plus its line in that list. The service and the egress guard also take a registry of their
+own, which is how `decisions/registry.test.ts` answers a toy kind from a fixture file.
+
+A predictive model declares `capabilities` (default `["classify"]`) and a `latencyClass` (default
+`hot`), and may still list the kinds it is limited to (`supports`). A kind is asked of the model
+assigned to it only when the model has the kind's capability, is not a `batch` model asked a `hot`
+kind, and lists the kind if it lists any (`canAnswer`). The HTTP model is a `hot` classifier;
+`small-llm` is a `warm` one limited to `skillRelevance`, `completion` and `failure`.
+`predictive/registry.ts` builds the providers, each with its own `adaptive.providers.<id>` settings.
+
 ## Context
 
 Phase 3a models context as **selection over summarization**: the harness chooses what enters a
