@@ -16,8 +16,10 @@ import type { Arm } from "./holdout"
 import { createHash } from "node:crypto"
 import type { EpisodeOutcome } from "./episode"
 import type { CompletionAnswer, CompletionState } from "./decisions/completion"
+import type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
 
 export type { CompletionAnswer, CompletionState } from "./decisions/completion"
+export type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
 
 // ---- answers per kind ------------------------------------------------------------------------
 
@@ -98,7 +100,6 @@ export type ReflectionIntent = (typeof REFLECTION_INTENTS)[number]
 export const isReflectionIntent = (value: unknown): value is ReflectionIntent =>
   typeof value === "string" && (REFLECTION_INTENTS as readonly string[]).includes(value)
 
-export type SkillRelevanceAnswer = { load: string[] }
 export type ContextItemAnswer = { decisions: Array<{ id: string; disposition: ItemDisposition }> }
 export type FailureAnswer = { verdict: "continue" | "intervene" }
 export type SkillReflectionAnswer = {
@@ -110,11 +111,6 @@ export type SkillReflectionAnswer = {
 
 // ---- states per kind (bounded; never a session's raw state) ----------------------------------
 
-export type SkillRelevanceState = {
-  sessionID: string
-  objective: string
-  skills: Array<{ name: string; description: string; learned: boolean }>
-}
 export type ContextItemState = { objective: string; items: ContextItem[] }
 export type FailureState = {
   repeatedCalls: number

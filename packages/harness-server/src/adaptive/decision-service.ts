@@ -38,6 +38,7 @@ import type { EgressGuard, PreparedInput } from "./egress"
 import { boundAnswer, boundSummary, decisionID } from "./decision-record"
 import { questionsFor, readAnswers } from "./questions"
 import { completion } from "./decisions/completion"
+import { skillRelevance } from "./decisions/skill-relevance"
 import type { PredictiveModel, Question } from "./predictive/model"
 import { deterministicBaseline } from "./providers/deterministic"
 import type { DeterministicBaseline } from "./providers/deterministic"
@@ -134,7 +135,7 @@ type Improved<Q extends DecisionKind> = {
 /** A readable question per kind; a summary is all the row kept, so the question is generic. */
 const QUESTIONS: Record<DecisionKind, string> = {
   completion: completion.question,
-  skillRelevance: "Which skills should be loaded for this objective?",
+  skillRelevance: skillRelevance.question,
   contextItem: "What disposition should each context item take?",
   failure: "Should the harness intervene in this loop?",
   skillReflection: "Does this episode carry a reusable lesson, and what change does it call for?",
@@ -155,7 +156,7 @@ const GATE_SKIPS: Partial<Record<DegradedReason, string>> = {
  */
 const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
   completion: completion.probabilities,
-  skillRelevance: "gates",
+  skillRelevance: skillRelevance.probabilities,
   contextItem: "distribution",
   failure: "distribution",
   skillReflection: "gates",
