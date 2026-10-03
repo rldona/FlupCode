@@ -63,6 +63,7 @@ export function TopStrip() {
         showTabs={app.settings.desktopWindow() || app.settings.collapsed()}
         showEngineStatus={app.settings.desktopWindow()}
         showAgentBrowser={app.settings.desktopWindow()}
+        showPreview={!!window.flupcode?.preview}
         streamState={app.sessions.streamState()}
         blockedElsewhere={app.sessions.blockedElsewhere()}
         onOpenBlocked={app.sessions.selectSession}

@@ -3,6 +3,7 @@ import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task, TaskStatus, TaskVerdict, Artifact, Unattended } from "./types"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
+import { previewEvidence, type PreviewCapture } from "./browser-preview"
 import { externalCommand, fillCommand, runExternal } from "./external"
 import { take, type Checkpoint } from "./checkpoint"
 import { parseFindings } from "./findings"
@@ -304,6 +305,12 @@ export class TaskRunner {
      * assigned to `completion`. A failure to audit never fails the task: the rule's verdict stands.
      */
     private readonly auditor?: Auditor,
+    /**
+     * A verify task's picture of the project's page in the desktop's preview (BU-06).
+     *
+     * Absent means this server has no preview, and a verify task captures nothing.
+     */
+    private readonly previewCapture?: PreviewCapture,
   ) {}
 
   /**
@@ -736,7 +743,11 @@ export class TaskRunner {
       // attempt rather than once at the end.
       if (task.kind === "verify") {
         const report = await runVerify(directory ?? process.cwd(), { stopped })
-        const evidence = evidenceText(report)
+        // Evidence, not a check: the page the project names, as the preview showed it after the checks.
+        const preview = stopped()
+          ? undefined
+          : await this.previewCapture?.({ directory: directory ?? process.cwd(), runID: run.id, taskID: task.id, name: task.name })
+        const evidence = previewEvidence(evidenceText(report), preview)
         this.repository.finishTask(task.id, stopped() ? "stopped" : report.ok ? "success" : "failed", {
           output: evidence,
           error: report.ok ? undefined : failureSummary(report),

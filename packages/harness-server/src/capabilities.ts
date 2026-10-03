@@ -7,11 +7,12 @@
  */
 export const CAPABILITIES = ["session-prefs", "stash", "packs", "files", "shares", "memory", "config-files", "unattended"] as const
 
-/** `browser`, `web-actions`, `credentials`, `action-profiles`, `adaptive`, `adaptive-config`, `adaptive-model-key`, `adaptive-decisions`, `adaptive-context`, `adaptive-proposals`, `adaptive-proposals-review`, `adaptive-skills`, `adaptive-relevance`, `adaptive-guardrails`, `adaptive-metrics`, `adaptive-voi`, `adaptive-skills-manage`, `adaptive-tool-trim`, `adaptive-selection` and `adaptive-session` are not in the static list: each depends on whether its runtime, key, bearer or probe was built (WA-1, WA-2, WA-5, WA-8, FH-000, FH-070, FH-015, FH-022, FH-034, AH-A04, FH-04, FH-060–063, AH-B01, AH-C05, AH-D02, AH-D03, AH-E02). */
+/** `browser`, `preview`, `web-actions`, `credentials`, `action-profiles`, `adaptive`, `adaptive-config`, `adaptive-model-key`, `adaptive-decisions`, `adaptive-context`, `adaptive-proposals`, `adaptive-proposals-review`, `adaptive-skills`, `adaptive-relevance`, `adaptive-guardrails`, `adaptive-metrics`, `adaptive-voi`, `adaptive-skills-manage`, `adaptive-tool-trim`, `adaptive-selection` and `adaptive-session` are not in the static list: each depends on whether its runtime, key, bearer or probe was built (WA-1, WA-2, WA-5, WA-8, FH-000, FH-070, FH-015, FH-022, FH-034, AH-A04, FH-04, FH-060–063, AH-B01, AH-C05, AH-D02, AH-D03, AH-E02). */
 export type Capability =
   | (typeof CAPABILITIES)[number]
   | "browser"
   | "bridge"
+  | "preview"
   | "web-actions"
   | "credentials"
   | "action-profiles"

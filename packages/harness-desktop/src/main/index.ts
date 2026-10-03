@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
 import { editorCommand } from "./open-path"
 import { isAppPage } from "./renderer-origin"
+import { initPreview } from "./preview"
 import { initRemoteHost } from "./remote"
 import { rendererCsp } from "./renderer-csp"
 import {
@@ -15,7 +16,9 @@ import {
   ensureHarnessServer,
   ensureServer,
   harnessBrowserToken,
+  HARNESS_SERVER_URL,
   importOpenCodeV1History,
+  ownPorts,
   restartChild,
   stopServer,
   undoOpenCodeV1Import,
@@ -158,6 +161,7 @@ function createWindow() {
 }
 
 let remote: ReturnType<typeof initRemoteHost> | undefined
+let preview: ReturnType<typeof initPreview> | undefined
 
 app.whenReady().then(async () => {
   if (!primaryInstance) return
@@ -180,6 +184,14 @@ app.whenReady().then(async () => {
   await ensureHarnessServer()
   await ensureServer()
   remote = initRemoteHost()
+  preview = initPreview({
+    harnessUrl: HARNESS_SERVER_URL,
+    token: harnessBrowserToken,
+    fromAppPage,
+    // In development the renderer is a dev server on this machine too; it is the app, not the project.
+    ownPorts: () =>
+      new Set([...ownPorts(), ...(process.env.FLUPCODE_DEV_URL || !app.isPackaged ? [Number(new URL(DEV_URL).port)] : [])]),
+  })
   createWindow()
 
   app.on("activate", () => {
@@ -278,6 +290,7 @@ ipcMain.handle("flupcode:open-external", async (_event, url: unknown) => {
 
 app.on("before-quit", () => {
   remote?.stop()
+  preview?.stop()
   stopSpeech()
   stopServer()
 })

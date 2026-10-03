@@ -318,6 +318,8 @@ export type BrowserApproval = {
   options: Array<{ value: string; label: string }>
   /** The reader's own browser, through an MCP preset (BU-02), rather than the agent's. */
   yours?: boolean
+  /** The desktop's preview (BU-06): the person opening a site there, not the agent acting. */
+  preview?: boolean
 }
 
 /** A web action a routine or task runs (WA-7): a profile id and the values it was given. */

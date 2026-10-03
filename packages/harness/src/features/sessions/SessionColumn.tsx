@@ -247,6 +247,8 @@ export function SessionColumn() {
               : undefined
           }
           attachments={app.composer.attachments()}
+          chips={app.composer.chips()}
+          onRemoveChip={app.composer.removeChip}
           commands={app.composer.commandOptions()}
           projects={app.sessions.projects()}
           targetDirectory={app.sessions.targetDirectory() ?? app.sessions.selectedSession()?.location?.directory}

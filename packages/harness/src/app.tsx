@@ -146,6 +146,7 @@ export const App: Component = () => {
                 width={app.settings.workspaceWidth()}
                 onResize={app.settings.updateWorkspaceWidth}
                 onClose={app.settings.closePanel}
+                onAnnotate={app.composer.addChip}
               />
             </PanelBoundary>
             <Show when={app.settings.contextPanelShown()}>

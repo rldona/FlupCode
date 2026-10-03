@@ -28,6 +28,33 @@ const children = {
   },
 }
 
+// The preview (BU-06): a page of the project's dev server in a view main places over the panel.
+type PreviewState = { url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+const preview = {
+  show: (bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke("flupcode:preview-show", bounds) as Promise<boolean>,
+  hide: () => ipcRenderer.invoke("flupcode:preview-hide") as Promise<void>,
+  state: () => ipcRenderer.invoke("flupcode:preview-state") as Promise<PreviewState | undefined>,
+  // The address bar's text: "allow" opens it, "ask" is a site the app asks the server about.
+  open: (text: string) =>
+    ipcRenderer.invoke("flupcode:preview-open", text) as Promise<{ verdict: "allow" | "ask" | "refuse"; url: string }>,
+  history: (move: "back" | "forward" | "reload" | "stop" | "close") =>
+    ipcRenderer.invoke("flupcode:preview-history", move) as Promise<void>,
+  capture: () => ipcRenderer.invoke("flupcode:preview-capture") as Promise<string | undefined>,
+  servers: (directory?: string) => ipcRenderer.invoke("flupcode:preview-servers", directory),
+  onChange: (listener: (state: PreviewState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: PreviewState) => listener(state)
+    ipcRenderer.on("flupcode:preview-changed", handler)
+    return () => ipcRenderer.removeListener("flupcode:preview-changed", handler)
+  },
+  // A page tried to go somewhere off this machine that was not allowed: the app asks the server.
+  onBlocked: (listener: (url: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, url: string) => listener(url)
+    ipcRenderer.on("flupcode:preview-blocked", handler)
+    return () => ipcRenderer.removeListener("flupcode:preview-blocked", handler)
+  },
+}
+
 // Only present when the main process found the native helper, so the renderer can enable dictation.
 const speech: SpeechBridge | undefined = process.argv.includes("--flupcode-speech")
   ? {
@@ -66,6 +93,7 @@ contextBridge.exposeInMainWorld("flupcode", {
   openExternal: (url: string) => ipcRenderer.invoke("flupcode:open-external", url) as Promise<boolean>,
   remote,
   children,
+  preview,
   ...(speech ? { speech } : {}),
   ...(engineAuth ? { engineAuth } : {}),
   ...(browserToken ? { browserToken } : {}),

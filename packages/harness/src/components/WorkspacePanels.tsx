@@ -18,8 +18,10 @@ import { cssPx } from "../text-size"
 import { FileDiff } from "./FileDiff"
 import { Loader } from "./Loader"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
+import type { ContextChip } from "../context-chip"
 
 const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ default: module.TerminalPanel })))
+const PreviewPanel = lazy(() => import("./PreviewPanel").then((module) => ({ default: module.PreviewPanel })))
 
 type WorkspacePanelsProps = {
   panels: string[]
@@ -37,6 +39,8 @@ type WorkspacePanelsProps = {
   onOpenChanges?: () => void
   onResize: (width: number) => void
   onClose: (kind: string) => void
+  /** A preview annotation the reader finished (BU-06), for the composer. */
+  onAnnotate?: (chip: ContextChip) => void
 }
 
 
@@ -485,6 +489,8 @@ const DiffPanel: Component<{
 
 const TITLES: Record<string, string> = {
   "agent-browser": "Agent browser",
+  // Said in the title, because the page in it looks like any browser's (BU-06).
+  preview: "Preview — not your browser",
   diff: "Files changed",
   terminal: "Terminal",
 }
@@ -618,7 +624,7 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
         />
         <For each={props.panels}>
           {(kind) => (
-            <div class="fc-panel">
+            <div class="fc-panel" classList={{ "fc-panel-preview": kind === "preview" }}>
               <div class="fc-panel-header">
                 <span class="fc-panel-title">{t(TITLES[kind] ?? kind)}</span>
                 <button
@@ -645,6 +651,16 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                   changedFiles={props.changedFiles}
                   onOpenChanges={props.onOpenChanges}
                 />
+              </Show>
+              <Show when={kind === "preview"}>
+                <Suspense fallback={<div class="fc-loading-center"><Loader /></div>}>
+                  <PreviewPanel
+                    harnessServerUrl={props.harnessServerUrl}
+                    sessionID={props.session?.id}
+                    directory={props.session?.location?.directory}
+                    onAnnotate={props.onAnnotate}
+                  />
+                </Suspense>
               </Show>
               <Show when={kind === "terminal"}>
                 <Suspense

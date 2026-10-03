@@ -52,6 +52,7 @@ import { createBrowserMcpGate } from "./browser-mcp"
 import { createBrowserAttach } from "./browser-attach"
 import { createBrowserBridge } from "./browser-bridge"
 import { SOCKET_PATH } from "@flupcode/bridge-extension/protocol"
+import { PREVIEW_HOST_PATH, PREVIEW_SOCKET, createPreview, createPreviewCapture, upgradePreviewHost, type PreviewSocket } from "./browser-preview"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
 import { parseModelKey } from "./policy"
@@ -319,11 +320,18 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     onError: (cause) =>
       console.error(`Could not record a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
+  // The desktop app's preview (BU-06): its main process connects over a WebSocket with the UI's token,
+  // so the preview exists only where that token does, and only on the loopback the desktop reaches.
+  const preview =
+    browserToken && isLoopbackHostname(hostname)
+      ? createPreview({ repository, ...(options.browserDataDir ? { dataDir: options.browserDataDir } : {}) })
+      : undefined
   const scheduler = new RoutineScheduler({
     repository,
     engineURL,
     intervalMs: options.intervalMs,
     ...(actions ? { actions } : {}),
+    ...(preview ? { previewCapture: createPreviewCapture({ preview, policy: browserPolicy }) } : {}),
     episodes,
     context,
     // Every agent task is judged (RP-06); the `completion` decision asks a model only where one is
@@ -443,6 +451,16 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         ask: (request) => new Engine(engineURL).askChoice(request),
       })
     : undefined
+  // The desktop's preview handed to a session's agent (BU-06): the same attach client and policy.
+  const previewAttach = preview
+    ? createBrowserAttach({
+        engine: new Engine(engineURL),
+        driver: preview.driver,
+        policy: browserPolicy,
+        place: "FlupCode's preview in the desktop app",
+        ask: (request) => new Engine(engineURL).askChoice(request),
+      })
+    : undefined
   // What the server can tell of a ledger row's money (UL-05), shared by the ingest and the reconciler.
   const usagePricing = createUsagePricing({ engine: scheduler.engine, repository })
   // The connected providers' quotas (UL-07), read on the server and kept as samples.
@@ -454,6 +472,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     ...(browser ? { browser } : {}),
     ...(browserAttach ? { browserAttach } : {}),
     ...(bridge && bridgeAttach ? { bridge, bridgeAttach } : {}),
+    ...(preview
+      ? { preview: { host: preview, policy: browserPolicy, ...(previewAttach ? { attach: previewAttach } : {}) } }
+      : {}),
     ...(browserToken ? { token: browserToken } : {}),
     ...(pluginToken ? { pluginToken } : {}),
     ...(remoteToken ? { remoteToken } : {}),
@@ -512,14 +533,31 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       return config.enabled && config.compaction.anchors
     },
   })
-  const server = Bun.serve({
+  const server = Bun.serve<{ id: string }>({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname,
     // The extension's WebSocket is the one request answered before the `/harness/*` routes.
-    fetch: (request, bunServer) =>
-      bridge && new URL(request.url).pathname === SOCKET_PATH ? bridge.socket(request, bunServer) : handler(request),
-    // Nothing is upgraded without the bridge, so its absence never meets a socket.
-    websocket: bridge?.websocket ?? { message: (socket) => socket.close() },
+    // Two WebSockets are answered before the `/harness/*` routes: the extension's (BU-04) and the
+    // desktop preview's host (BU-06). Each socket says whose it is in its data.
+    fetch: (request, bunServer) => {
+      const path = new URL(request.url).pathname
+      if (bridge && path === SOCKET_PATH) return bridge.socket(request, bunServer)
+      if (preview && browserToken && path === PREVIEW_HOST_PATH)
+        return upgradePreviewHost(request, bunServer, browserToken)
+      return handler(request)
+    },
+    // Nothing is upgraded without the bridge or the preview, so their absence never meets a socket.
+    websocket: {
+      open: (socket) => (socket.data.id === PREVIEW_SOCKET ? preview?.connect(socket as PreviewSocket) : bridge?.websocket.open(socket)),
+      message: (socket, message) =>
+        socket.data.id === PREVIEW_SOCKET
+          ? preview?.receive(socket as PreviewSocket, String(message))
+          : bridge
+            ? bridge.websocket.message(socket, message)
+            : socket.close(),
+      close: (socket) =>
+        socket.data.id === PREVIEW_SOCKET ? preview?.disconnect(socket as PreviewSocket) : bridge?.websocket.close(socket),
+    },
   })
   // Background work starts only once the port is bound: a harness that fails to bind throws above
   // with no scheduler, sweep, learning pass or timer left running behind it. The handler cannot see
@@ -580,6 +618,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       scheduler.stop()
       await browserAttach?.stop().catch(() => undefined)
       await bridgeAttach?.stop().catch(() => undefined)
+      await previewAttach?.stop().catch(() => undefined)
       bridge?.stop()
       await browser?.stop().catch(() => undefined)
       repository.close()

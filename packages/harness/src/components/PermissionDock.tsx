@@ -209,7 +209,8 @@ export const TIER_WORDS: Record<BrowserTier, string> = {
 }
 
 type BrowserApprovalDockProps = {
-  request: QuestionV2Request
+  /** The engine's question, when the approval came as one; the preview asks without a session. */
+  request?: QuestionV2Request
   approval: BrowserApproval
   busy: boolean
   /** Answers with the label of the option picked, which the form maps back to its value. */
@@ -251,7 +252,7 @@ export const BrowserApprovalDock: Component<BrowserApprovalDockProps> = (props) 
         <span class="fc-permission-browser-head">
           {/* The reader's own browser (BU-02) is not the agent's: the chip says which one it acts in. */}
           <span class="fc-chip" classList={{ "fc-permission-yours": !!props.approval.yours }}>
-            {props.approval.yours ? t("Your browser") : t("Agent browser")}
+            {props.approval.preview ? t("Preview") : props.approval.yours ? t("Your browser") : t("Agent browser")}
           </span>
           <Show when={sensitive()}>
             <span class="fc-chip fc-permission-sensitive">{t("Sensitive")}</span>
@@ -260,7 +261,9 @@ export const BrowserApprovalDock: Component<BrowserApprovalDockProps> = (props) 
       </div>
       <div class="fc-permission-preview fc-permission-browser">
         <p class="fc-browser-approval-ask">
-          {t("Let the agent {what} on {site}?", { what: what(), site: props.approval.site })}
+          {props.approval.preview
+            ? t("Open {site} in the preview?", { site: props.approval.site })
+            : t("Let the agent {what} on {site}?", { what: what(), site: props.approval.site })}
         </p>
         <dl class="fc-permission-browser-facts">
           <dt>{t("Origin")}</dt>
@@ -270,8 +273,13 @@ export const BrowserApprovalDock: Component<BrowserApprovalDockProps> = (props) 
             <dd>{props.approval.action}</dd>
           </Show>
         </dl>
-        <Show when={props.request.questions[0]?.question}>
+        <Show when={props.request?.questions[0]?.question}>
           {(text) => <p class="fc-permission-browser-desc">{text()}</p>}
+        </Show>
+        <Show when={props.approval.preview}>
+          <p class="fc-permission-browser-desc">
+            {t("The preview opens pages on this machine by itself; any other site asks first. The agent can read what the preview shows.")}
+          </p>
         </Show>
         <Show when={sensitive()}>
           <p class="fc-permission-browser-desc">{t("A sensitive action asks every time.")}</p>

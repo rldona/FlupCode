@@ -1,6 +1,7 @@
 import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js"
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, BranchState, CheckLog, CommandOption, ProjectItem } from "../types"
+import type { ContextChip } from "../context-chip"
 import { t } from "../i18n"
 import { ModeMenu } from "./ModeMenu"
 import { DeliveryMenu } from "./DeliveryMenu"
@@ -75,6 +76,9 @@ type ComposerProps = {
     onCheckLog: (job: string) => Promise<CheckLog>
   }
   attachments: Attachment[]
+  /** What the reader pointed at elsewhere in the app (BU-06), each removable until the message goes. */
+  chips?: ContextChip[]
+  onRemoveChip?: (id: string) => void
   commands: CommandOption[]
   projects: ProjectItem[]
   /** The folder of the open session, or the one picked for a new session. The picker only shows without one. */
@@ -402,6 +406,27 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               </For>
             </div>
           </Show>
+          <Show when={(props.chips ?? []).length > 0}>
+            <div class="fc-dock-chips">
+              <For each={props.chips}>
+                {(chip) => (
+                  <span class="fc-context-chip" title={[chip.source, chip.note].filter(Boolean).join("\n")}>
+                    <Show when={chip.image}>{(image) => <img class="fc-context-chip-image" src={image()} alt="" />}</Show>
+                    <span class="fc-context-chip-kind">{t("Preview")}</span>
+                    <span class="fc-context-chip-label">{chip.label}</span>
+                    <button
+                      class="fc-context-chip-remove"
+                      type="button"
+                      aria-label={`${t("Remove")} ${chip.label}`}
+                      onClick={() => props.onRemoveChip?.(chip.id)}
+                    >
+                      <DockIcon path="M7 7l10 10M17 7 7 17" size={12} />
+                    </button>
+                  </span>
+                )}
+              </For>
+            </div>
+          </Show>
           <textarea
             ref={input}
             class="fc-input"
@@ -501,7 +526,9 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
                 aria-label={t("Send")}
                 onClick={props.onSend}
                 disabled={
-                  props.compacting || props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)
+                  props.compacting ||
+                  props.sending ||
+                  (props.value.trim().length === 0 && props.attachments.length === 0 && (props.chips ?? []).length === 0)
                 }
               >
                 <DockIcon path="M12 19V5M6 11l6-6 6 6" size={18} />
