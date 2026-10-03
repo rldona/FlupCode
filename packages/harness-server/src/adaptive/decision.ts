@@ -15,6 +15,9 @@
 import type { Arm } from "./holdout"
 import { createHash } from "node:crypto"
 import type { EpisodeOutcome } from "./episode"
+import type { CompletionAnswer, CompletionState } from "./decisions/completion"
+
+export type { CompletionAnswer, CompletionState } from "./decisions/completion"
 
 // ---- answers per kind ------------------------------------------------------------------------
 
@@ -95,7 +98,6 @@ export type ReflectionIntent = (typeof REFLECTION_INTENTS)[number]
 export const isReflectionIntent = (value: unknown): value is ReflectionIntent =>
   typeof value === "string" && (REFLECTION_INTENTS as readonly string[]).includes(value)
 
-export type CompletionAnswer = { verdict: "complete" | "not_complete" }
 export type SkillRelevanceAnswer = { load: string[] }
 export type ContextItemAnswer = { decisions: Array<{ id: string; disposition: ItemDisposition }> }
 export type FailureAnswer = { verdict: "continue" | "intervene" }
@@ -108,20 +110,6 @@ export type SkillReflectionAnswer = {
 
 // ---- states per kind (bounded; never a session's raw state) ----------------------------------
 
-export type CompletionState = {
-  episodeID: string
-  objective: string
-  /**
-   * The agent's final answer, when a run task is judged (RP-06). An episode decision has none: it is
-   * asked about evidence, and the auditor of a task is asked about what the agent said it did.
-   */
-  answer?: string
-  outcome: EpisodeOutcome
-  toolCalls: number
-  verifications: Array<{ step: string; ok: boolean }>
-  failures: number
-  projectID: string
-}
 export type SkillRelevanceState = {
   sessionID: string
   objective: string

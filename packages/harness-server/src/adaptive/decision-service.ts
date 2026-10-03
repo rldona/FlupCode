@@ -37,6 +37,7 @@ import { estimateTokens } from "./context"
 import type { EgressGuard, PreparedInput } from "./egress"
 import { boundAnswer, boundSummary, decisionID } from "./decision-record"
 import { questionsFor, readAnswers } from "./questions"
+import { completion } from "./decisions/completion"
 import type { PredictiveModel, Question } from "./predictive/model"
 import { deterministicBaseline } from "./providers/deterministic"
 import type { DeterministicBaseline } from "./providers/deterministic"
@@ -132,7 +133,7 @@ type Improved<Q extends DecisionKind> = {
 
 /** A readable question per kind; a summary is all the row kept, so the question is generic. */
 const QUESTIONS: Record<DecisionKind, string> = {
-  completion: "Should this episode be marked complete?",
+  completion: completion.question,
   skillRelevance: "Which skills should be loaded for this objective?",
   contextItem: "What disposition should each context item take?",
   failure: "Should the harness intervene in this loop?",
@@ -153,7 +154,7 @@ const GATE_SKIPS: Partial<Record<DegradedReason, string>> = {
  * `p(yes)` per key, which do not sum to one and whose maximum says nothing about a confident "no".
  */
 const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
-  completion: "distribution",
+  completion: completion.probabilities,
   skillRelevance: "gates",
   contextItem: "distribution",
   failure: "distribution",
