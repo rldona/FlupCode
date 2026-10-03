@@ -35,6 +35,8 @@ describe("how a run stands, said once (UX-04)", () => {
     expect(runState(run({ status: "running" }))).toBe("running")
     expect(runState(run({ status: "awaiting", paused: "gate" }))).toBe("approval")
     expect(runState(run({ status: "awaiting", paused: "budget" }))).toBe("budget")
+    // Near its budget with the gate in its policy (CL-2): paused, but not at the limit.
+    expect(runState(run({ status: "awaiting", paused: "threshold" }))).toBe("threshold")
   })
 
   test("each state is one of the app's words", () => {

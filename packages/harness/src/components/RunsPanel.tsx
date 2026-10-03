@@ -1,12 +1,12 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
 import type { ModelInfo, PermissionV2Request, QuestionV2Request, SessionMessageInfo } from "../engine-types"
-import type { Artifact, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, Unattended, UsageRunReport } from "../types"
+import type { Artifact, NearBudgetAnswer, ResumePlan, Run, Task, TaskActivity, TaskTools, TouchedFiles, Unattended, UsageRunReport } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
 import { RunGraph, elapsed } from "./RunGraph"
 import { StateBadge } from "./StateBadge"
 import { CostFigure } from "./CostFigure"
-import { BudgetMeter } from "./BudgetMeter"
+import { BudgetMeter, nearBudgetText } from "./BudgetMeter"
 import { purposeName } from "../cost"
 import { AttentionMark } from "./AttentionMark"
 import type { Attention } from "../attention"
@@ -35,7 +35,7 @@ type RunsPanelProps = {
   pairing?: JSX.Element
   /** Resolves once the server has interrupted the run's sessions; rejects when it could not. */
   onStop: (id: string) => Promise<void>
-  onApprove: (id: string) => void
+  onApprove: (id: string, answer?: NearBudgetAnswer) => void
   onClear: () => void
   onStopAll: () => void
   onRemove: (id: string) => void
@@ -308,8 +308,19 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                         disabled={!props.serverAvailable}
                         onClick={() => props.onApprove(run.id)}
                       >
-                        {run.paused === "budget" ? t("Carry on") : t("Approve")}
+                        {run.paused === "budget" || run.paused === "threshold" ? t("Carry on") : t("Approve")}
                       </button>
+                      {/* Near its budget (CL-2) there is a second way on: the policy's fallback. */}
+                      <Show when={run.paused === "threshold" && run.nearBudget?.fallback}>
+                        <button
+                          class="fc-run-open"
+                          type="button"
+                          disabled={!props.serverAvailable}
+                          onClick={() => props.onApprove(run.id, "fallback")}
+                        >
+                          {t("Carry on with the fallback model")}
+                        </button>
+                      </Show>
                     </Show>
                     {/* A run of worktrees (H-29): its tasks wrote on their own branches, so there is
                         something to merge back and something to clean up. */}
@@ -524,6 +535,8 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                   />
                   {/* The budgets it answers to, as the ledger measures them (UL-08). */}
                   <BudgetMeter standings={props.usage?.[run.id]?.budgets} />
+                  {/* What it did at 80% of a budget (CL-2): one at a time, the fallback, the gate. */}
+                  <Show when={nearBudgetText(run)}>{(text) => <p class="fc-run-near-budget">{text()}</p>}</Show>
                   {/* The newest task the run moved to its fallback model, and why (PI-04). */}
                   <Show when={(run.tasks ?? []).filter((task) => task.route?.fallback).at(-1)}>
                     {(task) => (

@@ -1475,6 +1475,26 @@ const ES: Record<string, string> = {
   // Model and budget policy (H-30)
   "Paused at its budget": "En pausa al llegar a su presupuesto",
   "Carry on": "Continuar",
+  // What a run does near its budget (CL-2)
+  "Paused near its budget": "En pausa cerca de su presupuesto",
+  "Carry on with the fallback model": "Continuar con el modelo de reserva",
+  "{subject} is at {share} of {budget}; remaining tasks {action}": "{subject} lleva el {share} de {budget}; las tareas restantes {action}",
+  "This workflow": "Este flujo de trabajo",
+  "This run": "Esta ejecución",
+  "its budget": "su presupuesto",
+  "today's budget": "el presupuesto de hoy",
+  "{name}'s daily budget": "el presupuesto diario de {name}",
+  "wait for you: {count} left, about {projected} more at the pace so far":
+    "te esperan: quedan {count}, unos {projected} más al ritmo que lleva",
+  "wait for you: {count} left, and none has finished yet to estimate them from":
+    "te esperan: quedan {count}, y aún no ha terminado ninguna con la que estimarlas",
+  "{tokens} tokens": "{tokens} tokens",
+  "run one at a time on {model}": "se ejecutan de una en una con {model}",
+  "move to {model}": "pasan a {model}",
+  "run one at a time": "se ejecutan de una en una",
+  "go on on the run's models": "siguen con los modelos de la ejecución",
+  "Ask before going past 80% of the budget": "Preguntar antes de pasar del 80 % del presupuesto",
+  "One task at a time past 80% of the budget": "Una tarea cada vez a partir del 80 % del presupuesto",
 
   // Provider quotas (UL-07)
   "Provider quotas": "Cuotas de proveedores",

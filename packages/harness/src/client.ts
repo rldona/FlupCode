@@ -66,6 +66,7 @@ import type {
   ValueGateSnapshot,
   StoredPlan,
   ResolvedRef,
+  NearBudgetAnswer,
 } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
@@ -485,8 +486,15 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         }),
       /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
       stop: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
-      /** Let a run through the gate it stopped at. Refusing it is stopping it. */
-      approve: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+      /**
+       * Let a run through the gate it stopped at. Refusing it is stopping it. Near its budget (CL-2) it
+       * carries on on its models, or on its fallback.
+       */
+      approve: (id: string, answer?: NearBudgetAnswer) =>
+        harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/approve`, {
+          method: "POST",
+          ...(answer ? { body: JSON.stringify({ answer }) } : {}),
+        }),
       /** What a project's runs do when a task needs a person mid-turn, unless the run says (RP-05). */
       unattended: (directory: string) =>
         harnessAuthorizedJson<{ unattended: Unattended }>(

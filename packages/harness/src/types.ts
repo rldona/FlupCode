@@ -69,7 +69,31 @@ export type RunPolicy = {
   budget?: { tokens?: number; cost?: number; softPct?: number }
   /** What a task does when it needs a person mid-turn (RP-05); absent, the project's default. */
   unattended?: Unattended
+  /**
+   * What the run does at 80% of a budget (CL-2): `serial` starts the rest one at a time (on unless
+   * `false`), `gate` waits for a person (off unless `true`).
+   */
+  nearBudget?: { serial?: boolean; gate?: boolean }
 }
+
+/** What a run did at 80% of a budget (CL-2). Mirrors `harness-server`'s own type. */
+export type NearBudget = {
+  scope: BudgetScope
+  name: string
+  unit: "usd" | "tokens"
+  spent: number
+  limit: number
+  share: number
+  at: number
+  serial: boolean
+  fallback?: string
+  /** The server's words, in English, like a route's reason. */
+  reason: string
+  gate?: { remaining: number; projected?: number; answer?: NearBudgetAnswer }
+}
+
+/** How a person carries on at the gate near a budget: on the run's models, or on its fallback. */
+export type NearBudgetAnswer = "continue" | "fallback"
 
 /** A task that needs a person mid-turn fails (`deny`) or holds its run until answered (`gate`) (RP-05). */
 export type Unattended = "deny" | "gate"
@@ -249,10 +273,13 @@ export type Run = {
   /** How this run spends (H-30): a model per role, a fallback, and a budget. */
   policy?: RunPolicy
   /**
-   * Why it is waiting: a person at a gate, a budget it reached, or a task's session asking a person
-   * mid-turn (RP-05), answered in the engine rather than approved.
+   * Why it is waiting: a person at a gate, a budget it reached, 80% of one with the gate in its
+   * policy (CL-2), or a task's session asking a person mid-turn (RP-05), answered in the engine
+   * rather than approved.
    */
-  paused?: "gate" | "budget" | "request"
+  paused?: "gate" | "budget" | "request" | "threshold"
+  /** What it did at 80% of a budget (CL-2). */
+  nearBudget?: NearBudget
   /** Somebody let it past the budget. */
   budgetApproved?: boolean
   /** Which budget a run waiting at the budget gate reached (UL-08). */
