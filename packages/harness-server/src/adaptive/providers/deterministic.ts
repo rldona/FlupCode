@@ -16,7 +16,8 @@
  */
 
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
-import type { CompletionAnswer, CompletionState, SkillRelevanceAnswer, SkillRelevanceState } from "../decision"
+import type { SkillRelevanceAnswer, SkillRelevanceState } from "../decision"
+import { completion } from "../decisions/completion"
 import { words } from "../context"
 import { deterministicContextItem } from "../scoring"
 
@@ -34,19 +35,6 @@ export type DeterministicBaseline<Q extends DecisionKind = DecisionKind> = {
 }
 
 /**
- * Whether an episode is done, from evidence and nothing else.
- *
- * A run can be marked successful while a failure still sits in it and no verification ever ran, so a
- * success status alone is not proof. Only a success with no failures and at least one passing check
- * counts; anything else is `not_complete`, which is the safe direction — never declare victory.
- */
-function deterministicCompletion(state: CompletionState): CompletionAnswer {
-  const verified = state.verifications.length > 0 && state.verifications.every((verification) => verification.ok)
-  const complete = state.outcome === "success" && state.failures === 0 && verified
-  return { verdict: complete ? "complete" : "not_complete" }
-}
-
-/**
  * The skills whose name or description shares a word with the objective.
  *
  * Lexical and boring on purpose: it is the fallback the richer provider is measured against, and it
@@ -61,7 +49,7 @@ function lexicallyRelevant(state: SkillRelevanceState): SkillRelevanceAnswer {
 }
 
 export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
-  completion: (request) => ({ answer: deterministicCompletion(request.state), rule: "episode-outcome" }),
+  completion: completion.baseline,
   skillRelevance: (request) => ({ answer: lexicallyRelevant(request.state), rule: "lexical-objective-match" }),
   // The scorer replaced Phase 2's keep-all: the single implementation lives in `scoring.ts`. The
   // request's clock and the resolved thresholds on its policy are forwarded, so a manager-computed

@@ -13,6 +13,8 @@
 import { ITEM_DISPOSITIONS, REFLECTION_INTENTS, isReflectionIntent } from "./decision"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
 import type { Answer, Question } from "./predictive/model"
+import { completion } from "./decisions/completion"
+import { chosen, isOneOf, weakest, yes } from "./decisions/define"
 
 /** The questions one state asks, one plan per kind so adding a kind does not compile until it is asked. */
 type QuestionPlanner = {
@@ -20,16 +22,7 @@ type QuestionPlanner = {
 }
 
 const questionPlans: QuestionPlanner = {
-  completion: (state) => [
-    {
-      id: "verdict",
-      type: "binary",
-      prompt:
-        state.answer === undefined
-          ? `Is this episode complete? Objective: ${state.objective}`
-          : `Did the agent meet this objective? Objective: ${state.objective}\nThe agent's final answer: ${state.answer}`,
-    },
-  ],
+  completion: completion.questions,
   // A gate per candidate skill: the answer is the set of names above the gate, which the service
   // then thresholds again. A state with no candidates asks nothing.
   skillRelevance: (state) =>
@@ -104,41 +97,8 @@ type AnswerReader = {
   [Q in DecisionKind]: (answers: Record<string, Answer>) => Reading<Q> | undefined
 }
 
-/** `p(yes)` of a binary answer; `no` is accepted when `yes` is missing, anything else is no answer. */
-const yes = (answer: Answer | undefined): number | undefined => {
-  if (answer === undefined) return undefined
-  if (answer.probabilities.yes !== undefined) return answer.probabilities.yes
-  if (answer.probabilities.no !== undefined) return 1 - answer.probabilities.no
-  return undefined
-}
-
-/** The option a `choice`/`score` answer picked: the model's own pick, else its most probable option. */
-const chosen = (answer: Answer | undefined): string | undefined => {
-  if (answer === undefined) return undefined
-  if (answer.choice !== undefined) return answer.choice
-  const ranked = Object.entries(answer.probabilities).sort(([, a], [, b]) => b - a)
-  return ranked[0]?.[0]
-}
-
-/** The weakest confidence the answers reported, when any did. */
-const weakest = (answers: ReadonlyArray<Answer | undefined>): { confidence?: number } => {
-  const reported = answers.flatMap((answer) => (answer?.confidence !== undefined ? [answer.confidence] : []))
-  return reported.length > 0 ? { confidence: Math.min(...reported) } : {}
-}
-
-const isOneOf = <T extends string>(options: readonly T[], value: string | undefined): value is T =>
-  value !== undefined && options.some((option) => option === value)
-
 const answerReaders: AnswerReader = {
-  completion: (answers) => {
-    const probability = yes(answers.verdict)
-    if (probability === undefined) return undefined
-    return {
-      answer: { verdict: probability >= 0.5 ? "complete" : "not_complete" },
-      ...weakest([answers.verdict]),
-      probabilities: { complete: probability, not_complete: 1 - probability },
-    }
-  },
+  completion: completion.read,
   skillRelevance: (answers) => {
     const gates = Object.entries(answers).flatMap(([name, answer]) => {
       const probability = yes(answer)
