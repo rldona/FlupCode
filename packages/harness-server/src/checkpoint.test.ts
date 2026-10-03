@@ -339,7 +339,8 @@ describe("checkpoints in the harness", () => {
     expect(again).toMatchObject({ name: "ship", attempt: 1 })
     expect(again!.route).toBeUndefined()
     expect(again!.retryOf).toBeUndefined()
-    await scheduler.stopAll()
+    // With no engine to run it on, the run ends on its own; the database closes after it has.
+    while (repository.getRun(child!.id)?.status === "running") await Bun.sleep(20)
     repository.close()
   }, 60_000)
 })
