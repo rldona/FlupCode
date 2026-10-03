@@ -19,7 +19,6 @@ import type {
 } from "../../types"
 import { t } from "../../i18n"
 import { toast } from "../../toast"
-import type { RunCheckpointActions } from "../../components/RunCheckpoints"
 import type { RunRequests } from "../../components/RunsPanel"
 import { metPerson } from "../../run-state"
 import { pairingEpoch } from "../../pairing"
@@ -773,36 +772,6 @@ export function createRuns(app: AppStores) {
     createHarnessClient(app.connection.harnessServerUrl()).runs.resumePlan(id, fromTask)
 
   /**
-   * A run's checkpoints (CL-3): restoring one takes the folder and the task's conversation back
-   * together, and forking from one starts a new run there, which is brought into view.
-   */
-  const runCheckpoints: RunCheckpointActions = {
-    list: (runID) => createHarnessClient(app.connection.harnessServerUrl()).checkpoints.ofRun(runID),
-    plan: (id) => createHarnessClient(app.connection.harnessServerUrl()).checkpoints.plan(id),
-    restore: (id) =>
-      createHarnessClient(app.connection.harnessServerUrl())
-        .checkpoints.restore(id)
-        .then((done) =>
-          toast(t("Checkpoint restored"), "success", {
-            description: t("Restored: {written} rewritten, {removed} deleted", {
-              written: done?.plan.files.write.length ?? 0,
-              removed: done?.plan.files.remove.length ?? 0,
-            }),
-          }),
-        )
-        .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error")),
-    forkPlan: (id) => createHarnessClient(app.connection.harnessServerUrl()).checkpoints.forkPlan(id),
-    fork: (id) =>
-      createHarnessClient(app.connection.harnessServerUrl())
-        .checkpoints.fork(id)
-        .then((run) => {
-          toast(t("Run forked"), "success")
-          if (run) setRunFocus({ runID: run.id })
-        })
-        .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error")),
-  }
-
-  /**
    * Steer a running task by sending a message to its own session. The legacy runner absorbs a prompt
    * sent while a turn is going, so this is a steer and not a second turn (H-01, H-12).
    */
@@ -869,7 +838,6 @@ export function createRuns(app: AppStores) {
     removeRun,
     resumePlan,
     resumeRun,
-    runCheckpoints,
     retryTask,
     routineBusy,
     routineBusyID,
