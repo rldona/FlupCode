@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { DecisionResult } from "./adaptive/decision"
-import { fallbackModel, modelForTask, parseModelKey, routeTask, runPressure, type Pressure } from "./policy"
+import { fallbackModel, modelForTask, nearBudget, nearBudgetActions, noteModel, parseModelKey, routeTask, runPressure, type Pressure } from "./policy"
 import type { QuotaWindow } from "./quota/adapters"
 import { SqliteRoutineRepository } from "./repository"
 import type { RunPolicy } from "./types"
@@ -251,5 +251,96 @@ describe("the model a task is routed to", () => {
       },
     })
     expect(asked).toEqual([])
+  })
+})
+
+// ---- what else a run does near its budget (CL-2) ------------------------------------------------
+
+/** A run whose first task finished having spent `usd`, with `left` agent tasks still queued. */
+function runNearBudget(repository: SqliteRoutineRepository, usd: number, policy: RunPolicy, left = 3) {
+  const run = runThatSpent(repository, usd, policy)
+  const [first] = repository.listTasks(run.id)
+  repository.finishTask(first!.id, "success", {}, NOW - 500)
+  repository.addTasks(
+    run.id,
+    Array.from({ length: left }, (_, index) => ({ name: `next-${index}`, prompt: "go", agent: "build", dependsOn: ["one"] })),
+  )
+  return { run, tasks: repository.listTasks(run.id) }
+}
+
+describe("what a run does near its budget", () => {
+  test("by default one task at a time and no gate; the policy turns either", () => {
+    expect(nearBudgetActions(undefined)).toEqual({ serial: true, gate: false })
+    expect(nearBudgetActions({ nearBudget: { serial: false, gate: true } })).toEqual({ serial: false, gate: true })
+  })
+
+  test("at 80% of its budget it starts the rest one at a time and moves them to the fallback, and says so", () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const { run, tasks } = runNearBudget(repository, 0.85, POLICY)
+    const near = nearBudget(repository, run, tasks, runPressure(repository, run, undefined, NOW), NOW)
+    expect(near).toEqual({
+      scope: "run",
+      name: "Run",
+      unit: "usd",
+      spent: 0.85,
+      limit: 1,
+      share: 0.85,
+      at: NOW,
+      serial: true,
+      fallback: "cheap/small",
+      reason:
+        "85% of the run's cost budget is spent, so the remaining tasks start one at a time, they run on the policy's fallback model",
+    })
+    repository.close()
+  })
+
+  test("with the gate, it says how many agent tasks are left and what they would add at the run's pace so far", () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const { run, tasks } = runNearBudget(repository, 0.8, { ...POLICY, nearBudget: { gate: true } })
+    const near = nearBudget(repository, run, tasks, runPressure(repository, run, undefined, NOW), NOW)!
+    expect(near.gate).toMatchObject({ remaining: 3 })
+    expect(near.gate!.projected).toBeCloseTo(2.4, 10)
+    expect(near.reason).toEndWith("the run waits for a person before going on")
+    repository.close()
+  })
+
+  test("no task finished yet is no pace to project from, and no task left is nothing to ask about", () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const policy = { ...POLICY, nearBudget: { gate: true } }
+    // Spent before any of its tasks finished: the gate opens with no figure.
+    const fresh = runThatSpent(repository, 0.9, policy)
+    const near = nearBudget(repository, fresh, repository.listTasks(fresh.id), runPressure(repository, fresh, undefined, NOW), NOW)!
+    expect(near.gate).toEqual({ remaining: 1 })
+    const { run, tasks } = runNearBudget(repository, 0.9, policy, 0)
+    expect(nearBudget(repository, run, tasks, runPressure(repository, run, undefined, NOW), NOW)!.gate).toBeUndefined()
+    repository.close()
+  })
+
+  test("nothing below the line, at the limit, past an approved budget, or with nothing to do", () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const check = (usd: number, policy: RunPolicy, approved = false) => {
+      const { run, tasks } = runNearBudget(repository, usd, policy)
+      if (approved) repository.approveBudget(run.id)
+      const read = repository.getRun(run.id)!
+      return nearBudget(repository, read, tasks, runPressure(repository, read, undefined, NOW), NOW)
+    }
+    expect(check(0.79, POLICY)).toBeUndefined()
+    // The limit is the budget gate's (UL-08).
+    expect(check(1, POLICY)).toBeUndefined()
+    expect(check(0.9, POLICY, true)).toBeUndefined()
+    expect(check(0.9, { budget: { cost: 1 }, nearBudget: { serial: false } })).toBeUndefined()
+    expect(check(0.9, { budget: { cost: 1 } })).toMatchObject({ serial: true })
+    repository.close()
+  })
+
+  test("a closing note moves to the fallback with its task, or once the run is past the line, unless a person kept the models", () => {
+    const moved = { model: "cheap/small", fallback: true, reason: "", source: "rule" as const }
+    const kept = { model: "big/large", fallback: false, reason: "", source: "rule" as const }
+    const small = { providerID: "cheap", id: "small" }
+    expect(noteModel({ policy: POLICY, route: moved, pressure: {} })).toEqual(small)
+    expect(noteModel({ policy: POLICY, route: kept, pressure: { budget: standing(0.8) } })).toEqual(small)
+    expect(noteModel({ policy: POLICY, route: kept, pressure: { budget: standing(0.5) } })).toBeUndefined()
+    expect(noteModel({ policy: POLICY, route: moved, pressure: { budget: standing(0.9) }, kept: true })).toBeUndefined()
+    expect(noteModel({ policy: { budget: { cost: 1 } }, route: kept, pressure: { budget: standing(0.9) } })).toBeUndefined()
   })
 })

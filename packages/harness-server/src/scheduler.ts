@@ -9,7 +9,7 @@ import { FAILED_IN_A_ROW_NOTICE, nextFiring } from "./schedule"
 import { readWorkflow, tasksFor } from "./workflow"
 import type { WorkflowFile } from "./workflow"
 import { planRestore, restore } from "./checkpoint"
-import type { BrowserAllowRule, Run, RunPolicy, RunSource, RunVerdict, RunWorkflow, Task, TaskInput } from "./types"
+import type { BrowserAllowRule, NearBudgetAnswer, Run, RunPolicy, RunSource, RunVerdict, RunWorkflow, Task, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 import type { ActionRunner } from "./action-runner"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
@@ -311,10 +311,14 @@ export class RoutineScheduler {
    * The directory comes from the run itself, which is why it is stored: a run picked up minutes
    * later has nobody left holding the arguments it was started with.
    */
-  approve(runID: string) {
+  approve(runID: string, answer: NearBudgetAnswer = "continue") {
     const run = this.repository.getRun(runID)
     // A run held for a request mid-turn (RP-05) is still driven: what lets it go is the answer.
     if (!run || run.status !== "awaiting" || run.paused === "request") return undefined
+    // Near its budget (CL-2): the answer is kept on the run, the budget still applies, and the runner
+    // reads the answer for the routes of the tasks that are left.
+    if (run.paused === "threshold" && run.nearBudget?.gate)
+      this.repository.setNearBudget(runID, { ...run.nearBudget, gate: { ...run.nearBudget.gate, answer } })
     // A budget pause is not a gate: letting it through means the budget stops being checked (H-30),
     // or the very next check would pause it again on the same totals. A task the budget stopped
     // mid-turn (UL-08) is done again, as a new attempt, like any retry.

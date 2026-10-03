@@ -287,7 +287,7 @@ const conditionFrom = (value: unknown): TaskCondition | undefined => {
  */
 const policyFrom = (value: unknown): RunPolicy | undefined => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
-  const input = value as { models?: unknown; fallback?: unknown; budget?: unknown; unattended?: unknown }
+  const input = value as { models?: unknown; fallback?: unknown; budget?: unknown; unattended?: unknown; nearBudget?: unknown }
   const models: Record<string, string> = {}
   if (input.models && typeof input.models === "object" && !Array.isArray(input.models)) {
     for (const [role, model] of Object.entries(input.models as Record<string, unknown>)) {
@@ -305,11 +305,20 @@ const policyFrom = (value: unknown): RunPolicy | undefined => {
     : {}
   // A warning share is only a budget's: on its own it warns of nothing (UL-08).
   const softPct = typeof rawBudget?.softPct === "number" ? softPctOf({ softPct: rawBudget.softPct }) : undefined
+  // What the run does near its budget (CL-2): only the switches that were given, as booleans.
+  const near = input.nearBudget && typeof input.nearBudget === "object" && !Array.isArray(input.nearBudget)
+    ? (input.nearBudget as { serial?: unknown; gate?: unknown })
+    : undefined
+  const nearBudget = {
+    ...(typeof near?.serial === "boolean" ? { serial: near.serial } : {}),
+    ...(typeof near?.gate === "boolean" ? { gate: near.gate } : {}),
+  }
   const policy: RunPolicy = {
     ...(Object.keys(models).length > 0 ? { models } : {}),
     ...(typeof input.fallback === "string" && input.fallback.trim() ? { fallback: input.fallback.trim() } : {}),
     ...(Object.keys(limits).length > 0 ? { budget: { ...limits, ...(softPct !== undefined ? { softPct } : {}) } } : {}),
     ...(input.unattended === "deny" || input.unattended === "gate" ? { unattended: input.unattended } : {}),
+    ...(Object.keys(nearBudget).length > 0 ? { nearBudget } : {}),
   }
   return Object.keys(policy).length > 0 ? policy : undefined
 }
@@ -1334,7 +1343,12 @@ export const createHarnessHandler = (
       if (run.status !== "awaiting") return error("This run is not waiting at a gate", 409)
       // Held for a request mid-turn (RP-05): the answer goes to the request, which is what lets it on.
       if (run.paused === "request") return error("This run waits for an answer to its task's request", 409)
-      const resumed = scheduler.approve(run.id)
+      // Near its budget (CL-2) there are two ways to carry on: on the run's models, or on the fallback.
+      const body = (await request.json().catch(() => undefined)) as { answer?: unknown } | undefined
+      const answer = body?.answer === "fallback" ? "fallback" : "continue"
+      if (answer === "fallback" && (run.paused !== "threshold" || !run.policy?.fallback))
+        return error("Only a run waiting near its budget with a fallback in its policy can carry on on the fallback", 400)
+      const resumed = scheduler.approve(run.id, answer)
       return resumed ? json({ data: resumed }) : error("This run is not waiting at a gate", 409)
     }
     // What a project's runs do when a task needs a person mid-turn (RP-05), unless the run, its routine

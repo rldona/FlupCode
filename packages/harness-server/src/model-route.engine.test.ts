@@ -107,10 +107,13 @@ describe.skipIf(!run)("model routing on an OpenCode 2 engine", () => {
     expect(second!.route).toMatchObject({ model: "cheap/cheap-model", fallback: true, source: "rule" })
     expect(second!.route!.reason).toBe("83% of the run's cost budget is spent, so this task runs on the policy's fallback model")
     expect(second!.output).toBe("Second done on the fallback")
-    // The fallback's server got the second task's turn, and the run's model did not. FlupCode's memory
-    // plugin quotes a finished session's transcript to the small model (the run's model here), but
-    // that call offers no tools: an agent's turn is a request that does.
-    expect(cheap.requests.filter(turn).map(asked)).toEqual([expect.stringContaining("Do the second part")])
+    // The fallback's server got the second task's turn and its closing note (CL-2), and the run's model
+    // did not. FlupCode's memory plugin quotes a finished session's transcript to the small model (the
+    // run's model here), but that call offers no tools: an agent's turn is a request that does.
+    expect(cheap.requests.filter(turn).map(asked)).toEqual([
+      expect.stringContaining("Do the second part"),
+      expect.stringContaining("Summarise this step for the next one"),
+    ])
     expect(primary.requests.filter(turn).map(asked).filter((text) => text.includes("Do the second part"))).toEqual([])
   }, 120_000)
 

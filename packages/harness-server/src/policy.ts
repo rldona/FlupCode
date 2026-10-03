@@ -1,7 +1,8 @@
 /**
  * How a run spends (H-30): which model a role uses and what to fall back to, on a failure or when the
- * run nears a budget or its provider's quota (PI-04). When it stops and asks is the budget's, measured
- * on the ledger (`budget.ts`, UL-08).
+ * run nears a budget or its provider's quota (PI-04), and what else it does near a budget: one task at
+ * a time, a gate (CL-2). When it stops and asks is the budget's, measured on the ledger (`budget.ts`,
+ * UL-08).
  *
  * Kept out of the runner's loop so the rules are plain functions with their own tests: a model is
  * resolved from the task, then the policy.
@@ -15,7 +16,7 @@ import { runStandings, type BudgetStanding } from "./budget"
 import type { QuotaWindow } from "./quota/adapters"
 import { QUOTA_MAX_BACKOFF_MS } from "./quota/poller"
 import type { SqliteRoutineRepository } from "./repository"
-import type { Run, RunPolicy, TaskRoute } from "./types"
+import type { NearBudget, Run, RunPolicy, Task, TaskRoute } from "./types"
 
 export type Model = { providerID: string; id: string; variant?: string }
 
@@ -251,6 +252,86 @@ function windowShare(window: QuotaWindow) {
   if (window.limit === null || window.limit <= 0) return undefined
   const used = window.used ?? (window.remaining !== null ? window.limit - window.remaining : null)
   return used === null ? undefined : Math.max(0, used / window.limit)
+}
+
+// ---- what else a run does near its budget (CL-2) ------------------------------------------------
+
+/**
+ * What a run does once it has spent `ROUTE_AT` of a budget (CL-2), on top of moving to its fallback
+ * (PI-04): its remaining tasks start one at a time, unless the policy says `serial: false`, and it
+ * waits at a gate for a person only when the policy says `gate: true`. One at a time is on by default
+ * because it only slows a run down: tasks running side by side each finish the turn they are in when
+ * the budget stops the run (UL-08), so near the limit they are what overspends. A gate stops an
+ * unattended run until somebody answers, which a run that did not ask for it must not do.
+ */
+export function nearBudgetActions(policy: RunPolicy | undefined) {
+  return { serial: policy?.nearBudget?.serial ?? true, gate: policy?.nearBudget?.gate ?? false }
+}
+
+/**
+ * What a run does on reaching the line, as of `now`, when it does something (CL-2): the budget it
+ * reached and how far, whether its remaining tasks start one at a time, the fallback they move to, and
+ * — with the gate in its policy — what the agent tasks left would add at the run's spend per finished
+ * agent task so far. Nothing below the line, at or past the limit (that is the budget gate's, UL-08),
+ * for a run somebody let past its budget, or when the policy leaves nothing to do.
+ *
+ * Read from the budget alone: a quota window near its end moves a task to the fallback (PI-04), but
+ * the quota is the whole key's, other tools included, so it does not stop or slow a run.
+ */
+export function nearBudget(
+  ledger: Pick<SqliteRoutineRepository, "budgetSpend">,
+  run: Run,
+  tasks: Task[],
+  pressure: Pressure,
+  now = Date.now(),
+): NearBudget | undefined {
+  const budget = pressure.budget
+  if (!budget || budget.share < ROUTE_AT || budget.share >= 1 || run.budgetApproved) return undefined
+  const actions = nearBudgetActions(run.policy)
+  const fallback = parseModelKey(run.policy?.fallback)
+  if (!actions.serial && !actions.gate && !fallback) return undefined
+  const standing = budget.standing
+  const done = tasks.filter((task) => task.kind === "agent" && (task.status === "success" || task.status === "failed")).length
+  const remaining = tasks.filter((task) => task.kind === "agent" && task.status === "queued").length
+  const spend = ledger.budgetSpend({ runID: run.id })
+  const spent = standing.unit === "usd" ? spend.usd : spend.tokens
+  // A gate with no agent task left would ask about nothing.
+  const gate = actions.gate && remaining > 0
+  const does = [
+    ...(actions.serial ? ["the remaining tasks start one at a time"] : []),
+    ...(fallback ? ["they run on the policy's fallback model"] : []),
+    ...(gate ? ["the run waits for a person before going on"] : []),
+  ]
+  return {
+    scope: standing.scope,
+    name: standing.name,
+    unit: standing.unit,
+    spent: standing.spent,
+    limit: standing.limit,
+    share: budget.share,
+    at: now,
+    serial: actions.serial,
+    ...(fallback ? { fallback: modelKey(fallback) } : {}),
+    reason: `${budgetWords(budget)}, so ${does.join(", ")}`,
+    ...(gate ? { gate: { remaining, ...(done > 0 ? { projected: (spent / done) * remaining } : {}) } } : {}),
+  }
+}
+
+/**
+ * The model a task's closing note is written on (H-31): the fallback once the task itself ran on it or
+ * the run has reached the line of a budget, so a note does not spend on the model the task was moved
+ * off (CL-2, the PI-04 finding); else the engine's default, as before. A person who chose at the gate
+ * to keep the run's models keeps them for the notes too.
+ */
+export function noteModel(input: {
+  policy: RunPolicy | undefined
+  route: TaskRoute | undefined
+  pressure: Pressure
+  kept?: boolean
+}): Model | undefined {
+  const fallback = parseModelKey(input.policy?.fallback)
+  if (!fallback || input.kept) return undefined
+  return input.route?.fallback || (input.pressure.budget?.share ?? 0) >= ROUTE_AT ? fallback : undefined
 }
 
 const modelKey = (model: Model) => `${model.providerID}/${model.id}`
