@@ -346,6 +346,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     // A run with a fallback moves its next task there at 80% of a budget or a quota window (PI-04);
     // `modelRoute` asks a model only where one is assigned, and a model can only move it sooner.
     router: createRouter(decisions, () => adaptive.current()),
+    // A checkpoint's summary is the small model's when one is configured, and the facts otherwise (CL-3).
+    summaryModel: () => parseModelKey(globalSmallModel()),
   })
   // The learning manager (FH-034): it reflects on closed episodes and sweeps for terminal ones with
   // no job. The draft is the only model call, through a throwaway engine session, and only when a

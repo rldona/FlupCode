@@ -5,7 +5,7 @@ import { parseHunks } from "../patch"
 import { CheckpointList } from "./CheckpointList"
 import { FileDiff, type FileChange } from "./FileDiff"
 import { PanelFailure } from "./PanelBoundary"
-import type { Checkpoint, Finding, RestorePlan } from "../types"
+import type { Checkpoint, CheckpointPlan, Finding } from "../types"
 
 export type DiffMode = "git" | "branch"
 
@@ -37,7 +37,7 @@ type ChangesPanelProps = {
   /** Checkpoints for this folder (H-15). Absent where the harness server cannot answer. */
   checkpoints: Checkpoint[]
   checkpointBusy: boolean
-  onCheckpointPlan: (id: string) => Promise<RestorePlan>
+  onCheckpointPlan: (id: string) => Promise<CheckpointPlan>
   onCheckpointRestore: (id: string) => void
   onCheckpointTake: (title: string) => void
   onCheckpointRemove: (id: string) => void

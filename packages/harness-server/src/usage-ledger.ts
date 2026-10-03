@@ -34,6 +34,7 @@ export const PURPOSES = [
   "adaptive",
   "title",
   "compaction",
+  "checkpoint",
 ] as const
 export type UsagePurpose = (typeof PURPOSES)[number]
 

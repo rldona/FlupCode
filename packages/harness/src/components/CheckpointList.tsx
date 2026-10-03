@@ -1,14 +1,14 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
-import type { Checkpoint, RestorePlan } from "../types"
+import type { Checkpoint, CheckpointPlan, RestorePlan } from "../types"
 import { Icon } from "./Icon"
 
 type CheckpointListProps = {
   checkpoints: Checkpoint[]
   busy: boolean
   /** Fetches what restoring would do. Called before anything is written, never after. */
-  onPlan: (id: string) => Promise<RestorePlan>
+  onPlan: (id: string) => Promise<CheckpointPlan>
   onRestore: (id: string) => void
   onTake: (title: string) => void
   onRemove: (id: string) => void
@@ -18,6 +18,10 @@ const when = (at: number) => formatDateTime(at)
 
 /** Nothing to do, said once, rather than a confirmation for a restore that would change nothing. */
 export const empty = (plan: RestorePlan) => plan.write.length === 0 && plan.remove.length === 0
+
+/** A restore that would change neither the files nor the conversation (CL-3). */
+export const unchanged = (plan: CheckpointPlan) =>
+  empty(plan.files) && !(plan.conversation.state === "kept" && plan.conversation.revertTo)
 
 /**
  * Checkpoints (H-15), and the confirmation that guards restoring one.
@@ -29,7 +33,7 @@ export const empty = (plan: RestorePlan) => plan.write.length === 0 && plan.remo
  */
 export const CheckpointList: Component<CheckpointListProps> = (props) => {
   const [asking, setAsking] = createSignal<string>()
-  const [plan, setPlan] = createSignal<RestorePlan>()
+  const [plan, setPlan] = createSignal<CheckpointPlan>()
   const [problem, setProblem] = createSignal<string>()
   const [loading, setLoading] = createSignal(false)
 
@@ -108,13 +112,11 @@ export const CheckpointList: Component<CheckpointListProps> = (props) => {
                   <Show when={plan()}>
                     {(what) => (
                       <Show
-                        when={!empty(what())}
+                        when={!unchanged(what())}
                         fallback={<p class="fc-checkpoints-empty">{t("This folder already looks like that.")}</p>}
                       >
-                        <RestoreFiles plan={what()} />
-                        <p class="fc-checkpoints-empty">
-                          {t("A checkpoint of how things are now is recorded first, so this can be undone.")}
-                        </p>
+                        <RestoreFiles plan={what().files} />
+                        <RestoreConversation plan={what()} />
                         <div class="fc-confirm-inline">
                           <button class="fc-button" type="button" onClick={close}>
                             {t("Cancel")}
@@ -141,6 +143,37 @@ export const CheckpointList: Component<CheckpointListProps> = (props) => {
         </For>
       </Show>
     </section>
+  )
+}
+
+/**
+ * What a restore would do to the conversation the point was taken in (CL-3), and what the point of
+ * the present recorded first can bring back. A committed revert is final in the engine, so when
+ * prompts go, the way back is for the files only, and that is said before anything happens (P4).
+ */
+export const RestoreConversation: Component<{ plan: CheckpointPlan }> = (props) => {
+  const dropped = () => (props.plan.conversation.state === "kept" ? props.plan.conversation.prompts : 0)
+  return (
+    <>
+      <p class="fc-checkpoints-empty">
+        {props.plan.conversation.state === "none"
+          ? t("Only the files go back: this point was not taken in a conversation.")
+          : props.plan.conversation.state === "gone"
+            ? t("Only the files go back: the conversation this point was taken in is gone.")
+            : dropped() === 0
+              ? t("The conversation is already at this point.")
+              : dropped() === 1
+                ? t("The conversation goes back too: the prompt made since, and its answer, are removed.")
+                : t("The conversation goes back too: the {n} prompts made since, and their answers, are removed.", {
+                    n: dropped(),
+                  })}
+      </p>
+      <p class="fc-checkpoints-empty">
+        {dropped() > 0
+          ? t("A checkpoint of how the files are now is recorded first, so they can be put back; the removed prompts cannot.")
+          : t("A checkpoint of how things are now is recorded first, so this can be undone.")}
+      </p>
+    </>
   )
 }
 

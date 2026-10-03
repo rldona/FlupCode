@@ -62,6 +62,43 @@ export class V2Engine {
     return (await this.transcript(sessionID)).flatMap(toTranscriptMessage)
   }
 
+  /** The id of a session's newest message, the point a checkpoint records (CL-3); none for an empty one. */
+  async newestMessage(sessionID: string) {
+    const page = await call(this.client.message.list({ sessionID, limit: 1 }))
+    return page.data[0]?.id
+  }
+
+  /**
+   * What a session holds after one of its messages (CL-3), for a checkpoint taken there: the prompts
+   * made since, and the first of them, which is what a revert goes back to. `gone` when the session
+   * or the message no longer exists, so there is no point in it to go back to.
+   */
+  async conversationSince(sessionID: string, messageID: string) {
+    if (!(await this.describeSession(sessionID))) return { state: "gone" as const }
+    const transcript = await this.transcript(sessionID)
+    const index = transcript.findIndex((message) => message.id === messageID)
+    if (index < 0) return { state: "gone" as const }
+    const prompts = transcript.slice(index + 1).filter((message) => message.type === "user")
+    return { state: "kept" as const, prompts: prompts.length, ...(prompts[0] ? { revertTo: prompts[0].id } : {}) }
+  }
+
+  /**
+   * A revert in the engine's three steps (CL-3): `stage` hides a message and everything after it and
+   * puts back the files the session changed since, `clear` undoes that, and `commit` drops what was
+   * hidden for good. A busy session refuses the stage.
+   */
+  async stageRevert(sessionID: string, messageID: string) {
+    await call(this.client.session.revert.stage({ sessionID, messageID }))
+  }
+
+  async clearRevert(sessionID: string) {
+    await call(this.client.session.revert.clear({ sessionID }))
+  }
+
+  async commitRevert(sessionID: string) {
+    await call(this.client.session.revert.commit({ sessionID }))
+  }
+
   async rename(sessionID: string, title: string) {
     await call(this.client.session.update({ sessionID, title }))
   }

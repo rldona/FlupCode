@@ -26,6 +26,8 @@ export type ArtifactKind =
   | "screenshot"
   /** A document the agent produced and kept (H-14): a page, a report, an image, a PDF. */
   | "document"
+  /** What a run had decided by one of its checkpoints (CL-3), one version per checkpoint. */
+  | "checkpoint"
 
 export type Artifact = {
   id: string
@@ -253,6 +255,8 @@ export type Run = {
   source: RunSource
   /** The workflow this run executed, when one did; a routine that runs one has both (RP-01). */
   workflow?: RunWorkflow
+  /** The run and checkpoint this run was forked from (CL-3). */
+  forkOf?: { runID: string; checkpointID: string }
   /** Where the work happens. Sent by the server; used to open its checkpoints from the run view. */
   directory?: string
   sessionID?: string
@@ -647,11 +651,38 @@ export type Checkpoint = {
   summary?: string
   runID?: string
   taskID?: string
+  /** The conversation the point was taken in, and its newest message then (CL-3). */
+  sessionID?: string
+  messageID?: string
+  summaryArtifactID?: string
+  /**
+   * What had been decided by this point (CL-3), and who wrote it down: FlupCode from the facts it
+   * recorded, or the small model. Absent on a point from before.
+   */
+  decided?: { text: string; by: "facts" | "model"; version: number }
+  /** What the work had cost by this point, as the ledger has it now. Absent for a point of no run or session. */
+  cost?: UsageBucket
   createdAt: number
 }
 
 /** What restoring would do, named before it does it. */
 export type RestorePlan = { write: string[]; remove: string[] }
+
+/**
+ * What restoring a checkpoint would do (CL-3): to the files, and to the conversation it was taken in.
+ * `none`: it names no conversation. `gone`: the engine no longer has it. `kept`: the prompts made
+ * since are what a restore drops.
+ */
+export type CheckpointPlan = {
+  files: RestorePlan
+  conversation:
+    | { state: "none" }
+    | { state: "gone"; sessionID: string }
+    | { state: "kept"; sessionID: string; prompts: number; revertTo?: string }
+}
+
+/** What forking a run from a checkpoint would do (CL-3): the tasks carried over, those run, and the files. */
+export type ForkPlan = { checkpoint: Checkpoint; kept: Task[]; tasks: Task[]; plan: RestorePlan }
 
 /**
  * What resuming a run would do (RP-04): the tasks that run, in order, and the checkpoint the folder

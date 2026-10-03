@@ -18,7 +18,7 @@ import type { SqliteRoutineRepository } from "./repository"
 import { readFileSync, realpathSync } from "node:fs"
 import { resolve } from "node:path"
 import { confinedPath, projectRoots, type ProjectRoots } from "./project-roots"
-import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
+import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler, ForkError } from "./scheduler"
 import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
@@ -468,7 +468,8 @@ import {
   patchForCommit,
 } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
-import { drop, dropAll, planRestore, restore, take } from "./checkpoint"
+import { drop, dropAll, take } from "./checkpoint"
+import { RestoreError, describeCheckpoints, planCheckpoint, restoreCheckpoint } from "./semantic-checkpoint"
 import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
 import { indexDocument, registerDocuments, type DocumentWrite } from "./documents"
@@ -1920,21 +1921,31 @@ export const createHarnessHandler = (
     // Checkpoints (H-15): a way back from what a run did.
     if (path[1] === "checkpoints" && request.method === "GET" && !path[2]) {
       const params = new URL(request.url).searchParams
+      // With what had been decided by each, and what the work had cost by then (CL-3).
       return json({
-        data: repository.listCheckpoints({
-          directory: params.get("directory") ?? undefined,
-          runID: params.get("runID") ?? undefined,
-        }),
+        data: describeCheckpoints(
+          repository,
+          repository.listCheckpoints({
+            directory: params.get("directory") ?? undefined,
+            runID: params.get("runID") ?? undefined,
+          }),
+        ),
       })
     }
     if (path[1] === "checkpoints" && request.method === "POST" && !path[2]) {
-      const body = (await readJSON(request)) as { directory?: unknown; title?: unknown } | undefined
+      const body = (await readJSON(request)) as { directory?: unknown; title?: unknown; sessionID?: unknown } | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
       if (!(await roots.within(directory))) return notAProject()
+      if (body?.sessionID !== undefined && typeof body.sessionID !== "string") return error("sessionID is a session id", 400)
+      // The conversation the point is taken in (CL-3): a session of this folder, at its newest message.
+      const session = body?.sessionID ? await scheduler.engine.describeSession(body.sessionID) : undefined
+      if (body?.sessionID && session?.directory !== directory) return error("That session does not work in this folder", 400)
+      const messageID = session && body?.sessionID ? await scheduler.engine.newestMessage(body.sessionID) : undefined
       try {
         const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim() : "Checkpoint"
-        return json({ data: repository.addCheckpoint(await take({ directory, title })) })
+        const conversation = messageID && typeof body?.sessionID === "string" ? { sessionID: body.sessionID, messageID } : {}
+        return json({ data: repository.addCheckpoint(await take({ directory, title, ...conversation })) })
       } catch (cause) {
         if (cause instanceof GitError) return error(cause.message, cause.status)
         throw cause
@@ -1945,7 +1956,7 @@ export const createHarnessHandler = (
       const checkpoint = repository.getCheckpoint(path[2])
       if (!checkpoint) return error("Checkpoint not found", 404)
       try {
-        return json({ data: await planRestore(checkpoint.directory, checkpoint.sha) })
+        return json({ data: await planCheckpoint(scheduler.engine, checkpoint) })
       } catch (cause) {
         if (cause instanceof GitError) return error(cause.message, cause.status)
         throw cause
@@ -1954,17 +1965,32 @@ export const createHarnessHandler = (
     if (path[1] === "checkpoints" && path[2] && path[3] === "restore" && request.method === "POST") {
       const checkpoint = repository.getCheckpoint(path[2])
       if (!checkpoint) return error("Checkpoint not found", 404)
+      // A run still going is writing in this folder and talking in this conversation.
+      const owner = checkpoint.runID ? repository.getRun(checkpoint.runID) : undefined
+      if (owner && (owner.status === "running" || owner.status === "awaiting"))
+        return error("The run is still active; stop it before restoring one of its checkpoints", 409)
       try {
-        const done = await restore({
-          directory: checkpoint.directory,
-          sha: checkpoint.sha,
+        // The files and the conversation, both or neither (CL-3).
+        const done = await restoreCheckpoint({
+          engine: scheduler.engine,
+          checkpoint,
           safetyTitle: `Before restoring "${checkpoint.title}"`,
         })
         // Recorded like any other, so the way back from a restore is in the same list as the rest.
         return json({ data: { plan: done.plan, safety: repository.addCheckpoint(done.safety) } })
       } catch (cause) {
-        if (cause instanceof GitError) return error(cause.message, cause.status)
+        if (cause instanceof GitError || cause instanceof RestoreError) return error(cause.message, cause.status)
         throw cause
+      }
+    }
+    // "Fork from here" (CL-3): what a new run from this point would do, then the run.
+    if (path[1] === "checkpoints" && path[2] && path[3] === "fork" && (request.method === "GET" || request.method === "POST")) {
+      try {
+        if (request.method === "GET") return json({ data: await scheduler.forkPlan(path[2]) })
+        return json({ data: await scheduler.fork(path[2]) }, 202)
+      } catch (cause) {
+        if (cause instanceof GitError || cause instanceof ForkError) return error(cause.message, cause.status)
+        return error(cause instanceof Error ? cause.message : String(cause), 409)
       }
     }
     if (path[1] === "checkpoints" && path[2] && !path[3] && request.method === "DELETE") {

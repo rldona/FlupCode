@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { Engine } from "./engine"
 import type { PreviewCapture } from "./browser-preview"
-import { parseModelKey, type Router } from "./policy"
+import { parseModelKey, type Model, type Router } from "./policy"
 import type { VisualRunner } from "./visual-verify"
 import { announce, runStandings, standingBudgets, type BudgetStanding } from "./budget"
 import { TaskRunner, resumePoint } from "./runner"
@@ -39,6 +39,8 @@ type SchedulerOptions = {
   router?: Router
   /** A verify task's look at the desktop's preview (CL-4). Absent, a task that declares one does not run it. */
   visualCheck?: VisualRunner
+  /** The small model a checkpoint's summary is written by (CL-3). Absent, the facts are the summary. */
+  summaryModel?: () => Model | undefined
 }
 
 const unwrap = async <T>(call: Promise<Result<T>>) => {
@@ -62,6 +64,17 @@ export class MissingInputsError extends Error {
   constructor(readonly missing: string[]) {
     super(`This workflow needs ${missing.join(", ")}`)
     this.name = "MissingInputsError"
+  }
+}
+
+/** A fork that cannot start, with the status the route answers it with. */
+export class ForkError extends Error {
+  constructor(
+    message: string,
+    readonly status = 409,
+  ) {
+    super(message)
+    this.name = "ForkError"
   }
 }
 
@@ -93,6 +106,7 @@ export class RoutineScheduler {
   readonly previewCapture?: PreviewCapture
   readonly router?: Router
   readonly visualCheck?: VisualRunner
+  readonly summaryModel?: () => Model | undefined
   private readonly owner = crypto.randomUUID()
   private readonly stopping = new Set<string>()
   /**
@@ -117,6 +131,7 @@ export class RoutineScheduler {
     this.previewCapture = options.previewCapture
     this.router = options.router
     this.visualCheck = options.visualCheck
+    this.summaryModel = options.summaryModel
   }
 
   start() {
@@ -173,23 +188,132 @@ export class RoutineScheduler {
       ...(input.workflow ? { workflow: input.workflow } : {}),
     })
     this.repository.addTasks(run.id, input.tasks)
-    // More than one task means a thread of its own: the run's session is what a person reads, and
-    // the engine keeps each task's session under it. One task needs none — its own session is the
-    // thread — and creating one anyway would leave an empty session in everybody's list.
-    if (input.tasks.length > 1) {
-      // Named after the work, not after its first task: titling it `tasks[0].name` put two sessions
-      // with the same name in the list and no way to tell the run's thread from the task's.
-      const title = input.tasks.map((task) => task.name).join(" → ")
-      const root = await this.engine
-        .createSession({
-          directory: input.directory,
-          title: title.length > 80 ? `${title.slice(0, 77)}…` : title,
-        })
-        .catch(() => undefined)
-      if (root) this.repository.attachSession(run.id, root.id)
-    }
+    await this.openThread(run.id, input.tasks, input.directory)
     void this.drive(run.id, input.directory)
     return run
+  }
+
+  /**
+   * More than one task means a thread of its own: the run's session is what a person reads, and the
+   * engine keeps each task's session under it. One task needs none — its own session is the thread —
+   * and creating one anyway would leave an empty session in everybody's list.
+   */
+  private async openThread(runID: string, tasks: TaskInput[], directory?: string) {
+    if (tasks.length < 2) return
+    // Named after the work, not after its first task: titling it `tasks[0].name` put two sessions
+    // with the same name in the list and no way to tell the run's thread from the task's.
+    const title = tasks.map((task) => task.name).join(" → ")
+    const root = await this.engine
+      .createSession({ directory, title: title.length > 80 ? `${title.slice(0, 77)}…` : title })
+      .catch(() => undefined)
+    if (root) this.repository.attachSession(runID, root.id)
+  }
+
+  /**
+   * What forking a run from one of its checkpoints would do (CL-3), before it does it: the tasks the
+   * new run carries over as done, the ones it runs, and what putting the folder back to the point
+   * writes and deletes. Asked first and shown, as a resume's plan is (RP-04).
+   */
+  async forkPlan(checkpointID: string) {
+    const point = this.forkPoint(checkpointID)
+    return {
+      checkpoint: point.checkpoint,
+      kept: point.kept,
+      tasks: point.runs,
+      plan: await planRestore(point.checkpoint.directory, point.checkpoint.sha),
+    }
+  }
+
+  /**
+   * A new run from one of a run's checkpoints (CL-3): "fork from here".
+   *
+   * The folder goes back to the point, as a resume puts it back (RP-04), with where it was kept as a
+   * checkpoint. The new run names the run and point it came from and is the same work: the parent's
+   * workflow (RP-01), policy and rules, and its tasks. Those that had succeeded by the point are carried
+   * over as done, with their output and verdict, so what follows is handed what they concluded; the
+   * rest run as first attempts of the new run. The parent and its conversations are left as they are.
+   */
+  async fork(checkpointID: string) {
+    const point = this.forkPoint(checkpointID)
+    if (point.runs.length === 0) throw new Error("Nothing is left to run after this checkpoint")
+    const parent = point.run
+    const done = await restore({
+      directory: point.checkpoint.directory,
+      sha: point.checkpoint.sha,
+      safetyTitle: `Before forking from "${point.checkpoint.title}"`,
+    })
+    this.repository.addCheckpoint(done.safety)
+    const run = this.repository.startRun({ type: "manual" }, Date.now(), parent.directory, {
+      ...(parent.toolLimitMs ? { toolLimitMs: parent.toolLimitMs } : {}),
+      ...(parent.outside ? { outside: true } : {}),
+      ...(parent.shell === false ? { shell: false } : {}),
+      ...(parent.packs && parent.packs.length > 0 ? { packs: parent.packs } : {}),
+      ...(parent.policy ? { policy: parent.policy } : {}),
+      ...(parent.allow && parent.allow.length > 0 ? { allow: parent.allow } : {}),
+      ...(parent.workflow ? { workflow: parent.workflow } : {}),
+      forkOf: { runID: parent.id, checkpointID },
+    })
+    const ordered = [...point.kept, ...point.runs].sort((a, b) => a.position - b.position)
+    const added = this.repository.addTasks(run.id, ordered.map(definitionOf))
+    const notes = this.repository.listArtifacts({ runID: parent.id, kind: "handoff" })
+    for (const [index, task] of ordered.entries()) {
+      const copy = added[index]!
+      if (!point.kept.includes(task)) continue
+      // Carried over, not run: no session (its conversation stays the parent's, and so does its cost).
+      // What it found stays with it: a check's before and after (CL-4) is the evidence its verdict rests on.
+      this.repository.finishTask(
+        copy.id,
+        "success",
+        { ...(task.output ? { output: task.output } : {}), ...(task.visualResult ? { visual: task.visualResult } : {}) },
+        task.finishedAt,
+      )
+      if (task.verdict) this.repository.setTaskVerdict(copy.id, task.verdict)
+      // And the model it was sent to and why (PI-04): a fact about the work carried, not a new routing.
+      if (task.route) this.repository.setTaskRoute(copy.id, task.route)
+      const note = notes.find((artifact) => artifact.taskID === task.id)
+      if (note?.content)
+        this.repository.addArtifact({
+          kind: "handoff",
+          title: note.title,
+          producer: "harness",
+          content: note.content,
+          ...(note.directory ? { directory: note.directory } : {}),
+          runID: run.id,
+          taskID: copy.id,
+        })
+    }
+    await this.openThread(run.id, ordered, parent.directory)
+    void this.drive(run.id, parent.directory)
+    return this.repository.getRun(run.id)
+  }
+
+  /**
+   * Where a fork starts: for each task of the run, the attempt that had settled by the checkpoint. A
+   * task whose attempt had succeeded by then is carried over; every other task runs again.
+   */
+  private forkPoint(checkpointID: string) {
+    const checkpoint = this.repository.getCheckpoint(checkpointID)
+    if (!checkpoint) throw new ForkError("Checkpoint not found", 404)
+    if (!checkpoint.runID || !checkpoint.taskID)
+      throw new ForkError("Only a checkpoint a run took after one of its tasks can be forked from")
+    const run = this.repository.getRun(checkpoint.runID)
+    if (!run) throw new ForkError("The run of this checkpoint is gone", 404)
+    if (run.status === "running" || run.status === "awaiting")
+      throw new ForkError("The run is still active; stop it before forking from it")
+    // Each task of a run of worktrees wrote in a tree of its own, which a point in one of them is not.
+    if (run.worktrees) throw new ForkError("A run of worktrees cannot be forked from a checkpoint")
+    const tasks = this.repository.listTasks(run.id)
+    const names = [...new Set(tasks.map((task) => task.name))]
+    const kept = names.flatMap((name) => {
+      const then = tasks
+        .filter((task) => task.name === name && task.finishedAt !== undefined && task.finishedAt <= checkpoint.createdAt)
+        .at(-1)
+      return then?.status === "success" ? [then] : []
+    })
+    const runs = names
+      .filter((name) => !kept.some((task) => task.name === name))
+      .flatMap((name) => tasks.filter((task) => task.name === name).slice(0, 1))
+    return { checkpoint, run, kept, runs }
   }
 
   /**
@@ -288,7 +412,7 @@ export class RoutineScheduler {
   private async drive(runID: string, directory?: string) {
     const run = this.repository.getRun(runID)
     if (!run) return
-    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router, this.visualCheck)
+    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router, this.visualCheck, this.summaryModel)
     try {
       const outcome = await runner.execute(run, {
         directory,
@@ -689,7 +813,7 @@ export class RoutineScheduler {
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
-      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router, this.visualCheck)
+      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture, this.router, this.visualCheck, this.summaryModel)
       const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),
@@ -781,6 +905,11 @@ function covers(entry: BudgetStanding & { target?: string }, run: Run) {
 
 /** A task done again as a new attempt of itself, as a retry and a resume make it (H-12, RP-04). */
 function againOf(task: Task): TaskInput {
+  return { ...definitionOf(task), attempt: task.attempt + 1, retryOf: task.id }
+}
+
+/** What a task is asked to do, without what happened to it: a first attempt of the same work. */
+function definitionOf(task: Task): TaskInput {
   return {
     name: task.name,
     prompt: task.prompt,
@@ -796,7 +925,5 @@ function againOf(task: Task): TaskInput {
     ...(task.foreach ? { foreach: task.foreach } : {}),
     ...(task.require ? { require: task.require } : {}),
     ...(task.visual ? { visual: task.visual } : {}),
-    attempt: task.attempt + 1,
-    retryOf: task.id,
   }
 }

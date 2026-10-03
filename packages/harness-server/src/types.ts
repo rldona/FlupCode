@@ -261,6 +261,11 @@ export type Run = {
   verdict?: RunVerdict
   /** Which try of a routine's beat this run is, from 1; a retry of a failed run is the next (RP-07). */
   attempt?: number
+  /**
+   * The run and checkpoint this run was forked from (CL-3): it started from that point's files, with
+   * the tasks finished by then carried over and the rest to do.
+   */
+  forkOf?: { runID: string; checkpointID: string }
 }
 
 /**
@@ -618,6 +623,8 @@ export const ARTIFACT_KINDS = [
   "screenshot",
   /** A document the agent produced and kept (H-14): a page, a report, an image, a PDF. */
   "document",
+  /** What a run had decided by one of its checkpoints (CL-3), one version per checkpoint. */
+  "checkpoint",
 ] as const
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
@@ -647,7 +654,8 @@ export type ArtifactInput = {
   messageID?: string
   /**
    * The document this is the next version of, when the caller names it rather than a folder and path
-   * do (RP-03): a visual check's captures of one step each have a file of their own (CL-4).
+   * do (RP-03): a visual check's captures of one step each have a file of their own (CL-4), and a
+   * run's checkpoint summaries are one document (CL-3).
    */
   logicalID?: string
   /** Kept in front of the rest, and never swept, however old it gets (H-14). */
@@ -743,6 +751,14 @@ export type Checkpoint = {
   summary?: string
   runID?: string
   taskID?: string
+  /**
+   * The conversation this point belongs to (CL-3): the session that did the work, and the newest
+   * message it had when the point was taken. Restoring the point takes the session back there too.
+   */
+  sessionID?: string
+  messageID?: string
+  /** What had been decided by this point (CL-3): a version of the run's summary document. */
+  summaryArtifactID?: string
   createdAt: number
 }
 

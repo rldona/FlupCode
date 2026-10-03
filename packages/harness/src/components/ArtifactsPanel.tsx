@@ -55,6 +55,7 @@ const KINDS: ArtifactKind[] = [
   "log",
   "file",
   "handoff",
+  "checkpoint",
   "screenshot",
 ]
 

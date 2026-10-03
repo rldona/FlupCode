@@ -105,6 +105,7 @@ export const purposeName = (purpose: string) =>
     adaptive: t("Adaptive"),
     title: t("Title"),
     compaction: t("Compaction"),
+    checkpoint: t("Checkpoint"),
   })[purpose] ?? purpose
 
 /** Every token of a bucket, cache included: the ledger counts them all. */

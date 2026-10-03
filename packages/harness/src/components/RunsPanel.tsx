@@ -13,6 +13,7 @@ import type { Attention } from "../attention"
 import { runInputs, runTitle } from "../run-title"
 import { heldForRequest, metPerson, runReason, runState } from "../run-state"
 import { ResumeConfirm } from "./ResumeConfirm"
+import { RunCheckpoints, type RunCheckpointActions } from "./RunCheckpoints"
 import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
 import { Modal } from "./Modal"
@@ -73,6 +74,10 @@ type RunsPanelProps = {
   onResume: (id: string, fromTask?: string) => void
   /** What resuming would do, asked before it is done (RP-04). */
   onResumePlan: (id: string, fromTask?: string) => Promise<ResumePlan>
+  /** A run's checkpoints, and restoring or forking from one (CL-3). Absent, the card only counts them. */
+  checkpoints?: RunCheckpointActions
+  /** Brings another run into view: the one a fork came from. */
+  onFocusRun?: (runID: string) => void
   /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
   onBestOfN: () => void
   /** Each routine's name, by id, so a routine's run is called what the reader called it (UX-04). */
@@ -378,6 +383,26 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       </button>
                     </Show>
                   </header>
+                  {/* Where a fork came from (CL-3), opened in this list when it is still in it. */}
+                  <Show when={run.forkOf}>
+                    {(fork) => (
+                      <p class="fc-run-meta fc-run-fork">
+                        <Show
+                          when={props.runs.find((entry) => entry.id === fork().runID)}
+                          fallback={t("Forked from a run that is gone")}
+                        >
+                          {(parent) => (
+                            <>
+                              {t("Forked from")}{" "}
+                              <button class="fc-run-fork-link" type="button" onClick={() => props.onFocusRun?.(parent().id)}>
+                                {title(parent())}
+                              </button>
+                            </>
+                          )}
+                        </Show>
+                      </p>
+                    )}
+                  </Show>
                   {/* What a workflow run was given (RP-01): two runs of `feature` differ by their goal. */}
                   <Show when={runInputs(run)}>{(text) => <div class="fc-run-inputs">{text()}</div>}</Show>
                   <Show when={confirming() === run.id}>
@@ -570,6 +595,8 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     artifacts={props.artifacts?.[run.id] ?? []}
                     rawArtifact={props.rawArtifact}
                     onOpenChanges={props.onOpenChanges}
+                    checkpoints={props.checkpoints}
+                    busy={!props.serverAvailable}
                   />
                 </article>
               )}
@@ -625,6 +652,8 @@ const RunFooter: Component<{
   artifacts: Artifact[]
   rawArtifact?: (id: string) => Promise<string>
   onOpenChanges?: (directory?: string) => void
+  checkpoints?: RunCheckpointActions
+  busy: boolean
 }> = (props) => {
   // What the run's looks at the page found (CL-4), the newest attempt of each check: a retried one's
   // captures are its retry's "before".
@@ -655,10 +684,26 @@ const RunFooter: Component<{
     <Show when={props.touched.length > 0 || props.artifacts.length > 0 || shots().length > 0}>
       <footer class="fc-run-foot">
         <Show when={props.touched.length > 0}>
-          <Show when={props.onOpenChanges}>
-            <button class="fc-run-open" type="button" onClick={() => props.onOpenChanges?.(directory())}>
-              {t("Checkpoints")} <span class="fc-run-count">{props.touched.length}</span>
-            </button>
+          {/* The run's timeline (CL-3) where it can be read; the folder's list otherwise. */}
+          <Show
+            when={props.checkpoints}
+            fallback={
+              <Show when={props.onOpenChanges}>
+                <button class="fc-run-open" type="button" onClick={() => props.onOpenChanges?.(directory())}>
+                  {t("Checkpoints")} <span class="fc-run-count">{props.touched.length}</span>
+                </button>
+              </Show>
+            }
+          >
+            {(actions) => (
+              <RunCheckpoints
+                run={props.run}
+                count={props.touched.length}
+                actions={actions()}
+                busy={props.busy}
+                {...(props.onOpenChanges ? { onOpenChanges: () => props.onOpenChanges?.(directory()) } : {})}
+              />
+            )}
           </Show>
           {/* A run that changed nothing says so rather than showing nothing. */}
           <Show when={files().length > 0} fallback={<span class="fc-run-files-none">{t("Changed no files")}</span>}>

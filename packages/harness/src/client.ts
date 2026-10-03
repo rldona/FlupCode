@@ -14,6 +14,8 @@ import type {
   BranchState,
   CheckLog,
   Checkpoint,
+  CheckpointPlan,
+  ForkPlan,
   AgentFile,
   ContextReport,
   CapturedPrompt,
@@ -1022,11 +1024,19 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
     checkpoints: {
       list: (directory: string) =>
         harnessRequest<Checkpoint[]>(baseUrl, `/harness/checkpoints?directory=${encodeURIComponent(directory)}`),
-      take: (input: { directory: string; title: string }) =>
+      /** A run's checkpoints, newest first, with what had been decided and spent by each (CL-3). */
+      ofRun: (runID: string) =>
+        harnessRequest<Checkpoint[]>(baseUrl, `/harness/checkpoints?runID=${encodeURIComponent(runID)}`),
+      /** `sessionID` makes it a point in that conversation too, which a restore takes back with the files. */
+      take: (input: { directory: string; title: string; sessionID?: string }) =>
         harnessRequest<Checkpoint>(baseUrl, "/harness/checkpoints", { method: "POST", body: JSON.stringify(input) }),
-      plan: (id: string) => harnessRequest<RestorePlan>(baseUrl, `/harness/checkpoints/${encodeURIComponent(id)}/plan`),
+      plan: (id: string) => harnessRequest<CheckpointPlan>(baseUrl, `/harness/checkpoints/${encodeURIComponent(id)}/plan`),
+      /** "Fork from here" (CL-3): what a new run from this point would do, then the run. */
+      forkPlan: (id: string) => harnessRequest<ForkPlan>(baseUrl, `/harness/checkpoints/${encodeURIComponent(id)}/fork`),
+      fork: (id: string) =>
+        harnessRequest<Run>(baseUrl, `/harness/checkpoints/${encodeURIComponent(id)}/fork`, { method: "POST" }),
       restore: (id: string) =>
-        harnessRequest<{ plan: RestorePlan; safety: Checkpoint }>(
+        harnessRequest<{ plan: CheckpointPlan; safety: Checkpoint }>(
           baseUrl,
           `/harness/checkpoints/${encodeURIComponent(id)}/restore`,
           { method: "POST" },

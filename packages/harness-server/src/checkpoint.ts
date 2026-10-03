@@ -31,6 +31,14 @@ export type Checkpoint = {
   summary?: string
   runID?: string
   taskID?: string
+  /**
+   * The conversation this point belongs to (CL-3): the session that did the work, and the newest
+   * message it had when the point was taken. Restoring the point takes the session back there too.
+   */
+  sessionID?: string
+  messageID?: string
+  /** What had been decided by this point (CL-3): a version of the run's summary document. */
+  summaryArtifactID?: string
   createdAt: number
 }
 
@@ -144,6 +152,9 @@ export async function take(input: {
   summary?: string
   runID?: string
   taskID?: string
+  sessionID?: string
+  messageID?: string
+  summaryArtifactID?: string
 }): Promise<Checkpoint> {
   if (!(await isRepository(input.directory))) throw new GitError("This folder is not a git repository")
   const tree = await currentTree(input.directory)
@@ -163,6 +174,9 @@ export async function take(input: {
     ...(summary ? { summary: summary.slice(0, CHECKPOINT_SUMMARY_LIMIT) } : {}),
     runID: input.runID,
     taskID: input.taskID,
+    ...(input.sessionID ? { sessionID: input.sessionID } : {}),
+    ...(input.messageID ? { messageID: input.messageID } : {}),
+    ...(input.summaryArtifactID ? { summaryArtifactID: input.summaryArtifactID } : {}),
     createdAt: Date.now(),
   }
   // The ref is what keeps `git gc` from collecting it. Without one this is a dangling commit that
@@ -210,18 +224,34 @@ export async function restore(input: {
 }): Promise<{ plan: RestorePlan; safety: Checkpoint }> {
   const plan = await planRestore(input.directory, input.sha)
   const safety = await take({ directory: input.directory, title: input.safetyTitle ?? "Before restoring" })
-
-  await withIndex(async (index) => {
-    await expect(input.directory, ["read-tree", input.sha], "Could not read the checkpoint", index)
-    // Writes every file of the checkpoint over what is there, through the scratch index, so the
-    // reader's staged state is exactly as they left it when this finishes.
-    await expect(input.directory, ["checkout-index", "-a", "-f"], "Could not write the checkpoint", index)
-  })
-
-  for (const path of plan.remove) {
-    rmSync(join(input.directory, path), { force: true })
-  }
+  await apply(input.directory, input.sha, plan)
   return { plan, safety }
+}
+
+/**
+ * Writes a plan: the files it names from the checkpoint, and the deletions.
+ *
+ * Only what differs is written (CL-3), not every file of the checkpoint: a restore that fails half
+ * way and is put back by restoring the safety point then touches just what the first one changed,
+ * not a file it could not write in the first place. Through a scratch index, so the reader's staged
+ * state is exactly as they left it when this finishes.
+ */
+export async function apply(directory: string, sha: string, plan: RestorePlan) {
+  if (plan.write.length > 0)
+    await withIndex(async (index) => {
+      await expect(directory, ["read-tree", sha], "Could not read the checkpoint", index)
+      const child = Bun.spawn(["git", "checkout-index", "-f", "-z", "--stdin"], {
+        cwd: directory,
+        stdin: new Blob([plan.write.map((path) => `${path}\0`).join("")]),
+        stdout: "ignore",
+        stderr: "pipe",
+        env: childEnv({ GIT_INDEX_FILE: index, GIT_TERMINAL_PROMPT: "0" }),
+      })
+      const [stderr, exitCode] = await Promise.all([new Response(child.stderr).text(), child.exited])
+      if (exitCode !== 0)
+        throw new GitError(`Could not write the checkpoint${stderr.trim() ? `: ${stderr.trim().split("\n")[0]}` : ""}`)
+    })
+  for (const path of plan.remove) rmSync(join(directory, path), { force: true })
 }
 
 /** Forgets one. The commit goes with the ref, once git next collects. */
