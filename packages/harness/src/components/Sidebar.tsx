@@ -14,6 +14,7 @@ import { tallyAttention, type Attention } from "../attention"
 import { AttentionMark } from "./AttentionMark"
 import { offered, type DestinationId } from "../navigation"
 import { formatKeybind, type Keybinds } from "../keybinds"
+import { Icon, type IconName } from "./Icon"
 
 /** The sidebar's width until the reader drags it; double-clicking its edge goes back to it. */
 export const SIDEBAR_WIDTH_DEFAULT = 280
@@ -104,20 +105,20 @@ type SidebarProps = {
 }
 
 /** The nav's and the menu's icons, by destination. The names and the order come from the registry. */
-const ICONS: Partial<Record<DestinationId, string>> = {
-  runs: "⛭",
-  workflows: "⛓",
-  routines: "↻",
-  artifacts: "▤",
-  cost: "▦",
-  settings: "⚙",
-  skills: "✦",
-  actions: "⌘",
-  context: "◫",
-  decisions: "◆",
-  memory: "◈",
-  remote: "◉",
-  about: "ⓘ",
+const ICONS: Partial<Record<DestinationId, IconName>> = {
+  runs: "runs",
+  workflows: "workflow",
+  routines: "refresh",
+  artifacts: "file",
+  cost: "chart",
+  settings: "settings",
+  skills: "sparkle",
+  actions: "command",
+  context: "context-panel",
+  decisions: "decision",
+  memory: "memory",
+  remote: "remote",
+  about: "info",
 }
 
 /** Where the profile menu draws a line: Settings, then the work's tools, then this app and its devices. */
@@ -303,27 +304,27 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       x: event.clientX,
       y: event.clientY,
       items: [
-        { label: t("Open"), icon: "↗", onSelect: () => props.onSelectSession(session.id) },
+        { label: t("Open"), icon: "open", onSelect: () => props.onSelectSession(session.id) },
         ...(session.id === props.selectedSession || props.splitSessions.includes(session.id)
           ? []
-          : [{ label: t("Split view"), icon: "◫", onSelect: () => props.onSplitSession(session.id) }]),
+          : [{ label: t("Split view"), icon: "split" as const, onSelect: () => props.onSplitSession(session.id) }]),
         {
           label: pinned ? t("Unpin") : t("Pin"),
-          icon: pinned ? "★" : "☆",
+          icon: pinned ? "star-filled" : "star",
           onSelect: () => props.onToggleSessionPin(session.id),
         },
-        { label: t("Edit tags…"), icon: "🏷", onSelect: () => props.onEditTags(session.id) },
-        { label: t("Rename"), icon: "✎", onSelect: () => props.onRenameSession(session.id) },
+        { label: t("Edit tags…"), icon: "tag", onSelect: () => props.onEditTags(session.id) },
+        { label: t("Rename"), icon: "pencil", onSelect: () => props.onRenameSession(session.id) },
         ...(props.view === "code"
           ? [
               {
                 label: t("Copy path"),
-                icon: "⧉",
+                icon: "copy" as const,
                 onSelect: () => props.onCopyPath(session.location?.directory ?? ""),
               },
             ]
           : []),
-        { label: t("Delete"), icon: "×", danger: true, onSelect: () => props.onDeleteSession(session.id) },
+        { label: t("Delete"), icon: "close", danger: true, onSelect: () => props.onDeleteSession(session.id) },
       ],
     })
   }
@@ -335,11 +336,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       x: event.clientX,
       y: event.clientY,
       items: [
-        { label: t("New session"), icon: "＋", onSelect: () => props.onNewSession(group.directory) },
-        { label: t("Copy path"), icon: "⧉", onSelect: () => props.onCopyPath(group.directory ?? "") },
+        { label: t("New session"), icon: "plus", onSelect: () => props.onNewSession(group.directory) },
+        { label: t("Copy path"), icon: "copy", onSelect: () => props.onCopyPath(group.directory ?? "") },
         {
           label: t("Delete"),
-          icon: "×",
+          icon: "close",
           danger: true,
           onSelect: () => props.onDeleteProject(group.id),
         },
@@ -378,7 +379,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         aria-label={t("Session options")}
         onClick={(event) => openSessionMenu(event, row.session)}
       >
-        ⋮
+        <Icon name="more-vertical" />
       </button>
       <Show when={tagOf(row.session.id).length > 0}>
         <span class="fc-session-tags">
@@ -468,10 +469,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               aria-label={t("Search")}
               onClick={props.onSearch}
             >
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
-                <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
+              <Icon name="search" size={16} />
             </button>
           </div>
         </div>
@@ -499,7 +497,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   title={UNAVAILABLE_FEATURES.has(entry.id) ? t("Coming soon") : undefined}
                   onClick={() => props.onGo(entry.id)}
                 >
-                  <span class="fc-nav-icon">{ICONS[entry.id]}</span>
+                  <span class="fc-nav-icon">
+                    <Show when={ICONS[entry.id]}>{(icon) => <Icon name={icon()} />}</Show>
+                  </span>
                   {t(entry.title)}
                   {/* A gate waiting on the reader shows here from any screen (UX-02). */}
                   <Show when={entry.id === "runs" && props.runsAttention}>
@@ -624,11 +624,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   aria-pressed={showArchived()}
                   onClick={() => setShowArchived((value) => !value)}
                 >
-                  ▣
+                  <Icon name="archive" />
                 </button>
               </Show>
               <button class="fc-icon-button" type="button" title={t("Refresh")} onClick={() => props.onRefresh()}>
-                ↻
+                <Icon name="refresh" />
               </button>
             </div>
 
@@ -674,15 +674,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                           aria-label={t("New session")}
                           onClick={() => props.onNewSession(group.directory)}
                         >
-                          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                            <path
-                              d="M12 5v14M5 12h14"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2.4"
-                              stroke-linecap="round"
-                            />
-                          </svg>
+                          <Icon name="plus" size={16} weight={2.4} />
                         </button>
                       </div>
                       <Show when={isExpanded(group)}>
@@ -726,7 +718,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               <img src={logo} alt="" />
             </span>
             <span class="fc-profile-name">{props.displayName.trim() || t("Local")}</span>
-            <span class="fc-chevron">⌄</span>
+            <span class="fc-chevron">
+              <Icon name="chevron-down" />
+            </span>
           </button>
         </div>
 

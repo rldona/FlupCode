@@ -19,6 +19,7 @@ import { FileDiff } from "./FileDiff"
 import { Loader } from "./Loader"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
 import type { ContextChip } from "../context-chip"
+import { Icon } from "./Icon"
 
 const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ default: module.TerminalPanel })))
 const PreviewPanel = lazy(() => import("./PreviewPanel").then((module) => ({ default: module.PreviewPanel })))
@@ -633,7 +634,7 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                   aria-label={t("Close")}
                   onClick={() => props.onClose(kind)}
                 >
-                  ×
+                  <Icon name="close" />
                 </button>
               </div>
               <Show when={kind === "agent-browser"}>
