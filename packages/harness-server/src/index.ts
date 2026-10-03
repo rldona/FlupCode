@@ -43,10 +43,9 @@ import { createSessionOverrides } from "./adaptive/session-override"
 import { createAdaptiveConfigSurface } from "./adaptive/config-surface"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
-import { createHttpModel } from "./adaptive/providers/jev"
 import { createModelKeys } from "./adaptive/model-key"
 import type { KeySlot } from "./adaptive/model-key"
-import { createSmallLlmModel } from "./adaptive/providers/small-llm"
+import { createPredictiveProviders } from "./adaptive/predictive/registry"
 import { createActionApprover } from "./action-approval"
 import { createBrowserPolicy } from "./browser-policy"
 import { createBrowserMcpGate } from "./browser-mcp"
@@ -198,26 +197,18 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
   // AH-C05: the value-of-information gate and answer cache, read from the decision audit's labels.
   const valueGate = createValueGate({ repository, config: () => adaptive.current() })
-  // The HTTP model's key comes from `keys`, never from the config block (ADR-0017), and its settings
-  // from `providers.<id>`. It is built always; the service only reaches it when a kind is assigned to
-  // it and its own consent lists the project and the kind, so an off install makes no call. FH-013: it
-  // carries the strict per-attempt timeout, bounded retries and `Retry-After` on the live path; a
-  // failure that survives them is recorded degraded with its reason.
-  const http = createHttpModel({ egress, providers: () => adaptive.current().providers, keys })
-  // AH-C01: the static predictive-model registry. `adaptive.models.<kind>` picks one of these ids per
-  // kind; without a `models` block the old single switch still assigns every kind (`legacy.ts`).
-  // AH-C03: each remote model is asked only under its own `egress.providers.<id>` consent.
-  // AH-C04: `small-llm` is registered only when a `small_model` resolves at startup. It is never
-  // assigned by default and is not wrapped in retries: every attempt is a paid throwaway session.
-  // Its own engine client, since the scheduler's is built after the decision service needs the registry.
-  const smallLlm = parseModelKey(globalSmallModel())
-    ? createSmallLlmModel({
-        engine: new Engine(engineURL),
-        egress,
-        model: () => parseModelKey(globalSmallModel()),
-      })
-    : undefined
-  const models = [http, ...(smallLlm ? [smallLlm] : [])]
+  // AH-C01, PI-02: the predictive providers this install can ask, each built with its own
+  // `adaptive.providers.<id>` settings; `adaptive.models.<kind>` picks one of these ids per kind, and
+  // without a `models` block the old single switch still assigns every kind (`legacy.ts`). AH-C03:
+  // each remote model is asked only under its own `egress.providers.<id>` consent. `small-llm` gets its
+  // own engine client, since the scheduler's is built after the decision service needs the registry.
+  const models = createPredictiveProviders({
+    egress,
+    providers: () => adaptive.current().providers,
+    keys,
+    smallModel: () => parseModelKey(globalSmallModel()),
+    engine: () => new Engine(engineURL),
+  })
   // The per-session override (AH-E02): in memory, read by every capability on its next step.
   const overrides = createSessionOverrides()
   const decisions = createDecisionService({

@@ -23,6 +23,8 @@ import { LEGACY_PROVIDER, LEGACY_SWITCH, legacyConsentBlock, legacySwitchOn } fr
 import type { EgressSubject } from "./egress"
 import { decisionKinds, isDecisionKind } from "./decision"
 import type { DecisionKind } from "./decision"
+import { DECISIONS } from "./decisions/registry"
+import { canAnswer } from "./predictive/model"
 import type { PredictiveModel } from "./predictive/model"
 import { budgetMonth } from "./providers/budget"
 import { learningModel } from "./learning/draft"
@@ -319,7 +321,12 @@ export type AdaptiveProviderView = {
 }
 
 /** A registered model as the surface reads it: its egress identity plus what the settings show. */
-export type RegisteredModel = EgressSubject & Partial<Pick<PredictiveModel, "name" | "needsKey" | "supports">>
+export type RegisteredModel = EgressSubject &
+  Partial<Pick<PredictiveModel, "name" | "needsKey" | "capabilities" | "latencyClass" | "supports">>
+
+/** The kinds a model can answer, in the order it lists them when it is limited, else the registry's. */
+const answerableKinds = (model: RegisteredModel): DecisionKind[] =>
+  (model.supports ?? decisionKinds()).filter(isDecisionKind).filter((kind) => canAnswer(model, DECISIONS.get(kind)))
 
 /** Whether a document already declares `flupcode.adaptive`, read with the same JSONC rules as writing. */
 function declaresAdaptive(path: string): boolean {
@@ -400,7 +407,7 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
       id: model.id,
       name: model.name ?? model.id,
       locality: model.locality,
-      supports: (model.supports ?? decisionKinds()).filter(isDecisionKind),
+      supports: answerableKinds(model),
       needsConsent: model.locality === "remote",
       needsKey: model.needsKey === true,
       ...(model.needsKey === true && Object.hasOwn(keys, model.id) ? { key: keys[model.id] } : {}),
@@ -581,7 +588,7 @@ function unknownModels(leaves: readonly PatchLeaf[], models: readonly Registered
     .filter((leaf) => {
       const model = models.find((entry) => entry.id === leaf.value)
       const kind = leaf.segments[1]
-      return !model || !isDecisionKind(kind) || !(model.supports ?? decisionKinds()).includes(kind)
+      return !model || !isDecisionKind(kind) || !canAnswer(model, DECISIONS.get(kind))
     })
     .map((leaf) => leaf.path)
 }

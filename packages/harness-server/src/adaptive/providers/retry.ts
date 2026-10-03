@@ -82,7 +82,9 @@ export function createRetryingModel(input: {
     ...(input.model.name === undefined ? {} : { name: input.model.name }),
     ...(input.model.needsKey === undefined ? {} : { needsKey: input.model.needsKey }),
     ...(input.model.keySlot === undefined ? {} : { keySlot: input.model.keySlot }),
-    supports: input.model.supports,
+    ...(input.model.capabilities === undefined ? {} : { capabilities: input.model.capabilities }),
+    ...(input.model.latencyClass === undefined ? {} : { latencyClass: input.model.latencyClass }),
+    ...(input.model.supports === undefined ? {} : { supports: input.model.supports }),
     predict: (state, questions, options: PredictOptions) => {
       // The hot path is bounded end to end by the caller's deadline: a retry could only wait past it.
       const attempts = options.mode === "hot" ? 1 : maxAttempts

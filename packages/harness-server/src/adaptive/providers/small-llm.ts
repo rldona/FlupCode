@@ -59,11 +59,14 @@ export function createSmallLlmModel(input: {
   /** Read per call, so a changed `small_model` applies to the next prediction. */
   model: () => Model | undefined
   now?: () => number
-}): PredictiveModel {
+}): PredictiveModel & { supports: readonly DecisionKind[] } {
   const now = input.now ?? Date.now
   return {
     ...SMALL_LLM,
     name: "Small model (through the engine)",
+    // A throwaway engine session answers in seconds, not within a live turn's 400 ms.
+    capabilities: ["classify"],
+    latencyClass: "warm",
     supports: SMALL_LLM_KINDS,
     async predict(state, questions, options): Promise<Prediction> {
       if (questions.length === 0) throw new DecisionUnavailable("malformed")
