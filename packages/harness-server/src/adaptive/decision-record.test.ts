@@ -71,7 +71,7 @@ describe("a reader that tolerates what it does not know (AH-C02)", () => {
   })
 
   test("a row of a removed kind is kept and read back with its stored name (PI-03)", () => {
-    for (const kind of ["toolRisk", "modelRoute", "agentRoute"]) {
+    for (const kind of ["toolRisk", "agentRoute"]) {
       const decision = decisionFromRow({ ...row, id: `${kind}:scope`, kind, answer_json: JSON.stringify({ risk: "ALLOW" }) })
       expect(decision).toMatchObject({ id: `${kind}:scope`, kind: "unknown", raw: { kind } })
       expect(decision.answer).toEqual({ risk: "ALLOW" })

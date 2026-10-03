@@ -9,7 +9,7 @@ import { take, type Checkpoint } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { packFiles, packRefs, expandArtifactRefs } from "./packs"
 import { parsePlan } from "./plan"
-import { fallbackModel, modelForTask } from "./policy"
+import { fallbackModel, routeTask, runPressure, modelForTask, type Router } from "./policy"
 import { announce, hardReason, runStandings } from "./budget"
 import { ActionRunError } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
@@ -311,6 +311,13 @@ export class TaskRunner {
      * Absent means this server has no preview, and a verify task captures nothing.
      */
     private readonly previewCapture?: PreviewCapture,
+    /**
+     * The routing model's say on moving a task to the fallback (PI-04), through the decision service.
+     *
+     * Absent means the deterministic rule alone routes, which is also what happens when no model is
+     * assigned to `modelRoute`. A failure to ask never fails the task: the rule's route stands.
+     */
+    private readonly router?: Router,
   ) {}
 
   /**
@@ -864,13 +871,26 @@ export class TaskRunner {
       // removed a part. `apply` never adds, so a shorter assembly means it filtered something.
       if (this.context && plan && active.length !== parts.length) this.context.markApplied(plan.id)
       const { text, files } = renderRunPrompt(active)
+      // Its own model, or the policy's for the role it runs as (H-30), or the policy's fallback once
+      // the run nears a budget or its provider's quota (PI-04); which one and why is kept on the task.
+      const routed = await routeTask({
+        task,
+        policy: run.policy,
+        pressure: runPressure(this.repository, run, modelForTask(task, run.policy)?.providerID),
+        ...(this.router
+          ? {
+              router: (state) =>
+                this.router!({ runID: run.id, taskID: task.id, ...(directory ? { projectID: directory } : {}), state }),
+            }
+          : {}),
+      })
+      this.repository.setTaskRoute(task.id, routed.route)
       await this.engine.prompt({
         sessionID: session.id,
         text,
         directory,
         agent: task.agent,
-        // Its own model, or the policy's for the role it runs as (H-30).
-        model: modelForTask(task, run.policy),
+        model: routed.model,
         ...(files.length > 0 ? { files } : {}),
       })
       // Nobody is in this session to answer a permission or a question (RP-05): the run says what a

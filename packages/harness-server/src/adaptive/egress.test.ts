@@ -7,6 +7,7 @@ import { createDecisionService } from "./decision-service"
 import { createGovernor } from "./providers/governor"
 import { createJevClient, createJevModel, jevSettings } from "./providers/jev"
 import { createAuditor } from "../verdict"
+import { createRouter } from "../policy"
 import { SqliteRoutineRepository } from "../repository"
 
 const CANARY = "canary-secret-value-1234567890"
@@ -226,6 +227,55 @@ describe("what leaves the machine", () => {
     expect(bodies[0]).toContain("Fix the parser")
     expect(bodies[0]).not.toContain(PROJECT)
     expect(bodies[0]).not.toContain("/Users/")
+  })
+
+  test("the router's request to a remote model carries model keys and shares, never a path or a secret (PI-04)", async () => {
+    const bodies: string[] = []
+    const config = resolveAdaptiveConfig({
+      block: {
+        models: { modelRoute: "jev" },
+        egress: { providers: { jev: { enabled: true, projects: [PROJECT], kinds: { modelRoute: true } } } },
+      },
+      env: {},
+    })
+    const egress = createEgressGuard({ config: () => config, secrets: () => [CANARY] })
+    const client = createJevClient({
+      egress,
+      config: () => jevSettings(config.providers.jev),
+      fetch: async ({ body }) => {
+        bodies.push(body)
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: async () => ({ answers: { w0: { type: "noul", probability: 0.2 } } }),
+        }
+      },
+    })
+    const repository = new SqliteRoutineRepository(":memory:")
+    const service = createDecisionService({
+      repository,
+      config: () => config,
+      egress,
+      models: [createJevModel({ client })],
+      governor: createGovernor({ config: () => config.governor, store: repository }),
+    })
+    const routed = await createRouter(service, () => config)({
+      runID: "run_1",
+      taskID: "task_1",
+      projectID: PROJECT,
+      // A role carrying a known secret: the guard's sweep covers this kind's strings like every other's.
+      state: { role: `build-${CANARY}`, model: "big/large", fallback: "cheap/small", threshold: 0.8, budget: { scope: "run", unit: "usd", share: 0.6 } },
+    })
+
+    expect(routed).toMatchObject({ kind: "modelRoute", source: "model", answer: { route: "keep" } })
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toContain("cheap/small")
+    expect(bodies[0]).toContain("60%")
+    expect(bodies[0]).not.toContain(PROJECT)
+    expect(bodies[0]).not.toContain("/Users/")
+    expect(bodies[0]).not.toContain(CANARY)
+    repository.close()
   })
 
   test("a model input carries a digest of the project, never its path", () => {

@@ -327,7 +327,7 @@ describe("Jev model encoding", () => {
       model: { id: "jev", version: "jev-1.13.0" },
     })
     expect(model).toMatchObject({ id: "jev", locality: "remote" })
-    expect(model.supports).toHaveLength(5)
+    expect(model.supports).toHaveLength(6)
   })
 
   test("a score outside the legend is clamped onto it", async () => {

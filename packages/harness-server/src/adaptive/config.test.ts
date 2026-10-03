@@ -45,6 +45,7 @@ const allPolicies = (): Record<DecisionKind, DecisionPolicy> => ({
     repeatedErrors: DEFAULT_GUARDRAILS_CONFIG.repeatedErrors,
   },
   skillReflection: DEFAULT_DECISION_POLICY,
+  modelRoute: DEFAULT_DECISION_POLICY,
 })
 
 const allKindsOff = (): Record<DecisionKind, boolean> => ({
@@ -53,20 +54,21 @@ const allKindsOff = (): Record<DecisionKind, boolean> => ({
   contextItem: false,
   failure: false,
   skillReflection: false,
+  modelRoute: false,
 })
 
 describe("resolveAdaptiveConfig", () => {
   test("a block naming the removed kinds still loads, and they resolve to nothing (PI-03)", () => {
     const config = resolveAdaptiveConfig({
       block: {
-        models: { toolRisk: "jev", modelRoute: "jev", completion: "jev" },
+        models: { toolRisk: "jev", agentRoute: "jev", completion: "jev" },
         decisions: { toolRisk: { minConfidence: 0.9 }, agentRoute: { allowModel: false } },
         egress: { providers: { jev: { enabled: true, projects: ["/a"], kinds: { toolRisk: true, completion: true } } } },
       },
       env: {},
     })
     expect(config.models).toEqual({ completion: "jev" })
-    expect(Object.keys(config.decisions).sort()).toEqual(["completion", "contextItem", "failure", "skillReflection", "skillRelevance"])
+    expect(Object.keys(config.decisions).sort()).toEqual(["completion", "contextItem", "failure", "modelRoute", "skillReflection", "skillRelevance"])
     expect(config.egress.providers.jev?.kinds).toEqual({ ...allKindsOff(), completion: true })
   })
 

@@ -87,6 +87,7 @@ import type {
   StoredSkillProposal,
   StoredSkillProposalInput,
   WorkflowVersion,
+  TaskRoute,
   TaskVerdict,
 } from "./types"
 import { VERDICTS } from "./types"
@@ -623,6 +624,8 @@ type TaskRow = {
   verdict_reason?: string | null
   verdict_source?: string | null
   require_verdict?: string | null
+  /** PI-04 (migration 17). */
+  route_json?: string | null
 }
 
 const decodeTask = (row: TaskRow): Task => ({
@@ -661,7 +664,29 @@ const decodeTask = (row: TaskRow): Task => ({
   cost: row.cost ?? undefined,
   ...(row.require_verdict === "verified" ? { require: "verified" as const } : {}),
   ...decodeVerdict(row),
+  ...decodeRoute(row.route_json),
 })
+
+/** Which model a task was sent to and why (PI-04), or nothing when it was never routed or is unreadable. */
+const decodeRoute = (value: string | null | undefined): Pick<Task, "route"> => {
+  if (!value) return {}
+  const route = (() => {
+    try {
+      return JSON.parse(value) as Partial<TaskRoute> | null
+    } catch {
+      return undefined
+    }
+  })()
+  if (!route || typeof route.reason !== "string" || typeof route.fallback !== "boolean") return {}
+  return {
+    route: {
+      ...(typeof route.model === "string" ? { model: route.model } : {}),
+      fallback: route.fallback,
+      reason: route.reason,
+      source: route.source === "model" ? "model" : "rule",
+    },
+  }
+}
 
 /** A task's verdict (RP-06), or nothing: a value this build does not know reads as not judged. */
 const decodeVerdict = (row: Pick<TaskRow, "verdict" | "verdict_reason" | "verdict_source">): Pick<Task, "verdict"> => {
@@ -1655,6 +1680,14 @@ export class SqliteRoutineRepository implements RoutineRepository {
               PRIMARY KEY (provider_id, account_id, window_id, at)
             );
           `),
+      },
+      {
+        // Which model an agent task was sent to and why (PI-04). Tasks from before have none: the
+        // model they ran on was not recorded, and naming one now would be a guess.
+        version: 17,
+        name: "task-route",
+        rewrites: true,
+        up: () => this.addColumn("tasks", "route_json", "TEXT"),
       },
     ]
   }
@@ -3017,6 +3050,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
    * Records whether a task met its goal (RP-06), and tells the app about the task and its run: the
    * run's verdict is derived from its tasks, so it changes with them.
    */
+  /** The model a task was sent to and why (PI-04), set as it starts. */
+  setTaskRoute(taskID: string, route: TaskRoute) {
+    this.db.query("UPDATE tasks SET route_json = ?1 WHERE id = ?2").run(JSON.stringify(route), taskID)
+    return this.publishTask(taskID)
+  }
+
   setTaskVerdict(taskID: string, verdict: TaskVerdict) {
     this.db
       .query("UPDATE tasks SET verdict = ?1, verdict_reason = ?2, verdict_source = ?3 WHERE id = ?4")
