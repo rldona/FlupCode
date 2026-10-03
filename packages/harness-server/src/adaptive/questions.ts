@@ -14,6 +14,7 @@ import { ITEM_DISPOSITIONS, REFLECTION_INTENTS, isReflectionIntent } from "./dec
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
 import type { Answer, Question } from "./predictive/model"
 import { completion } from "./decisions/completion"
+import { skillRelevance } from "./decisions/skill-relevance"
 import { chosen, isOneOf, weakest, yes } from "./decisions/define"
 
 /** The questions one state asks, one plan per kind so adding a kind does not compile until it is asked. */
@@ -23,14 +24,7 @@ type QuestionPlanner = {
 
 const questionPlans: QuestionPlanner = {
   completion: completion.questions,
-  // A gate per candidate skill: the answer is the set of names above the gate, which the service
-  // then thresholds again. A state with no candidates asks nothing.
-  skillRelevance: (state) =>
-    state.skills.map((skill) => ({
-      id: skill.name,
-      type: "binary",
-      prompt: `Load the "${skill.name}" skill (${skill.description}) for: ${state.objective}?`,
-    })),
+  skillRelevance: skillRelevance.questions,
   contextItem: (state) =>
     state.items.map((item) => ({
       id: item.id,
@@ -99,17 +93,7 @@ type AnswerReader = {
 
 const answerReaders: AnswerReader = {
   completion: completion.read,
-  skillRelevance: (answers) => {
-    const gates = Object.entries(answers).flatMap(([name, answer]) => {
-      const probability = yes(answer)
-      return probability === undefined ? [] : [[name, probability] as const]
-    })
-    return {
-      answer: { load: gates.filter(([, probability]) => probability >= 0.5).map(([name]) => name) },
-      ...weakest(Object.values(answers)),
-      probabilities: Object.fromEntries(gates),
-    }
-  },
+  skillRelevance: skillRelevance.read,
   // An item whose confidence was not reported counts as zero: the weakest item sets the confidence,
   // and an unreported one must not read as certain.
   contextItem: (answers) => {
