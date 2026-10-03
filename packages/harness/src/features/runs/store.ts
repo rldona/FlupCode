@@ -528,10 +528,14 @@ export function createRuns(app: AppStores) {
     }
   }
 
+  // A phone's harness is reached through the computer (HE-02): the address stays the same, so the
+  // tunnel coming up is what has to start the reading again, not the next step of the back-off.
+  const tunnelUp = createMemo(() => remote.status() === "connected")
   createEffect(() => {
     const url = app.connection.harnessServerUrl()
     // Pairing or losing it reconnects with the token this tab now holds.
     pairingEpoch()
+    tunnelUp()
     const controller = new AbortController()
     onCleanup(() => controller.abort())
     // Untracked: everything below reads and writes the routine state, and the first stretch of it

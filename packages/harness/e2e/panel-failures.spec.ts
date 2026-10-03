@@ -127,6 +127,9 @@ test("a 500 on an artifact's bytes is said in the viewer, and trying again draws
   await page.locator(".fc-artifact-viewer-bar").getByRole("button", { name: /Back|Atrás/ }).click()
   await expect(page.locator(".fc-artifact-card")).toHaveCount(1)
   await page.locator(".fc-artifact-card", { hasText: "Shot" }).locator(".fc-artifact-card-main").click()
+  // Opened again, it reads the bytes again: the store recovers only once that read has failed, or the
+  // read can land after the flip and draw the image with no error to try again from.
+  await expect(alert).toBeVisible()
 
   failing.raw = false
   await alert.getByRole("button", { name: "Try again" }).click()

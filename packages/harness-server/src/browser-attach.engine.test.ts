@@ -167,6 +167,21 @@ describe.skipIf(!run)("the agent's browser over the engine's attach protocol (BU
     await client.detach(sessionID)
   }, 120_000)
 
+  test("a session being detached is still attached until the engine stops offering the tools", async () => {
+    // The browser can go on its own (the app closes, the driver stops), and whoever waits for
+    // `attached` to turn false then acts on the session at once. It must not turn false while the
+    // engine still offers `tools.browser.*`: the model would be handed tools for a browser it has lost.
+    const sessionID = await session()
+    const client = attachClient()
+    await client.attach(sessionID)
+    const leaving = client.detach(sessionID)
+    expect(client.attached(sessionID)).toBe(true)
+    await leaving
+    expect(client.attached(sessionID)).toBe(false)
+    await turn(sessionID, `return await tools.browser.tabs.list({})`)
+    expect(toolResults().at(-1)).toContain("Unknown tool 'browser.tabs.list'")
+  }, 120_000)
+
   test("an approval not answered in time tells the model to call again; a session without a browser loses the tools", async () => {
     const sessionID = await session()
     const client = attachClient({ answerWindowMs: 500 })
