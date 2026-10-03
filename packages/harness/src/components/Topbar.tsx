@@ -163,7 +163,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
               aria-pressed={props.openPanels.includes("preview")}
               onClick={() => props.onTogglePanel("preview")}
             >
-              <TopIcon d="M3 5h18v14H3zM3 9h18M6 7h.01M9 7h.01" />
+              <Icon name="preview" size={16} />
             </button>
           </Show>
           <button

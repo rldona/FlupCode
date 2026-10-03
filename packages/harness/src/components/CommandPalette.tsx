@@ -7,6 +7,7 @@ import { sessionTitle } from "../session-title"
 import { isCoworkSession } from "../chat"
 import { Modal, ModalClose } from "./Modal"
 import type { Destination, DestinationId } from "../navigation"
+import { Icon } from "./Icon"
 
 /**
  * What can be found. The order is the order of the tabs. Places come first: every destination is
@@ -40,12 +41,13 @@ const LABELS: Record<Kind, string> = {
 }
 
 const BADGES: Record<Kind, string> = {
-  place: "→",
+  // A place and a run are shown by an icon instead (UX-06): Runs and Routines share a letter.
+  place: "",
   session: "S",
   project: "P",
   artifact: "A",
   routine: "R",
-  run: "▸",
+  run: "",
   workflow: "W",
   command: "/",
   file: "@",
@@ -409,7 +411,15 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
                         onMouseEnter={() => setActive(index())}
                         onClick={() => select(item)}
                       >
-                        <span class="fc-palette-badge">{BADGES[item.kind]}</span>
+                        <span class="fc-palette-badge">
+                          {item.kind === "run" ? (
+                            <Icon name="runs" />
+                          ) : item.kind === "place" ? (
+                            <Icon name="arrow-right" />
+                          ) : (
+                            BADGES[item.kind]
+                          )}
+                        </span>
                         <span class="fc-palette-label">{item.label}</span>
                         <Show when={item.cowork}>
                           <span class="fc-cowork-badge">{t("Cowork")}</span>

@@ -5,6 +5,7 @@ import { t } from "../i18n"
 import type { DevServer, PreviewPage } from "../remote"
 import { modalOpen } from "./Modal"
 import { BrowserApprovalDock } from "./PermissionDock"
+import { Icon } from "./Icon"
 
 /** How often the empty state reads the servers listening on this machine. */
 const SERVERS_POLL_MS = 3000
@@ -233,7 +234,7 @@ export const PreviewPanel: Component<{
                 disabled={!page()?.canGoBack}
                 onClick={() => void preview().history("back")}
               >
-                ←
+                <Icon name="arrow-left" />
               </button>
               <button
                 class="fc-icon-button"
@@ -243,7 +244,7 @@ export const PreviewPanel: Component<{
                 disabled={!page()?.canGoForward}
                 onClick={() => void preview().history("forward")}
               >
-                →
+                <Icon name="arrow-right" />
               </button>
               <button
                 class="fc-icon-button"
@@ -253,7 +254,7 @@ export const PreviewPanel: Component<{
                 disabled={blank()}
                 onClick={() => void preview().history("reload")}
               >
-                ↻
+                <Icon name="refresh" />
               </button>
               <input
                 class="fc-question-custom fc-preview-address"

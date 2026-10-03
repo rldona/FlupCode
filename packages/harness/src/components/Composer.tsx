@@ -418,7 +418,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
                       aria-label={`${t("Remove")} ${chip.label}`}
                       onClick={() => props.onRemoveChip?.(chip.id)}
                     >
-                      <DockIcon path="M7 7l10 10M17 7 7 17" size={12} />
+                      <Icon name="close" size={12} weight={1.8} />
                     </button>
                   </span>
                 )}

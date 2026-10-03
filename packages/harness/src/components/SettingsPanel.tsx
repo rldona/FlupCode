@@ -30,6 +30,7 @@ import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize 
 import { AdaptiveSettingsPanel, type AdaptiveSettingsState, type ModelKeyChange } from "./AdaptiveSettingsPanel"
 import { Modal } from "./Modal"
 import { DESTINATIONS, SETTINGS_GROUPS, type DestinationId, type SettingsSection } from "../navigation"
+import { Icon } from "./Icon"
 
 export type { SettingsSection }
 
@@ -217,7 +218,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
         <header class="fc-settings-header">
           <span class="fc-settings-header-title">{t("Settings")}</span>
           <button class="fc-icon-button fc-settings-close" type="button" aria-label={t("Close")} onClick={props.onClose}>
-            ×
+            <Icon name="close" />
           </button>
         </header>
 
@@ -485,7 +486,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                           aria-label={t("Clear")}
                           onClick={() => props.onKeybind(action, "")}
                         >
-                          ×
+                          <Icon name="close" />
                         </button>
                       </Show>
                     </span>
@@ -658,7 +659,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 >
                   <Show when={props.serverReloading}>
                     <span class="fc-spinner" aria-hidden="true">
-                      ◐
+                      <Icon name="loader" />
                     </span>{" "}
                   </Show>
                   {props.serverReloading
