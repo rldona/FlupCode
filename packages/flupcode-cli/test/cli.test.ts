@@ -372,7 +372,9 @@ describe("flupcode serve hosts the harness (HE-01)", () => {
       const out = reader(served.stdout)
       await out.wait(new RegExp(`Harness .* at ${harness}`))
       const [, code] = await out.wait(/Pairing code ([A-Z2-9]{4}-[A-Z2-9]{4})/)
-      expect(out.output).toContain("local network")
+      // The hint about the local network is printed after the code, by another write: on a busy
+      // machine it reaches the pipe a moment later, so it is waited for like the code.
+      await out.wait(/local network/)
 
       // The engine knows where the harness is, holds none of its secrets, and is told where FlupCode's
       // plugins are: their folders, in FlupCode's own config folder (HE-04).

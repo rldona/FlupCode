@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { capped, kindsIn, search } from "./components/CommandPalette"
+import { capped, keepSame, kindsIn, search } from "./components/CommandPalette"
 import type { SessionInfo } from "./engine-types"
 import type { Artifact, CommandOption, ProjectItem, Routine, Run, Workflow } from "./types"
 import type { Destination } from "./navigation"
@@ -129,5 +129,24 @@ describe("capped", () => {
       routines: [routine("r1", "R")],
     })
     expect(capped(items).map((item) => item.kind)).toEqual(["session", "routine", "command"])
+  })
+})
+
+describe("a row that did not change stays the same row", () => {
+  const row = (id: string, label = id) => ({ kind: "session" as const, id, label, value: id })
+
+  test("an unchanged row keeps its object, so the list does not draw it again", () => {
+    const before = [row("a"), row("b")]
+    const after = keepSame(before, [row("a"), row("b"), row("c")])
+    expect(after[0]).toBe(before[0]!)
+    expect(after[1]).toBe(before[1]!)
+    expect(after[2]).toEqual(row("c"))
+  })
+
+  test("a row whose text changed is the new one", () => {
+    const before = [row("a")]
+    const after = keepSame(before, [row("a", "Renamed")])
+    expect(after[0]).not.toBe(before[0]!)
+    expect(after[0]!.label).toBe("Renamed")
   })
 })
