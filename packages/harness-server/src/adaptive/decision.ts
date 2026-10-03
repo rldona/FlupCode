@@ -4,8 +4,9 @@
  * A decision is a question about the session the harness is observing — is this episode complete,
  * which skills matter for this objective, what should happen to this context item — and a typed
  * answer to it. Only kinds a production path asks are declared (PI-03): a kind with no caller is not
- * kept "for later", it comes back with its consumer. The seam, the audit and the provider dispatch
- * are all exhaustive: adding a kind to `DecisionSpec` does not compile until every map below lists it.
+ * kept "for later", it comes back with its consumer. Each kind is one module under `decisions/`
+ * (PI-02), collected in `decisions/registry.ts`; `DecisionSpec` and every map per kind are derived
+ * from that registry, so a kind is never listed anywhere else.
  *
  * This module is the domain and nothing else: no provider, no network, no model. It is also the only
  * place that reads a decision's answer out of untrusted data, always falling back to a safe value
@@ -14,11 +15,9 @@
 
 import type { Arm } from "./holdout"
 import { createHash } from "node:crypto"
-import type { CompletionAnswer, CompletionState } from "./decisions/completion"
-import type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
-import type { ContextItemAnswer, ContextItemState } from "./decisions/context-item"
-import type { FailureAnswer, FailureState } from "./decisions/failure"
-import type { SkillReflectionAnswer, SkillReflectionState } from "./decisions/skill-reflection"
+import type { KindOf, KindSpec, SpecOf } from "./decisions/define"
+import { DECISIONS } from "./decisions/registry"
+import type { BUILT_IN_DECISIONS } from "./decisions/registry"
 
 export type { CompletionAnswer, CompletionState } from "./decisions/completion"
 export type { SkillRelevanceAnswer, SkillRelevanceState } from "./decisions/skill-relevance"
@@ -36,30 +35,19 @@ export {
 } from "./context-items"
 
 /**
- * The map that defines the kinds and correlates each state with its answer. Each has a caller:
- * `completion` (the episode shadow and the run auditor, RP-06), `skillRelevance` (the relevance line),
- * `contextItem` (the context manager), `failure` (the loop guardrails) and `skillReflection` (learning).
- * `modelRoute`, `agentRoute` and `toolRisk` were removed with nothing asking them (PI-03); audit rows
- * written before read back as an `unknown` kind with the stored name in `raw`.
+ * The state and answer of each kind, derived from the registry. `modelRoute`, `agentRoute` and
+ * `toolRisk` were removed with nothing asking them (PI-03); audit rows written before read back as an
+ * `unknown` kind with the stored name in `raw`.
  */
-export type DecisionSpec = {
-  completion: { state: CompletionState; answer: CompletionAnswer }
-  skillRelevance: { state: SkillRelevanceState; answer: SkillRelevanceAnswer }
-  contextItem: { state: ContextItemState; answer: ContextItemAnswer }
-  failure: { state: FailureState; answer: FailureAnswer }
-  skillReflection: { state: SkillReflectionState; answer: SkillReflectionAnswer }
-}
+export type DecisionSpec = SpecOf<(typeof BUILT_IN_DECISIONS)[number]>
 
 export type DecisionKind = keyof DecisionSpec
 
-/** Total record: adding a kind to `DecisionSpec` does not compile until it is listed here. */
-export const DECISION_KINDS: Record<DecisionKind, true> = {
-  completion: true,
-  skillRelevance: true,
-  contextItem: true,
-  failure: true,
-  skillReflection: true,
-}
+/** Every kind, read from the registry. */
+export const DECISION_KINDS = Object.fromEntries(DECISIONS.kinds.map((kind) => [kind, true])) as Record<
+  DecisionKind,
+  true
+>
 
 /** The kinds this phase actually implements and tests; the other kinds answer safe defaults. */
 export const E2_KINDS = ["completion", "skillRelevance", "contextItem"] as const
@@ -68,9 +56,9 @@ export type E2Kind = (typeof E2_KINDS)[number]
 export const isE2Kind = (kind: DecisionKind): kind is E2Kind =>
   E2_KINDS.some((candidate) => candidate === kind)
 
-/** The kinds, read from the one record that knows them, so it can never drift from `DecisionSpec`. */
+/** The kinds, in the registry's order. */
 export function decisionKinds(): DecisionKind[] {
-  return Object.keys(DECISION_KINDS).filter(isDecisionKind)
+  return [...DECISIONS.kinds]
 }
 
 // ---- the policy: where the thresholds live ---------------------------------------------------
@@ -119,9 +107,12 @@ export const DEFAULT_DECISION_POLICY: DecisionPolicy = {
 
 // ---- request and result ----------------------------------------------------------------------
 
-export type DecisionRequest<Q extends DecisionKind = DecisionKind> = {
+export type DecisionRequest<Q extends DecisionKind = DecisionKind> = SpecRequest<DecisionSpec, Q>
+
+/** A request of any registry's spec; `DecisionRequest` is the built-in registry's. */
+export type SpecRequest<S extends KindSpec, Q extends KindOf<S>> = {
   kind: Q
-  state: DecisionSpec[Q]["state"]
+  state: S[Q]["state"]
   policy: DecisionPolicy
   /**
    * An explicit scope for the deterministic id when no episode or session names it (FH-023).
@@ -224,9 +215,12 @@ export const DEGRADED_REASONS = [
 ] as const
 export type DegradedReason = (typeof DEGRADED_REASONS)[number]
 
-export type DecisionResult<Q extends DecisionKind = DecisionKind> = {
+export type DecisionResult<Q extends DecisionKind = DecisionKind> = SpecResult<DecisionSpec, Q>
+
+/** A result of any registry's spec; `DecisionResult` is the built-in registry's. */
+export type SpecResult<S extends KindSpec, Q extends KindOf<S>> = {
   kind: Q
-  answer: DecisionSpec[Q]["answer"]
+  answer: S[Q]["answer"]
   source: DecisionSource
   provider: string
   confidence?: number
@@ -236,7 +230,7 @@ export type DecisionResult<Q extends DecisionKind = DecisionKind> = {
   degraded: boolean
   degradedReason?: DegradedReason
   /** The deterministic answer, stored even when the external provider wins: `explain` never re-runs. */
-  baseline: DecisionSpec[Q]["answer"]
+  baseline: S[Q]["answer"]
   baselineRule: string
   inputsHash: string
   decidedAt: number
@@ -246,8 +240,7 @@ export type AnyDecisionResult = { [Q in DecisionKind]: DecisionResult<Q> }[Decis
 
 // ---- defensive reading (the `episode.ts` style) ----------------------------------------------
 
-export const isDecisionKind = (value: unknown): value is DecisionKind =>
-  typeof value === "string" && Object.prototype.hasOwnProperty.call(DECISION_KINDS, value)
+export const isDecisionKind = (value: unknown): value is DecisionKind => DECISIONS.has(value)
 
 export const isDecisionSource = (value: unknown): value is DecisionSource =>
   typeof value === "string" && (DECISION_SOURCES as readonly string[]).includes(value)
@@ -256,6 +249,6 @@ export const isDecisionLabelOutcome = (value: unknown): value is DecisionLabelOu
   typeof value === "string" && (DECISION_LABEL_OUTCOMES as readonly string[]).includes(value)
 
 /** The hash of a question: kind plus its already-redacted state. The policy is not part of it. */
-export function decisionInputsHash(kind: DecisionKind, redactedState: string): string {
+export function decisionInputsHash(kind: string, redactedState: string): string {
   return createHash("sha256").update(`${kind}\u0000${redactedState}`).digest("hex")
 }

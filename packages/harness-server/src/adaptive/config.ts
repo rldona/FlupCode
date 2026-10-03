@@ -14,8 +14,7 @@
 
 import { globalAdaptiveBlock } from "../config-files"
 import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
-import { contextItem } from "./decisions/context-item"
-import { failure } from "./decisions/failure"
+import { DECISIONS } from "./decisions/registry"
 import type { ContextItemKind, DecisionKind, DecisionPolicy } from "./decision"
 import { resolveEpisodeBoundaryConfig } from "./episode"
 import type { EpisodeBoundaryConfig } from "./episode"
@@ -59,7 +58,7 @@ export const DEFAULT_MAX_INPUT_CHARS = 32_000
  * Which registered predictive model each kind asks (AH-C01), by model id. A kind that is absent asks
  * no model and keeps the deterministic baseline.
  */
-export type ModelAssignments = Partial<Record<DecisionKind, string>>
+export type ModelAssignments = Partial<Record<string, string>>
 
 /** The id that pins a kind to the deterministic baseline, overriding the legacy single switch. */
 export const BASELINE_MODEL = "baseline"
@@ -519,8 +518,9 @@ const policyFrom = (base: DecisionPolicy, value: unknown): DecisionPolicy => {
 }
 
 /**
- * The per-kind policies. The `contextItem` policy also carries the resolved scorer thresholds, so the
- * decision baseline and the manager's plan are scored against one source instead of two defaults.
+ * The per-kind policies: the common thresholds from `decisions.<kind>`, plus whatever the kind's own
+ * policy carries from the resolved config (the scorer thresholds for `contextItem`, the loop
+ * thresholds for `failure`), so a baseline and its caller are scored against one source.
  */
 function resolveDecisionPolicies(
   block: Record<string, unknown>,
@@ -528,19 +528,12 @@ function resolveDecisionPolicies(
   guardrails: GuardrailsConfig,
 ): Record<DecisionKind, DecisionPolicy> {
   const decisions = isPlainObject(block.decisions) ? block.decisions : {}
-  return {
-    completion: policyFrom(DEFAULT_DECISION_POLICY, decisions.completion),
-    skillRelevance: policyFrom(DEFAULT_DECISION_POLICY, decisions.skillRelevance),
-    contextItem: {
-      ...policyFrom(DEFAULT_DECISION_POLICY, decisions.contextItem),
-      ...contextItem.policy?.({ context, guardrails }),
-    },
-    failure: {
-      ...policyFrom(DEFAULT_DECISION_POLICY, decisions.failure),
-      ...failure.policy?.({ context, guardrails }),
-    },
-    skillReflection: policyFrom(DEFAULT_DECISION_POLICY, decisions.skillReflection),
-  }
+  return Object.fromEntries(
+    decisionKinds().map((kind) => [
+      kind,
+      { ...policyFrom(DEFAULT_DECISION_POLICY, decisions[kind]), ...DECISIONS.get(kind).policy?.({ context, guardrails }) },
+    ]),
+  ) as Record<DecisionKind, DecisionPolicy>
 }
 
 /**
@@ -855,13 +848,7 @@ function resolveVoiConfig(block: Record<string, unknown>): VoiConfig {
 /** Every kind off until the block lists it; a new kind cannot arrive enabled by accident. */
 function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
   const kinds = isPlainObject(value) ? value : {}
-  return {
-    completion: kinds.completion === true,
-    skillRelevance: kinds.skillRelevance === true,
-    contextItem: kinds.contextItem === true,
-    failure: kinds.failure === true,
-    skillReflection: kinds.skillReflection === true,
-  }
+  return Object.fromEntries(decisionKinds().map((kind) => [kind, kinds[kind] === true])) as Record<DecisionKind, boolean>
 }
 
 function resolveLimiterConfig(value: unknown): GovernorConfig["limiter"] {

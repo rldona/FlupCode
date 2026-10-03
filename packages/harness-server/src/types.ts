@@ -885,11 +885,11 @@ export type StoredDecision = {
  * What a writer supplies; the store stamps `createdAt`/`updatedAt` (FH-015). A writer always knows the
  * kind and source it records, and the label is written by its own path (AH-C06), never with the row.
  */
-export type StoredDecisionInput = Omit<
+export type StoredDecisionInput<K extends string = DecisionKind> = Omit<
   StoredDecision,
   "createdAt" | "updatedAt" | "kind" | "source" | "label" | "raw"
 > & {
-  kind: DecisionKind
+  kind: K
   source: DecisionSource
 }
 
@@ -920,7 +920,8 @@ export type DecisionCursor = { createdAt: number; id: string }
  * `countDecisionsForEpisode` is what lets the shadow treat a second episode close as already done.
  */
 export type DecisionRepository = AdaptiveUsageRepository & {
-  createDecision(input: StoredDecisionInput, now?: number): StoredDecision
+  /** Any registered kind is written; one the server's own registry does not list reads back `unknown`. */
+  createDecision(input: StoredDecisionInput<string>, now?: number): StoredDecision
   getDecision(id: string): StoredDecision | undefined
   listDecisions(filter?: DecisionFilter): StoredDecision[]
   countDecisionsForEpisode(episodeID: string, kind: DecisionKind): number

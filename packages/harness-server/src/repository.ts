@@ -105,6 +105,7 @@ import type { SkillProposalRow } from "./adaptive/learning/proposal-record"
 import type { RetentionCutoffs, RetentionPurge } from "./adaptive/retention"
 import type { ValueSamples } from "./adaptive/value-gate"
 import type { DecisionKind, DecisionLabelCounts, DecisionLabelInput } from "./adaptive/decision"
+import { isDecisionKind } from "./adaptive/decision"
 import { applyObservation, emptyTurn } from "./adaptive/session-metrics"
 import type { MetricObservation, SessionMetricTurn } from "./adaptive/session-metrics"
 import type { Arm, HoldoutCapability } from "./adaptive/holdout"
@@ -4043,7 +4044,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
    * moves `updated_at`. A failure to write is swallowed, because an audit row must never fail the
    * decision it belongs to.
    */
-  createDecision(input: StoredDecisionInput, now = Date.now()): StoredDecision {
+  createDecision(input: StoredDecisionInput<string>, now = Date.now()): StoredDecision {
     const row = decisionRowFrom(input, now)
     try {
       this.db
@@ -4116,7 +4117,11 @@ export class SqliteRoutineRepository implements RoutineRepository {
     } catch {
       // An audit that cannot be written is dropped, never raised into the decision.
     }
-    return this.getDecision(row.id) ?? { ...input, createdAt: now, updatedAt: now }
+    // A kind the server's registry does not list reads back as every stored row does: `unknown`.
+    return (
+      this.getDecision(row.id) ??
+      (isDecisionKind(input.kind) ? { ...input, kind: input.kind, createdAt: now, updatedAt: now } : decisionFromRow(row))
+    )
   }
 
   getDecision(id: string): StoredDecision | undefined {
