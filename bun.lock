@@ -32,7 +32,7 @@
     },
     "packages/bridge-extension": {
       "name": "@flupcode/bridge-extension",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "devDependencies": {
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
@@ -55,7 +55,7 @@
     },
     "packages/flupcode-cli": {
       "name": "@flupcode/cli",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "bin": {
         "flupcode": "./src/index.ts",
       },
@@ -73,7 +73,7 @@
     },
     "packages/harness": {
       "name": "@flupcode/harness",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "dependencies": {
         "@flupcode/remote": "workspace:*",
         "@opencode/client": "2.0.18",
@@ -107,7 +107,7 @@
     },
     "packages/harness-desktop": {
       "name": "@flupcode/desktop",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "dependencies": {
         "electron-context-menu": "4.1.2",
         "electron-updater": "6.8.9",
@@ -124,7 +124,7 @@
     },
     "packages/harness-server": {
       "name": "@flupcode/harness-server",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "dependencies": {
         "@flupcode/bridge-extension": "workspace:*",
         "@flupcode/remote": "workspace:*",
@@ -143,7 +143,7 @@
     },
     "packages/relay": {
       "name": "@flupcode/relay",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "dependencies": {
         "@flupcode/remote": "workspace:*",
       },
@@ -156,7 +156,7 @@
     },
     "packages/remote": {
       "name": "@flupcode/remote",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "devDependencies": {
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",

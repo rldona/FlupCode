@@ -24,13 +24,13 @@ How FlupCode is versioned and released.
 ## Cutting a release
 
 1. Update the versions (`harness`, `harness-desktop`, `harness-server`, `remote`, `relay`,
-   `flupcode-cli`) and the
+   `flupcode-cli`, `bridge-extension`) and the
    lockfile on a branch, and open a pull request: `main` is protected, so nothing is pushed to it
    directly.
 
    ```bash
    git switch -c release-X.Y.Z origin/main
-   # set the six package.json versions, then:
+   # set the seven package.json versions, then:
    npm_config_registry="https://registry.npmjs.org/" bun install
    git commit -am "chore: bump version to X.Y.Z"
    git push -u origin release-X.Y.Z
