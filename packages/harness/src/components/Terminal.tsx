@@ -5,10 +5,13 @@ import "@xterm/xterm/css/xterm.css"
 import { createClient } from "../client"
 import { t } from "../i18n"
 import { PanelFailure } from "./PanelBoundary"
+import { textChip, type ContextChip } from "../context-chip"
 
 type TerminalPanelProps = {
   serverUrl: string
   directory?: string
+  /** Puts the selected output in the composer as a chip (UX-05). */
+  onAddChip?: (chip: ContextChip) => void
 }
 
 /** How many times a lost connection is reopened on its own before the reader is asked. */
@@ -32,6 +35,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let pending = ""
   let disposed = false
   const [failure, setFailure] = createSignal<Error>()
+  const [selection, setSelection] = createSignal("")
 
   const engine = () => createClient(props.serverUrl).pty
 
@@ -108,6 +112,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     const observer = new ResizeObserver(() => fit?.fit())
     observer.observe(container)
     term.onResize(() => sendSize())
+    term.onSelectionChange(() => setSelection(term?.getSelection() ?? ""))
     term.onData((data) => {
       if (stream) return stream.send(data)
       pending += data
@@ -138,7 +143,28 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
           />
         )}
       </Show>
-      <div class="fc-terminal" classList={{ "fc-terminal-failed": !!failure() }} ref={container} />
+      {/* Over the terminal, not above it: moving the screen would resize it and lose the selection. */}
+      <div class="fc-terminal-wrap" classList={{ "fc-terminal-failed": !!failure() }}>
+        <Show when={props.onAddChip && selection().trim()}>
+          <button
+            class="fc-pr-action fc-terminal-add"
+            type="button"
+            // The click must not take the selection away before it is read.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              const text = selection()
+              const first = text.trim().split("\n")[0]!.trim()
+              props.onAddChip?.(
+                textChip("terminal", first.length > 40 ? `${first.slice(0, 40)}…` : first, props.directory ?? "", text),
+              )
+              term?.clearSelection()
+            }}
+          >
+            {t("Add to the message")}
+          </button>
+        </Show>
+        <div class="fc-terminal" ref={container} />
+      </div>
     </>
   )
 }

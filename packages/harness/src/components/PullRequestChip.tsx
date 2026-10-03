@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { BranchState, CheckLog, FailedCheck } from "../types"
 import { Icon } from "./Icon"
+import { textChip, type ContextChip } from "../context-chip"
 
 export type PullRequestProps = {
   state: BranchState | undefined
@@ -12,6 +13,8 @@ export type PullRequestProps = {
   onOpen: (url: string) => void
   /** What a failing check printed. Called when somebody asks for it, never on the poll. */
   onCheckLog: (job: string) => Promise<CheckLog>
+  /** Puts a failing check's log in the composer as a chip (UX-05). */
+  onAddChip?: (chip: ContextChip) => void
 }
 
 /** What the checks add up to, in one word. Running wins over failed: it is not over yet. */
@@ -34,9 +37,12 @@ export function verdictOf(checks: { total: number; passed: number; failed: numbe
  * is drawn at all, because a chip that cannot tell you the state is worse than no chip.
  */
 /** One failing check, and its log once it has been asked for. */
-const Failure: Component<{ check: FailedCheck; onLog: (job: string) => Promise<CheckLog>; onOpen: (url: string) => void }> = (
-  props,
-) => {
+const Failure: Component<{
+  check: FailedCheck
+  onLog: (job: string) => Promise<CheckLog>
+  onOpen: (url: string) => void
+  onAddChip?: (chip: ContextChip) => void
+}> = (props) => {
   const [log, setLog] = createSignal<CheckLog>()
   const [loading, setLoading] = createSignal(false)
   const [problem, setProblem] = createSignal<string>()
@@ -51,6 +57,19 @@ const Failure: Component<{ check: FailedCheck; onLog: (job: string) => Promise<C
       .catch((cause) => setProblem(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setLoading(false))
   }
+  // The log goes into the message as the check printed it, read first when nobody has yet (UX-05).
+  const add = async () => {
+    const job = props.check.job
+    if (!job || !props.onAddChip) return
+    setProblem(undefined)
+    const read = log() ?? (await props.onLog(job).catch((cause: unknown) => {
+      setProblem(cause instanceof Error ? cause.message : String(cause))
+      return undefined
+    }))
+    if (!read) return
+    const where = [props.check.workflow, read.step].filter(Boolean).join(" · ")
+    props.onAddChip(textChip("check", props.check.name, where, read.text))
+  }
   return (
     <div class="fc-pr-failure">
       <div class="fc-pr-failure-head">
@@ -62,6 +81,11 @@ const Failure: Component<{ check: FailedCheck; onLog: (job: string) => Promise<C
         <Show when={props.check.job && !log()}>
           <button class="fc-pr-action" type="button" disabled={loading()} onClick={read}>
             {loading() ? t("Reading…") : t("Why")}
+          </button>
+        </Show>
+        <Show when={props.check.job && props.onAddChip}>
+          <button class="fc-pr-action" type="button" disabled={loading()} onClick={() => void add()}>
+            {t("Add to the message")}
           </button>
         </Show>
         <Show when={props.check.url}>
@@ -239,9 +263,12 @@ export const PullRequestFailures: Component<{
   failures: FailedCheck[]
   onLog: (job: string) => Promise<CheckLog>
   onOpen: (url: string) => void
+  onAddChip?: (chip: ContextChip) => void
 }> = (props) => (
   <div class="fc-pr-failures">
-    <For each={props.failures}>{(check) => <Failure check={check} onLog={props.onLog} onOpen={props.onOpen} />}</For>
+    <For each={props.failures}>
+      {(check) => <Failure check={check} onLog={props.onLog} onOpen={props.onOpen} onAddChip={props.onAddChip} />}
+    </For>
   </div>
 )
 

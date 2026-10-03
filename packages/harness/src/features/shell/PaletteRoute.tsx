@@ -1,3 +1,4 @@
+import { chipForRef } from "../../context-chip"
 import { CommandPalette } from "../../components/CommandPalette"
 import { useApp } from "../../app-context"
 import { DESTINATIONS, offered } from "../../navigation"
@@ -37,7 +38,12 @@ export default function PaletteRoute() {
         const workflow = app.runs.workflowNamed(name)
         if (workflow) app.runs.setLaunching({ workflow })
       }}
-      onFile={(path) => app.composer.setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))}
+      onFile={(path) => {
+        // A file picked here is pointed at, like one picked from the `@` menu (UX-05).
+        const chip = chipForRef(`@${path}`)
+        if (chip) return app.composer.addChip(chip)
+        app.composer.setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))
+      }}
       searchFiles={app.composer.searchFiles}
       searchSessions={app.sessions.searchSessions}
     />

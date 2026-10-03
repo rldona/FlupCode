@@ -4,7 +4,9 @@ import type { Attachment, CommandOption } from "../types"
 import type { Delivery } from "../pending-prompts"
 import { t } from "../i18n"
 import { ComposerMenu } from "./ComposerMenu"
-import { applyMention, commandBadge, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
+import { commandBadge, filterCommands, mentionItems, mentionToken, pickMention, refsIn, slashQuery, type MentionItem } from "../composer-menus"
+import { chipRefs, type ContextChip } from "../context-chip"
+import { ContextChips } from "./ContextChips"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
 import { primaryAgents } from "../agents"
@@ -47,6 +49,10 @@ type MobileComposerProps = {
   /** Context packs, and a way to save the draft's refs as one (H-26). */
   packs?: Array<{ name: string; refs: string[] }>
   onSavePack?: (refs: string[]) => void
+  /** What the reader pointed at (UX-05): the same chips as the desktop composer's. */
+  chips?: ContextChip[]
+  onRemoveChip?: (id: string) => void
+  onAddChips?: (chips: ContextChip[]) => void
   agent: string
   permissionMode: string
   /** Commands for the `/` menu, the same list the desktop composer gets (H-26). */
@@ -189,7 +195,9 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
   })
   const menusDismissed = () => dismissedAt() !== undefined && dismissedAt() === props.value
   const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
-  const menuCanSavePack = () => !!props.onSavePack && refsIn(props.value).length > 0
+  // What "save as a pack" saves: the chips' refs, then any typed in the draft.
+  const draftRefs = () => [...new Set([...chipRefs(props.chips ?? []), ...refsIn(props.value)])]
+  const menuCanSavePack = () => !!props.onSavePack && draftRefs().length > 0
   const mentionMenuOpen = () =>
     !menusDismissed() &&
     commandQuery() === undefined &&
@@ -200,7 +208,9 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
     else setDismissedAt(props.value)
   }
   const insertMention = (item: MentionItem) => {
-    props.onInput(applyMention(props.value, item))
+    const picked = pickMention(props.value, item)
+    props.onInput(picked.value)
+    if (picked.chips.length > 0) props.onAddChips?.(picked.chips)
     setFileResults([])
   }
 
@@ -232,7 +242,10 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
     )
   })
   const currentEffort = () => (props.variantKey ? effortLabel(props.variantKey) : t("Default"))
-  const canSend = () => !props.compacting && !props.sending && (props.value.trim().length > 0 || props.attachments.length > 0)
+  const canSend = () =>
+    !props.compacting &&
+    !props.sending &&
+    (props.value.trim().length > 0 || props.attachments.length > 0 || (props.chips ?? []).length > 0)
 
   const modelOption = (model: ModelInfo) => (
     <Option
@@ -269,6 +282,8 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
         </div>
       </Show>
 
+      <ContextChips chips={props.chips ?? []} onRemove={props.onRemoveChip} />
+
       <div class="fc-mobile-field">
         <Show when={commandMenuOpen()}>
           <ComposerMenu
@@ -301,12 +316,12 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               if (item) insertMention(item)
             }}
             footer={
-              <Show when={props.onSavePack && refsIn(props.value).length > 0}>
+              <Show when={menuCanSavePack()}>
                 <button
                   class="fc-command-item fc-command-save"
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => props.onSavePack?.(refsIn(props.value))}
+                  onClick={() => props.onSavePack?.(draftRefs())}
                 >
                   <span class="fc-command-name">{t("Save these as a pack")}</span>
                 </button>

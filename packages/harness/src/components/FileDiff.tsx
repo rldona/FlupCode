@@ -71,6 +71,8 @@ const Hunk: Component<{
   pick?: { selected: boolean; onToggle: (selected: boolean) => void }
   /** Throws this hunk away. Absent where discarding is unavailable. */
   onDiscard?: () => void
+  /** Puts this hunk in the composer as a chip (UX-05). */
+  onAdd?: () => void
 }> = (props) => {
   const code = createCodeLines(
     () => props.hunk.lines.map((line) => line.text).join("\n"),
@@ -92,6 +94,11 @@ const Hunk: Component<{
           )}
         </Show>
         <span class="fc-diff-hunk-label">{hunkLabel(props.hunk)}</span>
+        <Show when={props.onAdd}>
+          <button class="fc-pr-action fc-diff-hunk-add" type="button" onClick={() => props.onAdd?.()}>
+            {t("Add to the message")}
+          </button>
+        </Show>
         <Show when={props.onDiscard}>
           <button class="fc-pr-action fc-diff-discard" type="button" onClick={() => props.onDiscard?.()}>
             {t("Discard")}
@@ -141,6 +148,8 @@ export const FileDiff: Component<{
   /** Throws a hunk away, or the whole file. Absent where discarding is unavailable. */
   onDiscardHunk?: (index: number) => void
   onDiscardFile?: () => void
+  /** Puts a hunk in the composer as a chip (UX-05). Absent where there is no composer to put it in. */
+  onAddHunk?: (hunk: PatchHunk) => void
   discarding?: boolean
   /** A review's points about this file (H-32). */
   findings?: Finding[]
@@ -243,6 +252,7 @@ export const FileDiff: Component<{
                         : undefined
                     }
                     onDiscard={props.onDiscardHunk ? () => props.onDiscardHunk?.(index()) : undefined}
+                    onAdd={props.onAddHunk ? () => props.onAddHunk?.(hunk) : undefined}
                   />
                 )}
               </For>

@@ -243,23 +243,22 @@ export function SessionColumn() {
                         if (!log) throw new Error(t("Could not read that log"))
                         return log
                       }),
+                  onAddChip: app.composer.addChip,
                 }
               : undefined
           }
           attachments={app.composer.attachments()}
           chips={app.composer.chips()}
           onRemoveChip={app.composer.removeChip}
+          onAddChips={app.composer.addChips}
           commands={app.composer.commandOptions()}
           projects={app.sessions.projects()}
           targetDirectory={app.sessions.targetDirectory() ?? app.sessions.selectedSession()?.location?.directory}
           agents={app.catalog.agents()?.data ?? []}
-          artifacts={(app.workspace.artifactList() ?? []).flatMap(
-            (artifact): Array<{ id?: string; path?: string; title?: string; kind?: string }> =>
-              artifact.path
-                ? [{ path: artifact.path, title: artifact.title }]
-                : artifact.content
-                  ? [{ id: artifact.id, title: artifact.title, kind: artifact.kind }]
-                  : [],
+          artifacts={(app.workspace.artifactList() ?? []).flatMap((artifact) =>
+            artifact.path || artifact.content
+              ? [{ id: artifact.id, path: artifact.path, title: artifact.title, kind: artifact.kind }]
+              : [],
           )}
           packs={app.composer.packs()}
           onSavePack={(refs) => app.composer.setPackRefs(refs)}

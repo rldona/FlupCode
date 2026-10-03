@@ -18,7 +18,7 @@ import { cssPx } from "../text-size"
 import { FileDiff } from "./FileDiff"
 import { Loader } from "./Loader"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
-import type { ContextChip } from "../context-chip"
+import { hunkChip, type ContextChip } from "../context-chip"
 import { Icon } from "./Icon"
 
 const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ default: module.TerminalPanel })))
@@ -41,7 +41,8 @@ type WorkspacePanelsProps = {
   onResize: (width: number) => void
   onClose: (kind: string) => void
   /** A preview annotation the reader finished (BU-06), for the composer. */
-  onAnnotate?: (chip: ContextChip) => void
+  /** What the reader points at in a panel (a preview annotation, a diff hunk, a terminal selection) goes to the composer as a chip (UX-05). */
+  onAddChip?: (chip: ContextChip) => void
 }
 
 
@@ -411,6 +412,7 @@ const DiffPanel: Component<{
   revision: unknown
   changedFiles?: string[]
   onOpenChanges?: () => void
+  onAddChip?: (chip: ContextChip) => void
 }> = (props) => {
   const [diff] = createResource(
     () => {
@@ -478,6 +480,9 @@ const DiffPanel: Component<{
                     status: entry.status,
                   }}
                   open={index() === ordered().length - 1}
+                  onAddHunk={
+                    props.onAddChip ? (hunk) => props.onAddChip?.(hunkChip(entry.file ?? "", hunk)) : undefined
+                  }
                 />
               )}
             </For>
@@ -651,6 +656,7 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                   revision={props.revision}
                   changedFiles={props.changedFiles}
                   onOpenChanges={props.onOpenChanges}
+                  onAddChip={props.onAddChip}
                 />
               </Show>
               <Show when={kind === "preview"}>
@@ -659,7 +665,7 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                     harnessServerUrl={props.harnessServerUrl}
                     sessionID={props.session?.id}
                     directory={props.session?.location?.directory}
-                    onAnnotate={props.onAnnotate}
+                    onAnnotate={props.onAddChip}
                   />
                 </Suspense>
               </Show>
@@ -671,7 +677,11 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                     </div>
                   }
                 >
-                  <TerminalPanel serverUrl={props.serverUrl} directory={props.session?.location?.directory} />
+                  <TerminalPanel
+                    serverUrl={props.serverUrl}
+                    directory={props.session?.location?.directory}
+                    onAddChip={props.onAddChip}
+                  />
                 </Suspense>
               </Show>
             </div>

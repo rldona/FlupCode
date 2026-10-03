@@ -205,6 +205,7 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
               failures={request()?.failures ?? []}
               onLog={pr().onCheckLog}
               onOpen={pr().onOpen}
+              onAddChip={pr().onAddChip}
             />
           )}
         </Show>

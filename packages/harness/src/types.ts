@@ -155,6 +155,12 @@ export type StashedPrompt = {
 }
 
 /** A context pack (H-26): a named set of references to pull back into a prompt. */
+/** A ref the harness resolved for the composer (UX-05): a file part, a quoted artifact, or missing. */
+export type ResolvedRef =
+  | { ref: string; uri: string; name: string }
+  | { ref: string; quote: string; cut: boolean }
+  | { ref: string; missing: true }
+
 export type ContextPack = {
   id: string
   name: string

@@ -722,6 +722,12 @@ const ES: Record<string, string> = {
   "The page in the preview": "La página en la vista previa",
   "What should change here?": "¿Qué debería cambiar aquí?",
   "Add to the message": "Añadir al mensaje",
+  // What the composer's chips say (UX-05)
+  File: "Archivo",
+  "It can no longer be found.": "Ya no se encuentra.",
+  "Only the start is sent.": "Solo se envía el principio.",
+  "Something you pointed at can no longer be found. Remove it to send.":
+    "Algo que señalaste ya no se encuentra. Quítalo para enviar.",
   "The agent browses in its own browser, not yours, and asks before acting on each site.":
     "El agente navega en su propio navegador, no en el tuyo, y pregunta antes de actuar en cada sitio.",
   // The person's own browser through FlupCode Bridge (BU-04)

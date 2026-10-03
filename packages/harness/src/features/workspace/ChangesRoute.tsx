@@ -32,6 +32,7 @@ export default function ChangesRoute() {
       onCheckpointRemove={app.workspace.removeCheckpoint}
       findings={app.workspace.findings() ?? []}
       onResolveFinding={app.workspace.resolveFinding}
+      onAddChip={app.composer.addChip}
     />
   )
 }

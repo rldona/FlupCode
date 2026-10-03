@@ -19,7 +19,7 @@ import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM } from "../..
 import { messageID } from "../../ids"
 import type { Delivery } from "../../pending-prompts"
 import { sendPrompt } from "./send"
-import { resolveChips, withChips, type ContextChip } from "../../context-chip"
+import { chipRefs, resolveChips, withChips, type ContextChip } from "../../context-chip"
 import type { Attachment, CommandOption, Workflow, StashedPrompt, ContextPack } from "../../types"
 import { UNAVAILABLE_FEATURES } from "../../features"
 import { BUILTIN_COMMANDS, builtinCommand, runBuiltin, type CommandContext } from "../../commands"
@@ -54,8 +54,9 @@ export function createComposer(app: AppStores) {
     next: { providerID: string; id: string }
   }>()
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
-  // What the reader pointed at elsewhere in the app, such as a preview annotation (BU-06): resolved into
-  // the message only when it goes, so it can be removed until then.
+  // What the reader pointed at: a file, an artifact, a diff hunk, a terminal selection, a failing
+  // check or a preview annotation (BU-06, UX-05). Resolved into the message only when it goes, so it
+  // can be removed until then.
   const [chips, setChips] = createSignal<ContextChip[]>([])
   // Filled from the harness server by the sessions store (H-18): a stash kept in the browser was
   // neither durable nor visible on the phone.
@@ -533,6 +534,59 @@ export function createComposer(app: AppStores) {
     )
   }
 
+  /**
+   * The chips as the engine gets them (UX-05): files and artifacts asked of the harness, which applies
+   * the rules a run's packs follow, and the rest quoted. A chip that cannot be found is marked and the
+   * message does not go; one that was cut is marked and goes.
+   */
+  const resolvePointed = async (pointed: ContextChip[], directory: string | undefined) => {
+    const refs = chipRefs(pointed)
+    // Over remote control the phone's scope does not reach the resolver: refs go as text, as typed
+    // ones always did. So does an older harness without the route.
+    const resolved =
+      refs.length > 0 && app.connection.supports("context-chips") && !app.settings.mobileRemote()
+        ? await createHarnessClient(app.connection.harnessServerUrl()).context.resolve({
+            refs,
+            ...(directory && pointed.some((chip) => chip.type === "file") ? { directory } : {}),
+          })
+        : undefined
+    const result = resolveChips(pointed, resolved)
+    if (resolved) markChips(pointed, result.missing, result.cut)
+    if (result.missing.length > 0) throw new Error(t("Something you pointed at can no longer be found. Remove it to send."))
+    return result
+  }
+
+  const markChips = (checked: ContextChip[], missing: string[], cut: string[]) =>
+    setChips((list) =>
+      list.map((chip) => {
+        if (!checked.some((entry) => entry.id === chip.id)) return chip
+        const problem = missing.includes(chip.id) ? "missing" : cut.includes(chip.id) ? "cut" : undefined
+        if (problem) return { ...chip, problem }
+        // A file that is back, or an artifact that was found this time, is no longer missing.
+        return chip.problem === "missing" ? { ...chip, problem: undefined } : chip
+      }),
+    )
+
+  /** A chip pointing at a file or an artifact is checked as it arrives, so the reader sees a gone one at once. */
+  const addChips = (added: ContextChip[]) => {
+    const known = new Set(chipRefs(chips()))
+    const fresh = added.filter(
+      (chip) => !((chip.type === "file" || chip.type === "artifact") && known.has(chip.ref)),
+    )
+    if (fresh.length === 0) return
+    setChips((list) => [...list, ...fresh])
+    const refs = chipRefs(fresh)
+    if (refs.length === 0 || !app.connection.supports("context-chips") || app.settings.mobileRemote()) return
+    const directory = app.sessions.targetDirectory() ?? app.sessions.selectedSession()?.location?.directory
+    void createHarnessClient(app.connection.harnessServerUrl())
+      .context.resolve({ refs, ...(directory && fresh.some((chip) => chip.type === "file") ? { directory } : {}) })
+      .then((resolved) => {
+        const result = resolveChips(fresh, resolved)
+        markChips(fresh, result.missing, result.cut)
+      })
+      .catch(() => undefined)
+  }
+
   // Chats have no commands or shell: everything typed is the message.
   const sendChat = (text: string, files: Attachment[], keepDraft = false) => {
     const pointed = chips()
@@ -542,6 +596,7 @@ export function createComposer(app: AppStores) {
       return
     }
     void app.sessions.run(async (current) => {
+      const resolved = await resolvePointed(pointed, undefined)
       const model = selectedModel()
       const existing = app.sessions.selected()
       const sessionID =
@@ -557,8 +612,8 @@ export function createComposer(app: AppStores) {
         sessionID,
         directory,
         text,
-        body: withChips(expandPastes(text), pointed),
-        files: [...files, ...resolveChips(pointed).files],
+        body: withChips(expandPastes(text), resolved.text),
+        files: [...files, ...resolved.files],
         model,
         instructions: app.workspace.instructionsFor(CHAT_SYSTEM),
         onReady: () => app.sessions.forgetRun(sessionID),
@@ -589,8 +644,10 @@ export function createComposer(app: AppStores) {
     const promptAgent = options?.agent ?? agent()
     const pointed = chips()
     void app.sessions.run(async (current) => {
-      const model = selectedModel()
       const location = app.sessions.targetDirectory()
+      // Before the session exists: a message that cannot go should not leave an empty one behind.
+      const resolved = await resolvePointed(pointed, location ?? app.sessions.selectedSession()?.location?.directory)
+      const model = selectedModel()
       const existing = app.sessions.selected()
       const sessionID =
         existing ??
@@ -615,8 +672,8 @@ export function createComposer(app: AppStores) {
         // palette has no row here and the remembered folder is the only one there is.
         directory: listedDirectory ?? app.sessions.sessionDirectories.get(sessionID),
         text,
-        body: withChips(expandPastes(text), pointed),
-        files: [...files, ...resolveChips(pointed).files],
+        body: withChips(expandPastes(text), resolved.text),
+        files: [...files, ...resolved.files],
         model,
         agent: promptAgent,
         instructions: app.workspace.instructionsFor(options?.system),
@@ -833,7 +890,8 @@ export function createComposer(app: AppStores) {
     readAttachments,
     removeAttachment,
     chips,
-    addChip: (chip: ContextChip) => setChips((list) => [...list, chip]),
+    addChip: (chip: ContextChip) => addChips([chip]),
+    addChips,
     removeChip: (id: string) => setChips((list) => list.filter((chip) => chip.id !== id)),
     removeStash,
     restoreStash,

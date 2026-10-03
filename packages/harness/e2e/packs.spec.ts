@@ -58,7 +58,7 @@ async function openApp(page: Page) {
   return saves
 }
 
-test("a context pack is offered in the @ menu and drops its refs into the draft", async ({ page }) => {
+test("a context pack is offered in the @ menu and drops its refs in as chips", async ({ page }) => {
   await openApp(page)
   const composer = page.getByPlaceholder(/Type \/ for commands/i)
   await composer.fill("@")
@@ -68,7 +68,26 @@ test("a context pack is offered in the @ menu and drops its refs into the draft"
   await expect(row).toContainText("pack")
   await row.click()
 
-  await expect(composer).toHaveValue("@src/a.ts @artifact:report ")
+  // Each ref is a chip of its own (UX-05), resolved when the message goes, and the draft is left empty.
+  const chips = page.locator(".fc-composer .fc-composer-chip")
+  await expect(chips).toHaveCount(2)
+  await expect(chips.nth(0)).toContainText("src/a.ts")
+  await expect(chips.nth(1)).toContainText("report")
+  await expect(composer).toHaveValue("")
+})
+
+test("the chips a pack dropped can be saved as a pack again", async ({ page }) => {
+  const saves = await openApp(page)
+  const composer = page.getByPlaceholder(/Type \/ for commands/i)
+  await composer.fill("@")
+  await page.locator(".fc-command-item").filter({ hasText: "review" }).click()
+
+  await composer.fill("@")
+  await page.locator(".fc-command-save").click()
+  const dialog = page.getByRole("dialog", { name: "Name this pack" })
+  await dialog.getByLabel("New title").fill("again")
+  await dialog.getByRole("button", { name: "Save" }).click()
+  await expect.poll(() => saves).toEqual([{ name: "again", refs: ["@src/a.ts", "@artifact:report"], directory: "/work/demo" }])
 })
 
 test("the refs in a draft can be saved as a pack", async ({ page }) => {
