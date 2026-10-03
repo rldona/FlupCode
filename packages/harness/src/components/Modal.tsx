@@ -88,7 +88,9 @@ function ModalLayer(props: ModalProps) {
     if (layers.length === 1) window.addEventListener("keydown", onKey)
     const release = holdModalFocus(panel, props.returnFocus)
     const leaving = backdrop
+    const held = holdFocusThroughRenders(layer)
     onCleanup(() => {
+      held.disconnect()
       layers.splice(layers.indexOf(layer), 1)
       if (layers.length === 0) window.removeEventListener("keydown", onKey)
       release()
@@ -127,14 +129,45 @@ function onKey(event: KeyboardEvent) {
     return
   }
   if (event.key !== "Tab") return
-  const focusable = Array.from(top.panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (node) => node.offsetParent !== null || node.getClientRects().length > 0,
-  )
+  const focusable = focusables(top.panel)
   const active = document.activeElement
   const target = trapTarget(focusable.length, focusable.indexOf(active as HTMLElement), event.shiftKey)
   if (target === undefined) return
   event.preventDefault()
   ;(focusable[target] ?? top.panel).focus()
+}
+
+/**
+ * A dialog whose content renders again (a list whose results arrive late, say) can remove the very
+ * control that has the focus, and the browser then hands the focus to the page behind the dialog.
+ * This puts it back, on the control that now stands where the removed one was, or on the dialog.
+ */
+function holdFocusThroughRenders(layer: { panel: HTMLElement }) {
+  let place = -1
+  layer.panel.addEventListener("focusin", (event) => {
+    place = focusables(layer.panel).indexOf(event.target as HTMLElement)
+  })
+  const observer = new MutationObserver(() => {
+    if (layers.at(-1) !== layer) return
+    const active = document.activeElement
+    if (active && active !== document.body && active.isConnected) return
+    const list = focusables(layer.panel)
+    ;(list[restoreTarget(place, list.length)] ?? layer.panel).focus({ preventScroll: true })
+  })
+  observer.observe(layer.panel, { childList: true, subtree: true })
+  return observer
+}
+
+/** The control to put a lost focus back on: the one now at the same place, or the last one. -1 for none. */
+export function restoreTarget(place: number, count: number) {
+  if (place < 0 || count === 0) return -1
+  return Math.min(place, count - 1)
+}
+
+function focusables(panel: HTMLElement) {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (node) => node.offsetParent !== null || node.getClientRects().length > 0,
+  )
 }
 
 const FOCUSABLE =

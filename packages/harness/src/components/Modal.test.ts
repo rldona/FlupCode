@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
-import { closesModal, trapTarget } from "./Modal"
+import { closesModal, restoreTarget, trapTarget } from "./Modal"
 
 describe("Escape closes the dialog on top (UX-03)", () => {
   const press = (key: string, extra: Partial<KeyboardEvent> = {}) =>
@@ -45,6 +45,21 @@ describe("Tab stays inside the dialog (UX-03)", () => {
   test("a dialog with nothing to focus keeps the focus on itself", () => {
     expect(trapTarget(0, -1, false)).toBe(-1)
     expect(trapTarget(0, -1, true)).toBe(-1)
+  })
+})
+
+describe("a focus lost to a render comes back (UX-03)", () => {
+  test("to the control now standing where the removed one was", () => {
+    expect(restoreTarget(3, 8)).toBe(3)
+  })
+
+  test("to the last control when the list got shorter", () => {
+    expect(restoreTarget(6, 4)).toBe(3)
+  })
+
+  test("to the dialog itself when it had no place or nothing is left to focus", () => {
+    expect(restoreTarget(-1, 4)).toBe(-1)
+    expect(restoreTarget(2, 0)).toBe(-1)
   })
 })
 

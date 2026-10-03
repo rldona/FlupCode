@@ -667,13 +667,35 @@ test("the branch and its pull request are one bar, not two", async ({ page }) =>
   await expect(bar.locator(".fc-pr-chip")).toHaveCount(1)
 })
 
+/**
+ * Where the composer's pieces are, all read at one moment once it is complete and still. The merged
+ * row arrives after the bar (the pull request is read after the branch) and pushes the bar up by a
+ * row as it does, so boxes read one by one could straddle it: the 54 px (a row and its gap) these
+ * tests used to fail by now and then. Motion is off, so no entrance is still moving a box.
+ */
+type Box = { x: number; y: number; width: number; height: number }
+
+async function settledBoxes(page: Page, selectors: string[]) {
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  for (const selector of selectors) await expect(page.locator(selector)).toBeVisible()
+  return page.evaluate((selectors) => {
+    const box = (selector: string) => {
+      const rect = document.querySelector(selector)!.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }
+    return selectors.map(box)
+  }, selectors)
+}
+
 test("the finished row is the same alert as the bar above it, down to the ×", async ({ page }) => {
   await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
 
-  const bar = page.locator(".fc-repo-bar")
-  const done = page.locator(".fc-pr-done")
-  const barBox = (await bar.boundingBox())!
-  const doneBox = (await done.boundingBox())!
+  const [barBox, doneBox, barClose, doneClose] = (await settledBoxes(page, [
+    ".fc-repo-bar",
+    ".fc-pr-done",
+    ".fc-repo-bar .fc-repo-clear",
+    ".fc-pr-done .fc-repo-clear",
+  ])) as [Box, Box, Box, Box]
 
   // Two notices in one column: the same size, so neither reads as an afterthought.
   expect(doneBox.height).toBe(barBox.height)
@@ -681,8 +703,6 @@ test("the finished row is the same alert as the bar above it, down to the ×", a
 
   // And the × closes whichever one it sits on, so it must not move between them: same column on
   // the right, and the same place within its own row.
-  const barClose = (await bar.locator(".fc-repo-clear").boundingBox())!
-  const doneClose = (await done.locator(".fc-repo-clear").boundingBox())!
   expect(Math.abs(doneClose.x - barClose.x)).toBeLessThan(1)
   expect(Math.abs(doneClose.y - doneBox.y - (barClose.y - barBox.y))).toBeLessThan(1)
 })
@@ -690,10 +710,12 @@ test("the finished row is the same alert as the bar above it, down to the ×", a
 test("the composer's pieces are all one gap apart, the prompt dock included", async ({ page }) => {
   await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
 
-  const bar = (await page.locator(".fc-repo-bar").boundingBox())!
-  const done = (await page.locator(".fc-pr-done").boundingBox())!
-  const dock = (await page.locator(".fc-input-wrap").boundingBox())!
-  const toolbar = (await page.locator(".fc-composer-bottom").boundingBox())!
+  const [bar, done, dock, toolbar] = (await settledBoxes(page, [
+    ".fc-repo-bar",
+    ".fc-pr-done",
+    ".fc-input-wrap",
+    ".fc-composer-bottom",
+  ])) as [Box, Box, Box, Box]
 
   // One gap for every stacked piece: between the alerts, before the dock, and under it. The branch
   // block used to add its own margin to the flex gap, so the dock sat further down than the rest.
