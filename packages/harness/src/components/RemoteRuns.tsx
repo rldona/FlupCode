@@ -5,6 +5,7 @@ import { runTitle } from "../run-title"
 import { heldForRequest, runState, stateLabel } from "../run-state"
 import type { Run } from "../types"
 import { AttentionMark, attentionLabel } from "./AttentionMark"
+import { Icon } from "./Icon"
 
 /**
  * The phone's Runs view while controlling a computer (HE-02): what the harness is running and what it
@@ -61,7 +62,7 @@ export const RemoteRuns: Component<RemoteRunsProps> = (props) => {
     <section class="fc-remote-runs" aria-label={t("Runs")}>
       <header class="fc-mobile-header">
         <button class="fc-icon-button fc-mobile-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-          ←
+          <Icon name="arrow-left" />
         </button>
         <span class="fc-mobile-heading">
           <span class="fc-mobile-title">{t("Runs")}</span>

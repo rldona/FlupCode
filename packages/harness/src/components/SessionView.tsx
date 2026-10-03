@@ -9,12 +9,15 @@ import type {
 import { t } from "../i18n"
 import { errorDetail } from "../error-text"
 import { openImagePreview } from "../image-preview"
-import { diffLines, escapeHtml, highlight, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
+import { diffLines, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
+import { createCodeLines } from "../markdown/code-lines"
 import { actionLink, outputLines, parseActionSummary, parseTodos, taskSessionID, type ActionSummary, type Todo } from "../tool-render"
 import type { RunOutcome } from "../run-outcome"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 import { ChapterNav, type Chapter } from "./ChapterNav"
+import { Icon } from "./Icon"
+import { agentIcon } from "./DockMenus"
 
 type MessageFile = { uri: string; mime?: string; name?: string }
 
@@ -86,17 +89,7 @@ const MessageFiles: Component<{ files?: MessageFile[] }> = (props) => (
             >
               <img class="fc-message-image" src={file.uri} alt={file.name ?? t("Attachments")} loading="lazy" />
               <span class="fc-message-image-zoom" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="30" height="30">
-                  <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
-                  <path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                  <path
-                    d="M10.5 7.5v6M7.5 10.5h6"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                  />
-                </svg>
+                <Icon name="zoom-in" size={30} />
               </span>
             </button>
           </Show>
@@ -193,24 +186,34 @@ const DiffView: Component<{ oldText: string; newText: string; lang: string }> = 
     diffLines(props.oldText, props.newText)
       .map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`)
       .join("\n")
-  const cell = (value: { no?: number; text: string; kind: "same" | "del" | "add" } | undefined, kind?: string) => (
+  // Each side is highlighted as one text, so a line is coloured knowing the lines around it.
+  const left = createCodeLines(
+    () => rows().map((row) => row.left?.text ?? "").join("\n"),
+    () => props.lang,
+  )
+  const right = createCodeLines(
+    () => rows().map((row) => row.right?.text ?? "").join("\n"),
+    () => props.lang,
+  )
+  const cell = (
+    value: { no?: number; text: string; kind: "same" | "del" | "add" } | undefined,
+    html: string | undefined,
+    kind?: string,
+  ) => (
     <div class={`fc-diff2-cell fc-diff2-${kind ?? "empty"}`}>
       <span class="fc-diff2-no">{value?.no ?? ""}</span>
       <span class="fc-diff2-sign">{kind === "del" ? "-" : kind === "add" ? "+" : " "}</span>
-      <span
-        class="fc-diff2-code"
-        innerHTML={value ? (props.lang ? highlight(value.text, props.lang) : escapeHtml(value.text)) : ""}
-      />
+      <span class="fc-diff2-code" innerHTML={value ? (html ?? "") : ""} />
     </div>
   )
   return (
     <Show when={!huge()} fallback={<pre class="fc-diff-view" innerHTML={highlightDiff(unified())} />}>
       <div class="fc-diff2">
         <For each={rows()}>
-          {(row) => (
+          {(row, index) => (
             <div class="fc-diff2-row">
-              {cell(row.left, row.left?.kind)}
-              {cell(row.right, row.right?.kind)}
+              {cell(row.left, left()[index()], row.left?.kind)}
+              {cell(row.right, right()[index()], row.right?.kind)}
             </div>
           )}
         </For>
@@ -247,7 +250,7 @@ const TodoCall: Component<{ todos: Todo[] }> = (props) => (
       {(todo) => (
         <li class="fc-tool-todo" data-status={todo.status}>
           <span class="fc-tool-todo-mark" aria-hidden="true">
-            {todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "◐" : "○"}
+            <Icon name={todo.status === "completed" ? "check" : todo.status === "in_progress" ? "circle-half" : "circle"} />
           </span>
           <span class="fc-tool-todo-text">{todo.content}</span>
         </li>
@@ -363,6 +366,15 @@ const ToolCall: Component<{
     const head = lines.slice(0, 300).join("\n")
     return { text: head, clipped: lines.length > 300 }
   })
+  // Highlighted only while the card is open: a closed one has nothing on screen to colour.
+  const readCode = createCodeLines(
+    () => readPreview().text,
+    () => (open() && props.part.name === "read" ? languageFor(path()) : ""),
+  )
+  const writeCode = createCodeLines(
+    () => writeContent() ?? "",
+    () => (open() && props.part.name === "write" ? languageFor(path()) : ""),
+  )
   return (
     <div class="fc-tool" classList={{ "fc-tool-failed": status() === "error", "fc-tool-cleared": isCleared(props.part) }}>
       <button class="fc-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
@@ -383,7 +395,7 @@ const ToolCall: Component<{
             <DiffView oldText={oldText() ?? ""} newText={newText() ?? ""} lang={languageFor(path())} />
           </Show>
           <Show when={props.part.name === "write" && writeContent() !== undefined}>
-            <pre class="fc-code" innerHTML={highlight(writeContent() ?? "", languageFor(path()))} />
+            <pre class="fc-code" innerHTML={writeCode().join("\n")} />
           </Show>
           <Show when={command() !== undefined}>
             <pre class="fc-tool-cmd">$ {command()}</pre>
@@ -398,7 +410,7 @@ const ToolCall: Component<{
             </Show>
           </Show>
           <Show when={props.part.name === "read" && status() === "completed"}>
-            <pre class="fc-code fc-tool-read" innerHTML={highlight(readPreview().text, languageFor(path()))} />
+            <pre class="fc-code fc-tool-read" innerHTML={readCode().join("\n")} />
             <Show when={readPreview().clipped}>
               <p class="fc-tool-list-more">{t("Showing the first 300 lines")}</p>
             </Show>
@@ -529,16 +541,7 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[]; onOpenSession
         >
           {running() ? `${done()}/${props.parts.length}` : props.parts.length}
         </span>
-        <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="m9 6 6 6-6 6"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <Icon name="chevron-right" size={14} class="fc-toolgroup-chevron" />
       </button>
       <Show when={!open()}>
         <MessageFiles files={images()} />
@@ -571,16 +574,7 @@ const ReasoningBlock: Component<{ parts: SessionMessageAssistantReasoning[] }> =
     <div class="fc-reasoning" classList={{ "fc-reasoning-open": open(), "fc-reasoning-live": streaming() }}>
       <button class="fc-toolgroup-line" type="button" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
         <span class="fc-toolgroup-label">{streaming() ? t("Thinking…") : t("Thought")}</span>
-        <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            d="m9 6 6 6-6 6"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <Icon name="chevron-right" size={14} class="fc-toolgroup-chevron" />
       </button>
       <Show when={open()}>
         <div class="fc-reasoning-body">
@@ -621,19 +615,10 @@ const CompactionMarker: Component<{ summary: string; auto: boolean }> = (props) 
         <span class="fc-compaction-rule" aria-hidden="true" />
         <span class="fc-compaction-label">
           <span class="fc-compaction-mark" aria-hidden="true">
-            ✦
+            <Icon name="sparkle" />
           </span>
           {props.auto ? t("Compacted automatically") : t("Session compacted")}
-          <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path
-              d="m9 6 6 6-6 6"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+          <Icon name="chevron-right" size={14} class="fc-toolgroup-chevron" />
         </span>
         <span class="fc-compaction-rule" aria-hidden="true" />
       </button>
@@ -698,7 +683,9 @@ const TurnFooter: Component<{
         </div>
       </Show>
       <div class="fc-turn-footer">
-        <span class="fc-turn-icon">▣</span>
+        <span class="fc-turn-icon">
+          <Icon name={agentIcon(props.agent)} />
+        </span>
         <Show when={!props.hideAgent}>
           <span>{props.agent}</span>
         </Show>
@@ -1369,25 +1356,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                           aria-label={t("Copy")}
                           onClick={() => copyText((message as { text?: string }).text ?? "")}
                         >
-                          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                            <rect
-                              x="9"
-                              y="9"
-                              width="11"
-                              height="11"
-                              rx="2"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                            />
-                            <path
-                              d="M5 15V6a2 2 0 0 1 2-2h9"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              stroke-linecap="round"
-                            />
-                          </svg>
+                          <Icon name="copy" size={14} />
                         </button>
                         <Show when={!props.chat}>
                           {/* Rewinding needs an idle session: the engine refuses mid-turn (UN). */}
@@ -1399,16 +1368,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                             disabled={props.busy}
                             onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
                           >
-                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                              <path
-                                d="M4 10a8 8 0 1 1 2.3 5.7M4 20v-5h5"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                              />
-                            </svg>
+                            <Icon name="retry" size={14} />
                           </button>
                           <Show when={props.onForkUser}>
                             <button
@@ -1418,18 +1378,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                               aria-label={t("Fork from here")}
                               onClick={() => props.onForkUser?.(message.id)}
                             >
-                              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                                <circle cx="7" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
-                                <circle cx="7" cy="19" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
-                                <circle cx="17" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
-                                <path
-                                  d="M7 7.5v9M9.4 12h5.1"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  stroke-width="2"
-                                  stroke-linecap="round"
-                                />
-                              </svg>
+                              <Icon name="fork" size={14} />
                             </button>
                           </Show>
                         </Show>
@@ -1509,16 +1458,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
         aria-label={t("Scroll to the end")}
         onClick={scrollToEnd}
       >
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-            d="m6 9 6 6 6-6"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <Icon name="chevron-down" size={18} />
       </button>
     </div>
   )

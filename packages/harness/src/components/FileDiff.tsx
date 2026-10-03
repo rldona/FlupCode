@@ -1,8 +1,10 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import { highlight, languageFor } from "../highlight"
+import { languageFor } from "../highlight"
+import { createCodeLines } from "../markdown/code-lines"
 import { hunkLabel, hunkLineCount, parseHunks, type PatchHunk } from "../patch"
 import type { Finding } from "../types"
+import { Icon } from "./Icon"
 
 export type FileChange = {
   file: string
@@ -69,49 +71,55 @@ const Hunk: Component<{
   pick?: { selected: boolean; onToggle: (selected: boolean) => void }
   /** Throws this hunk away. Absent where discarding is unavailable. */
   onDiscard?: () => void
-}> = (props) => (
-  <>
-    <div class="fc-diff-hunk-head">
-      <Show when={props.pick}>
-        {(pick) => (
-          <label class="fc-diff-hunk-pick">
-            <input
-              type="checkbox"
-              checked={pick().selected}
-              aria-label={t("Include this hunk")}
-              onChange={(event) => pick().onToggle(event.currentTarget.checked)}
-            />
-          </label>
+}> = (props) => {
+  const code = createCodeLines(
+    () => props.hunk.lines.map((line) => line.text).join("\n"),
+    () => props.lang,
+  )
+  return (
+    <>
+      <div class="fc-diff-hunk-head">
+        <Show when={props.pick}>
+          {(pick) => (
+            <label class="fc-diff-hunk-pick">
+              <input
+                type="checkbox"
+                checked={pick().selected}
+                aria-label={t("Include this hunk")}
+                onChange={(event) => pick().onToggle(event.currentTarget.checked)}
+              />
+            </label>
+          )}
+        </Show>
+        <span class="fc-diff-hunk-label">{hunkLabel(props.hunk)}</span>
+        <Show when={props.onDiscard}>
+          <button class="fc-pr-action fc-diff-discard" type="button" onClick={() => props.onDiscard?.()}>
+            {t("Discard")}
+          </button>
+        </Show>
+      </div>
+      <For each={props.hunk.lines}>
+        {(line, index) => (
+          <>
+            <div class={`fc-diff-line fc-diff-line-${line.type}`}>
+              <span class="fc-diff-no">{line.oldNo ?? ""}</span>
+              <span class="fc-diff-no">{line.newNo ?? ""}</span>
+              <span class="fc-diff-sign">{line.type === "add" ? "+" : line.type === "del" ? "-" : " "}</span>
+              <span class="fc-diff-code" innerHTML={code()[index()]} />
+            </div>
+            {/*
+              Anchored to the new file's number: a review is about the code as it now stands, and a
+              deleted line is not there to comment on.
+            */}
+            <For each={(line.newNo !== undefined && props.comments.get(line.newNo)) || []}>
+              {(finding) => <Comment finding={finding} onResolve={props.onResolve} />}
+            </For>
+          </>
         )}
-      </Show>
-      <span class="fc-diff-hunk-label">{hunkLabel(props.hunk)}</span>
-      <Show when={props.onDiscard}>
-        <button class="fc-pr-action fc-diff-discard" type="button" onClick={() => props.onDiscard?.()}>
-          {t("Discard")}
-        </button>
-      </Show>
-    </div>
-    <For each={props.hunk.lines}>
-      {(line) => (
-        <>
-          <div class={`fc-diff-line fc-diff-line-${line.type}`}>
-            <span class="fc-diff-no">{line.oldNo ?? ""}</span>
-            <span class="fc-diff-no">{line.newNo ?? ""}</span>
-            <span class="fc-diff-sign">{line.type === "add" ? "+" : line.type === "del" ? "-" : " "}</span>
-            <span class="fc-diff-code" innerHTML={highlight(line.text, props.lang)} />
-          </div>
-          {/*
-            Anchored to the new file's number: a review is about the code as it now stands, and a
-            deleted line is not there to comment on.
-          */}
-          <For each={(line.newNo !== undefined && props.comments.get(line.newNo)) || []}>
-            {(finding) => <Comment finding={finding} onResolve={props.onResolve} />}
-          </For>
-        </>
-      )}
-    </For>
-  </>
-)
+      </For>
+    </>
+  )
+}
 
 /**
  * One file's diff: a header that says what happened to it, and the hunks that say where.
@@ -175,7 +183,7 @@ export const FileDiff: Component<{
         </Show>
         <button class="fc-diff-file-head" type="button" aria-expanded={open()} onClick={() => setOpen((it) => !it)}>
           <span class="fc-diff-chevron" aria-hidden="true">
-            {open() ? "▾" : "▸"}
+            <Icon name={open() ? "chevron-down" : "chevron-right"} />
           </span>
           <span class="fc-diff-path" title={props.change.file}>
             <span class="fc-diff-dir">{folder(props.change.file)}</span>

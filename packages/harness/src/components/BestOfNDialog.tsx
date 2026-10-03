@@ -3,6 +3,7 @@ import type { ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { groupedModels, isDeprecated, modelKey } from "../model-catalog"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 /** What the dialog asks for: a task, the models to try it on, and whether each attempt gets its tree. */
 export type BestOfNLaunch = {
@@ -91,7 +92,8 @@ export const BestOfNDialog: Component<BestOfNDialogProps> = (props) => {
                   aria-label={t("Remove {name}", { name: key })}
                   onClick={() => toggle(key, false)}
                 >
-                  {key} ×
+                  {key}
+                  <Icon name="close" class="fc-icon-trail" />
                 </button>
               )}
             </For>

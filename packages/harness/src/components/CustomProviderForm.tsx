@@ -13,6 +13,7 @@ import {
 } from "../custom-provider"
 import { t } from "../i18n"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type CustomProviderFormProps = {
   existingProviderIDs: string[]
@@ -242,7 +243,7 @@ export const CustomProviderForm: Component<CustomProviderFormProps> = (props) =>
                 disabled={form.models.length <= 1}
                 onClick={() => removeModel(index())}
               >
-                ×
+                <Icon name="close" />
               </button>
             </div>
           )}
@@ -284,7 +285,7 @@ export const CustomProviderForm: Component<CustomProviderFormProps> = (props) =>
                 disabled={form.headers.length <= 1}
                 onClick={() => removeHeader(index())}
               >
-                ×
+                <Icon name="close" />
               </button>
             </div>
           )}

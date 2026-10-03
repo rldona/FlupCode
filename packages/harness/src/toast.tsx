@@ -1,5 +1,6 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "./i18n"
+import { Icon } from "./components/Icon"
 
 export type ToastVariant = "info" | "success" | "error"
 
@@ -102,7 +103,7 @@ export const Toaster: Component = () => (
           </Show>
           {/* Always offered, not only on the toasts that wait: reading one should never be a race. */}
           <button class="fc-toast-close" type="button" aria-label={t("Dismiss")} onClick={() => dismiss(item.id)}>
-            ×
+            <Icon name="close" />
           </button>
         </div>
       )}

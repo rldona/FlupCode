@@ -20,6 +20,7 @@ import {
   type FolderEntry,
 } from "../folder"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type FolderDialogProps = {
   open: boolean
@@ -175,7 +176,7 @@ export const FolderDialog: Component<FolderDialogProps> = (props) => {
 
       <div class="fc-folder-address">
         <button class="fc-icon-button" type="button" aria-label={t("Up")} title={t("Up")} onClick={up}>
-          ↑
+          <Icon name="arrow-up" />
         </button>
         <input
           ref={addressInput}
@@ -204,7 +205,7 @@ export const FolderDialog: Component<FolderDialogProps> = (props) => {
             {(segment, index) => (
               <>
                 <Show when={index() > 0}>
-                  <span class="fc-folder-crumb-sep">›</span>
+                  <span class="fc-folder-crumb-sep"><Icon name="chevron-right" /></span>
                 </Show>
                 <button
                   class="fc-folder-crumb"
@@ -258,7 +259,7 @@ export const FolderDialog: Component<FolderDialogProps> = (props) => {
                 onDblClick={() => open(joinPath(current(), folder.name))}
               >
                 <span class="fc-palette-badge" aria-hidden="true">
-                  ▸
+                  <Icon name="chevron-right" />
                 </span>
                 <span class="fc-palette-label">{folder.name}</span>
               </button>

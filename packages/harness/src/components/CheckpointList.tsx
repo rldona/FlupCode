@@ -2,6 +2,7 @@ import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
 import type { Checkpoint, RestorePlan } from "../types"
+import { Icon } from "./Icon"
 
 type CheckpointListProps = {
   checkpoints: Checkpoint[]
@@ -81,7 +82,7 @@ export const CheckpointList: Component<CheckpointListProps> = (props) => {
                   disabled={props.busy}
                   onClick={() => props.onRemove(checkpoint.id)}
                 >
-                  ×
+                  <Icon name="close" />
                 </button>
               </div>
 

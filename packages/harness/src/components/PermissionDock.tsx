@@ -3,7 +3,8 @@ import type { PermissionV2Request, QuestionV2Request, SessionMessageInfo } from 
 import type { BrowserApproval, BrowserTier } from "../types"
 import { t } from "../i18n"
 import { alwaysScope, permissionPreview, previewImage, type PermissionPreview } from "../permission-preview"
-import { diffLines, highlight, highlightDiff } from "../highlight"
+import { diffLines, highlightDiff, languageFor } from "../highlight"
+import { createCodeLines } from "../markdown/code-lines"
 
 export type PermissionReply = "once" | "always" | "reject"
 
@@ -14,8 +15,6 @@ type PermissionDockProps = {
   busy: boolean
   onReply: (reply: PermissionReply, message?: string) => void
 }
-
-const languageFor = (path: string) => path.split(".").pop() ?? ""
 
 const browserPreview = (preview: PermissionPreview) => (preview.kind === "browser" ? preview : undefined)
 
@@ -33,12 +32,13 @@ export const PermissionDock: Component<PermissionDockProps> = (props) => {
       </div>
 
       <Show when={preview().kind === "command" && preview()} keyed>
-        {(value) => (
-          <pre
-            class="fc-code fc-permission-preview"
-            innerHTML={highlight((value as { command: string }).command, "bash")}
-          />
-        )}
+        {(value) => {
+          const code = createCodeLines(
+            () => (value as { command: string }).command,
+            () => "bash",
+          )
+          return <pre class="fc-code fc-permission-preview" innerHTML={code().join("\n")} />
+        }}
       </Show>
 
       <Show when={preview().kind === "edit" && preview()} keyed>
@@ -59,10 +59,14 @@ export const PermissionDock: Component<PermissionDockProps> = (props) => {
       <Show when={preview().kind === "write" && preview()} keyed>
         {(value) => {
           const write = value as { path: string; content: string }
+          const code = createCodeLines(
+            () => write.content,
+            () => languageFor(write.path),
+          )
           return (
             <div class="fc-permission-preview">
               <span class="fc-permission-path">{write.path}</span>
-              <pre class="fc-code" innerHTML={highlight(write.content, languageFor(write.path))} />
+              <pre class="fc-code" innerHTML={code().join("\n")} />
             </div>
           )
         }}

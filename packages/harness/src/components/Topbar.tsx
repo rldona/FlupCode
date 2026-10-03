@@ -1,6 +1,7 @@
 import { Show, type JSX, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { AppView } from "../chat"
+import { Icon } from "./Icon"
 
 type TopbarProps = {
   healthLoading: boolean
@@ -51,32 +52,6 @@ type TopbarProps = {
   hostRemote?: { name: string; connected: boolean; onOpen: () => void }
 }
 
-/** Top bar icons share one size and stroke so every button reads the same. */
-export const TopIcon: Component<{ d: string }> = (props) => (
-  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-    <path
-      d={props.d}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-)
-
-export const TopbarIcons = {
-  sidebar: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM9 4v16",
-  // The left sidebar's icon, mirrored.
-  contextPanel: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM15 4v16",
-  back: "M19 12H5M11 6l-6 6 6 6",
-  forward: "M5 12h14M13 6l6 6-6 6",
-  files: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8ZM14 3v5h5M9 13h6M9 17h4",
-  menu: "M5 12h.01M12 12h.01M19 12h.01",
-  chat: "M7 17.5 3.5 20V6a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2Z",
-  code: "m9 8-4 4 4 4M15 8l4 4-4 4",
-}
-
 /** Chat / Code switch, like Claude's: two icon tabs in one pill. */
 export const ViewTabs: Component<{
   view: AppView
@@ -95,7 +70,7 @@ export const ViewTabs: Component<{
       aria-label={t("Chat")}
       onClick={() => props.onChange("chat")}
     >
-      <TopIcon d={TopbarIcons.chat} />
+      <Icon name="chat" size={16} />
       <Show when={props.activity?.chat}>
         <span class="fc-view-tab-dot" aria-hidden="true" />
       </Show>
@@ -110,7 +85,7 @@ export const ViewTabs: Component<{
       aria-label={t("Code")}
       onClick={() => props.onChange("code")}
     >
-      <TopIcon d={TopbarIcons.code} />
+      <Icon name="code" size={16} />
       <Show when={props.activity?.code}>
         <span class="fc-view-tab-dot" aria-hidden="true" />
       </Show>
@@ -132,10 +107,10 @@ export const Topbar: Component<TopbarProps> = (props) => {
     <header class="fc-topbar">
       <div class="fc-topbar-left">
         <button class="fc-nav-arrow" type="button" title={t("Toggle sidebar")} onClick={props.onToggleSidebar}>
-          <TopIcon d={TopbarIcons.sidebar} />
+          <Icon name="sidebar" size={16} />
         </button>
         <button class="fc-nav-arrow" type="button" title={t("Back")} disabled={!props.canGoBack} onClick={props.onBack}>
-          <TopIcon d={TopbarIcons.back} />
+          <Icon name="arrow-left" size={16} />
         </button>
         <button
           class="fc-nav-arrow"
@@ -144,7 +119,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
           disabled={!props.canGoForward}
           onClick={props.onForward}
         >
-          <TopIcon d={TopbarIcons.forward} />
+          <Icon name="arrow-right" size={16} />
         </button>
         <Show when={props.showTabs}>
           <ViewTabs view={props.view} onChange={props.onViewChange} activity={props.viewActivity} />
@@ -163,7 +138,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
             aria-pressed={props.openPanels.includes("diff")}
             onClick={() => props.onTogglePanel("diff")}
           >
-            <TopIcon d={TopbarIcons.files} />
+            <Icon name="file" size={16} />
           </button>
           <Show when={props.showAgentBrowser}>
             <button
@@ -175,16 +150,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
               aria-pressed={props.openPanels.includes("agent-browser")}
               onClick={() => props.onTogglePanel("agent-browser")}
             >
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path
-                  d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linejoin="round"
-                />
-                <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
-              </svg>
+              <Icon name="eye" size={16} />
             </button>
           </Show>
           <Show when={props.showPreview}>
@@ -209,16 +175,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
             aria-pressed={props.openPanels.includes("terminal")}
             onClick={() => props.onTogglePanel("terminal")}
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                d="m5 7 5 5-5 5M12 18h7"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
+            <Icon name="terminal" size={16} />
           </button>
         </Show>
         <Show when={props.remote ?? props.hostRemote}>
@@ -271,7 +228,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
               aria-pressed={panel().open}
               onClick={panel().onToggle}
             >
-              <TopIcon d={TopbarIcons.contextPanel} />
+              <Icon name="context-panel" size={16} />
             </button>
           )}
         </Show>

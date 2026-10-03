@@ -9,7 +9,8 @@ import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
 import { ContextMeter, type SessionSpend } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
-import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
+import { AddMenu, AgentMenu, ModelMenu } from "./DockMenus"
+import { Icon } from "./Icon"
 import { ComposerMenu } from "./ComposerMenu"
 import { applyMention, commandBadge, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
 import { stepHistory } from "../prompt-history"
@@ -383,10 +384,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
                       when={attachment.uri.startsWith("data:image/")}
                       fallback={
                         <span class="fc-dock-attachment-file">
-                          <DockIcon
-                            path="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Zm0 0v5h5"
-                            size={22}
-                          />
+                          <Icon name="attachment" size={22} weight={1.8} />
                           <span class="fc-dock-attachment-name">{attachment.name}</span>
                         </span>
                       }
@@ -399,7 +397,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
                       aria-label={`${t("Remove")} ${attachment.name}`}
                       onClick={() => props.onRemoveAttachment(attachment.uri)}
                     >
-                      <DockIcon path="M7 7l10 10M17 7 7 17" size={12} />
+                      <Icon name="close" size={12} weight={1.8} />
                     </button>
                   </div>
                 )}
@@ -531,7 +529,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
                   (props.value.trim().length === 0 && props.attachments.length === 0 && (props.chips ?? []).length === 0)
                 }
               >
-                <DockIcon path="M12 19V5M6 11l6-6 6 6" size={18} />
+                <Icon name="arrow-up" size={18} weight={1.8} />
               </button>
             }
           >
@@ -603,7 +601,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               disabled={!dictationAvailable()}
               onClick={() => toggleVoice(props.value)}
             >
-              <DockIcon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />
+              <Icon name="mic" size={18} weight={1.8} />
             </button>
             <Show when={!chat() && !props.targetDirectory}>
               <FolderMenu

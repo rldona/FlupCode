@@ -2,6 +2,7 @@ import { Show, type Component } from "solid-js"
 import pkg from "../../package.json"
 import { t } from "../i18n"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type AboutProps = {
   open: boolean
@@ -16,7 +17,7 @@ export const About: Component<AboutProps> = (props) => {
         <span class="fc-modal-heading">
           <Show when={props.onBack}>
             <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-              ←
+              <Icon name="arrow-left" />
             </button>
           </Show>
           <span>{t("About FlupCode")}</span>

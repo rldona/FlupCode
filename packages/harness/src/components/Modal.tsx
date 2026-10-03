@@ -1,6 +1,7 @@
 import { Show, createContext, onCleanup, onMount, useContext, type JSX } from "solid-js"
 import { t } from "../i18n"
 import { holdModalFocus } from "../modal-focus"
+import { Icon } from "./Icon"
 
 type ModalProps = {
   /** Shown while true. Leave it out when a `<Show>` around the modal already decides that. */
@@ -61,7 +62,7 @@ export function ModalClose(props: { class?: string; title?: string; onClick?: ()
       title={props.title}
       onClick={() => (props.onClick ?? close)?.()}
     >
-      ×
+      <Icon name="close" />
     </button>
   )
 }

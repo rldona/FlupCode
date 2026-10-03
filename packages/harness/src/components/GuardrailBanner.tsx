@@ -1,6 +1,7 @@
 import { Show, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { GuardrailStatus } from "../types"
+import { Icon } from "./Icon"
 
 /** The advisory the app holds, stamped with the session it was read for. */
 export type GuardrailReading = { sessionID: string; status: GuardrailStatus }
@@ -42,7 +43,7 @@ export const GuardrailBanner: Component<GuardrailBannerProps> = (props) => (
             {t("Stop turn")}
           </button>
           <button class="fc-guardrail-banner-close" type="button" aria-label={t("Dismiss")} onClick={props.onDismiss}>
-            ×
+            <Icon name="close" />
           </button>
         </aside>
       )}

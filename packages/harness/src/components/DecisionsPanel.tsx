@@ -14,6 +14,7 @@ import type {
 } from "../types"
 import { PanelFailure } from "./PanelBoundary"
 import { Modal, ModalClose } from "./Modal"
+import { Icon, type IconName } from "./Icon"
 
 type DecisionsPanelProps = {
   open: boolean
@@ -81,8 +82,8 @@ export function costText(costUsd: number | undefined, inputTokens: number | unde
 }
 
 /** A label as the row's suffix: a tick, a cross, or a question mark for a judged-unknowable one. */
-export const labelMark = (label: DecisionLabel | undefined) =>
-  label === undefined ? undefined : label.outcome === "correct" ? "✓" : label.outcome === "incorrect" ? "✗" : "?"
+export const labelMark = (label: DecisionLabel | undefined): IconName | undefined =>
+  label === undefined ? undefined : label.outcome === "correct" ? "check" : label.outcome === "incorrect" ? "close" : "question"
 
 /** A label outcome in words, for the dialog. */
 export const outcomeText = (outcome: DecisionLabelOutcome) =>
@@ -521,7 +522,14 @@ const DecisionRow: Component<{ decision: StoredDecision; focused: boolean; onExp
       {props.decision.modelVersion ? ` · ${props.decision.modelVersion}` : ""}
       {props.decision.degraded ? ` · ${degradedText(props.decision.degradedReason)}` : ""}
       {props.decision.arm === "control" ? ` · ${t("Held out")}` : ""}
-      {labelMark(props.decision.label) ? ` · ${labelMark(props.decision.label)}` : ""}
+      <Show when={props.decision.label}>
+        {(label) => (
+          <>
+            {" · "}
+            <Icon name={labelMark(label())!} label={outcomeText(label().outcome)} />
+          </>
+        )}
+      </Show>
     </span>
     <Show when={confidenceBandText(props.decision.confidence)}>
       {(confidence) => <span class="fc-decision-confidence">{confidence()}</span>}
@@ -560,7 +568,7 @@ const Explanation: Component<{ detail: DecisionExplanation }> = (props) => (
         <div class="fc-usage-row">
           <span class="fc-usage-key">{t("Real outcome")}</span>
           <span class="fc-context-excerpt">
-            {labelMark(label())} {outcomeText(label().outcome)}
+            <Icon name={labelMark(label())!} /> {outcomeText(label().outcome)}
             {label().baselineOutcome
               ? ` · ${t("baseline: {outcome}", { outcome: outcomeText(label().baselineOutcome!) })}`
               : ""}

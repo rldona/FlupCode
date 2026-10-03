@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import type { ProjectItem } from "../types"
 import { t } from "../i18n"
+import { Icon } from "./Icon"
 
 type FolderMenuProps = {
   value: string | undefined
@@ -42,7 +43,9 @@ export const FolderMenu: Component<FolderMenuProps> = (props) => {
     <div class="fc-folder" ref={root}>
       <button class="fc-folder-button" type="button" onClick={() => setOpen((value) => !value)} title={props.value}>
         <span class="fc-folder-button-label">{current()}</span>
-        <span class="fc-mode-caret">▾</span>
+        <span class="fc-mode-caret">
+          <Icon name="chevron-down" />
+        </span>
       </button>
       <Show when={open()}>
         <div class="fc-folder-popover">
@@ -66,7 +69,9 @@ export const FolderMenu: Component<FolderMenuProps> = (props) => {
           <button class="fc-folder-item" type="button" onClick={() => select(undefined)}>
             <span>{t("No folder")}</span>
             <Show when={!props.value}>
-              <span class="fc-mode-check">✓</span>
+              <span class="fc-mode-check">
+                <Icon name="check" />
+              </span>
             </Show>
           </button>
           <For each={filtered()}>
@@ -74,7 +79,9 @@ export const FolderMenu: Component<FolderMenuProps> = (props) => {
               <button class="fc-folder-item" type="button" onClick={() => select(project.directory)}>
                 <span class="fc-folder-item-label">{label(project)}</span>
                 <Show when={props.value === project.directory}>
-                  <span class="fc-mode-check">✓</span>
+                  <span class="fc-mode-check">
+                    <Icon name="check" />
+                  </span>
                 </Show>
               </button>
             )}

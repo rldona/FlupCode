@@ -1,3 +1,4 @@
+import { escapeHtml } from "../highlight"
 import type { Projection } from "./markdown-stream"
 
 export type MarkdownToken = [content: string, style: string]
@@ -51,4 +52,16 @@ export function applyMarkdownWorkerResponse(
     stable: response.reset ? response.stable : [...(state?.stable ?? []), ...response.stable],
     unstable: response.unstable,
   }
+}
+
+/** The worker's tokens, one `"\n"` token between lines, as one string of HTML per line. */
+export function tokenLines(tokens: MarkdownToken[]) {
+  return tokens
+    .map(([content, style]) =>
+      content === "\n"
+        ? "\n"
+        : `<span style="${escapeHtml(style).replace(/"/g, "&quot;")}">${escapeHtml(content)}</span>`,
+    )
+    .join("")
+    .split("\n")
 }

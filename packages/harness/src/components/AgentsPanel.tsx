@@ -5,6 +5,7 @@ import type { AgentInfo, McpServer, ModelInfo } from "../engine-types"
 import { effortLabel } from "../effort"
 import { ModelPicker } from "./ModelPicker"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type AgentsPanelProps = {
   open: boolean
@@ -349,7 +350,7 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
                         aria-expanded={openPath() === file.path}
                       >
                         <span class="fc-routine-card-icon" aria-hidden="true">
-                          ◍
+                          <Icon name="robot" />
                         </span>
                         <span class="fc-routine-card-content">
                           <strong>{file.name}</strong>
@@ -445,7 +446,7 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
                 >
                   <span class="fc-agent-model-name">{modelName() || t("the default")}</span>
                   <span class="fc-agent-model-chevron" aria-hidden="true">
-                    ▾
+                    <Icon name="chevron-down" />
                   </span>
                 </button>
               </label>

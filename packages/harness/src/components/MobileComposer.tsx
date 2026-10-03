@@ -13,6 +13,7 @@ import { dictationAvailable } from "../dictation"
 import { isCowork, isPlainChat, useDictation } from "../composer-core"
 import { isDeprecated } from "../model-catalog"
 import { Modal } from "./Modal"
+import { Icon, type IconName } from "./Icon"
 
 /**
  * The prompt dock on a phone controlling a computer, modelled on the Claude Code mobile app: a
@@ -72,19 +73,6 @@ type Sheet = "context" | "mode" | "agent" | "model" | "effort" | "delivery"
 
 const key = (model: ModelInfo) => `${model.providerID}/${model.id}`
 
-const Icon: Component<{ path: string; size?: number }> = (props) => (
-  <svg viewBox="0 0 24 24" width={props.size ?? 22} height={props.size ?? 22} aria-hidden="true">
-    <path
-      d={props.path}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-)
-
 const BottomSheet: Component<{
   title: string
   onClose: () => void
@@ -100,7 +88,7 @@ const BottomSheet: Component<{
         aria-label={props.onBack ? t("Back") : t("Close")}
         onClick={() => (props.onBack ?? props.onClose)()}
       >
-        <Icon path={props.onBack ? "M15 18l-6-6 6-6" : "M6 6l12 12M18 6L6 18"} />
+        <Icon name={props.onBack ? "chevron-left" : "close"} size={22} weight={1.8} />
       </button>
       <span class="fc-sheet-title">{props.title}</span>
       <span class="fc-sheet-icon" aria-hidden="true" />
@@ -130,23 +118,23 @@ const Option: Component<{ label: string; detail?: string; active?: boolean; badg
       </Show>
     </span>
     <Show when={props.active}>
-      <Icon path="M5 12l5 5 9-10" />
+      <Icon name="check" size={22} weight={1.8} />
     </Show>
   </button>
 )
 
-const Row: Component<{ icon: string; label: string; value: string; disabled?: boolean; onClick: () => void }> = (
+const Row: Component<{ icon: IconName; label: string; value: string; disabled?: boolean; onClick: () => void }> = (
   props,
 ) => (
   <button class="fc-sheet-row" type="button" disabled={props.disabled} onClick={props.onClick}>
     <span class="fc-sheet-row-icon">
-      <Icon path={props.icon} />
+      <Icon name={props.icon} size={22} weight={1.8} />
     </span>
     <span class="fc-sheet-option-main">
       <span class="fc-sheet-option-label">{props.label}</span>
       <span class="fc-sheet-row-value">{props.value}</span>
     </span>
-    <Icon path="M9 6l6 6-6 6" size={18} />
+    <Icon name="chevron-right" size={18} weight={1.8} />
   </button>
 )
 
@@ -273,7 +261,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
                   aria-label={`${t("Remove")} ${attachment.name}`}
                   onClick={() => props.onRemoveAttachment(attachment.uri)}
                 >
-                  ×
+                  <Icon name="close" />
                 </button>
               </span>
             )}
@@ -381,7 +369,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
             aria-label={t("Add context")}
             onClick={() => setSheet("context")}
           >
-            <Icon path="M12 5v14M5 12h14" />
+            <Icon name="plus" size={22} weight={1.8} />
           </button>
           <button class="fc-mobile-pill" type="button" aria-label={t("Model")} onClick={() => setSheet("model")}>
             <span class="fc-mobile-pill-label">{props.modelLabel}</span>
@@ -398,7 +386,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               aria-label={t("Voice dictation")}
               onClick={() => toggleVoice(props.value)}
             >
-              <Icon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />
+              <Icon name="mic" size={22} weight={1.8} />
             </button>
           </Show>
           <Show
@@ -411,12 +399,12 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
                 disabled={!canSend()}
                 onClick={props.onSend}
               >
-                <Icon path="M12 19V5M6 11l6-6 6 6" />
+                <Icon name="arrow-up" size={22} weight={1.8} />
               </button>
             }
           >
             <button class="fc-mobile-round fc-mobile-stop" type="button" aria-label={t("Stop")} onClick={props.onStop}>
-              <Icon path="M8 8h8v8H8z" />
+              <Icon name="stop" size={22} weight={1.8} />
             </button>
           </Show>
         </div>
@@ -426,15 +414,15 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
         <BottomSheet title={t("Add context")} onClose={close}>
           <div class="fc-sheet-tiles">
             <button class="fc-sheet-tile" type="button" onClick={() => cameraInput?.click()}>
-              <Icon path="M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" size={26} />
+              <Icon name="camera" size={26} weight={1.8} />
               <span>{t("Camera")}</span>
             </button>
             <button class="fc-sheet-tile" type="button" onClick={() => photoInput?.click()}>
-              <Icon path="M4 5h16v14H4zM4 15l5-5 4 4 3-3 4 4M15.5 9.5h.01" size={26} />
+              <Icon name="image" size={26} weight={1.8} />
               <span>{t("Photos")}</span>
             </button>
             <button class="fc-sheet-tile" type="button" onClick={() => fileInput?.click()}>
-              <Icon path="M14 3H6v18h12V7zM14 3v4h4M12 17v-6M9 14l3-3 3 3" size={26} />
+              <Icon name="upload" size={26} weight={1.8} />
               <span>{t("Files")}</span>
             </button>
           </div>
@@ -466,7 +454,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
           </Show>
           <Show when={!chat()}>
             <Row
-              icon="M13 2L4 14h7l-1 8 9-12h-7z"
+              icon="bolt"
               label={t("Permission")}
               value={t(permissionMode(props.permissionMode).label)}
               onClick={() => setSheet("mode")}
@@ -474,7 +462,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
           </Show>
           <Show when={!chat() && !cowork() && primaryAgents(props.agents).length > 0}>
             <Row
-              icon="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z"
+              icon="shield"
               label={t("Agent")}
               value={props.agent}
               onClick={() => setSheet("agent")}
@@ -482,7 +470,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
           </Show>
           <Show when={!chat() && props.delivery && props.onDeliveryChange}>
             <Row
-              icon="M4 6h16M4 12h16M4 18h10"
+              icon="lines"
               label={t("While the agent works")}
               value={props.delivery === "queue" ? t("Queue") : t("Steer")}
               onClick={() => setSheet("delivery")}
@@ -556,7 +544,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
             <For each={featured()}>{modelOption}</For>
           </div>
           <Row
-            icon="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4"
+            icon="history"
             label={t("Effort")}
             value={props.variants.length > 0 ? currentEffort() : t("Not available for this model")}
             disabled={props.variants.length === 0}

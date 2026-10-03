@@ -6,6 +6,7 @@ import { runReason, runState } from "../run-state"
 import { StateBadge } from "./StateBadge"
 import { workflowGraph, type WorkflowGraphNode } from "../workflow-graph"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type WorkflowsPanelProps = {
   open: boolean
@@ -108,18 +109,18 @@ const WorkflowGraphView: Component<{ tasks: Workflow["tasks"] }> = (props) => {
                 </text>
                 <Show when={node.gate}>
                   <text class="fc-workflow-node-mark" x={at.x + NODE_WIDTH - 10} y={at.y + NODE_HEIGHT / 2 + 4}>
-                    ⎇
+                    <Icon name="branch" />
                   </text>
                 </Show>
                 <Show when={node.kind === "verify"}>
                   <text class="fc-workflow-node-mark" x={at.x + NODE_WIDTH - 10} y={at.y + NODE_HEIGHT / 2 + 4}>
-                    ✓
+                    <Icon name="check" />
                   </text>
                 </Show>
                 {/* Another vendor's CLI does this one (H-38), so the picture says so. */}
                 <Show when={node.kind === "external"}>
                   <text class="fc-workflow-node-mark" x={at.x + NODE_WIDTH - 10} y={at.y + NODE_HEIGHT / 2 + 4}>
-                    ▸
+                    <Icon name="chevron-right" />
                   </text>
                 </Show>
               </g>
@@ -272,7 +273,7 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
         {/* Only when the workflow list itself could not be read, so it names a real failure. */}
         <Show when={!props.serverAvailable}>
           <div class="fc-routines-notice">
-            <span class="fc-routines-notice-icon">⚠</span>
+            <span class="fc-routines-notice-icon"><Icon name="warning" /></span>
             <span>{t("The harness server is not reachable, so this is the last it said.")}</span>
           </div>
         </Show>
@@ -300,7 +301,7 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
                     onClick={() => open(workflow.name)}
                   >
                     <span class="fc-routine-card-icon" aria-hidden="true">
-                      ⛓
+                      <Icon name="link" />
                     </span>
                     <span class="fc-routine-card-content">
                       <strong>{workflow.name}</strong>

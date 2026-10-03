@@ -2,9 +2,11 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { FileSystemEntry } from "../engine-types"
 import type { FileText } from "../types"
 import { t } from "../i18n"
-import { highlight, languageFor } from "../highlight"
+import { languageFor } from "../highlight"
+import { createCodeLines } from "../markdown/code-lines"
 import { createResource } from "../resource"
 import { PanelBoundary, PanelFailure } from "./PanelBoundary"
+import { Icon } from "./Icon"
 
 type FilesPanelProps = {
   open: boolean
@@ -85,6 +87,10 @@ export const FilesPanel: Component<FilesPanelProps> = (props) => {
   )
 
   const lines = () => (file()?.binary ? [] : (file()?.content ?? "").split("\n"))
+  const code = createCodeLines(
+    () => lines().join("\n"),
+    () => languageFor(selected() ?? ""),
+  )
 
   return (
     <Show when={props.open}>
@@ -209,7 +215,7 @@ export const FilesPanel: Component<FilesPanelProps> = (props) => {
                       {(line, index) => (
                         <div class="fc-files-code-line">
                           <span class="fc-files-code-no">{index() + 1}</span>
-                          <span class="fc-files-code-text" innerHTML={highlight(line, languageFor(selected() ?? ""))} />
+                          <span class="fc-files-code-text" innerHTML={code()[index()]} />
                         </div>
                       )}
                     </For>
@@ -241,7 +247,9 @@ const TreeEntry: Component<{
       onClick={() => props.onToggle(props.entry)}
     >
       <span class="fc-files-caret" aria-hidden="true">
-        {props.entry.type === "directory" ? (props.isOpen(props.entry.path) ? "▾" : "▸") : ""}
+        <Show when={props.entry.type === "directory"}>
+          <Icon name={props.isOpen(props.entry.path) ? "chevron-down" : "chevron-right"} />
+        </Show>
       </span>
       <span class="fc-files-name">{basename(props.entry.path) || props.entry.path}</span>
     </button>

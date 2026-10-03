@@ -5,6 +5,7 @@ import { Topbar } from "../../components/Topbar"
 import { SessionActions, SessionTitle } from "../../components/SessionToolbar"
 import { remote } from "../../remote"
 import { useApp } from "../../app-context"
+import { Icon } from "../../components/Icon"
 
 /**
  * The top strip: the navigation, the session, and what the engine is doing.
@@ -30,7 +31,7 @@ export function TopStrip() {
                 window.history.state?.flupcode === "session" ? window.history.back() : app.sessions.leaveMobileSession()
               }
             >
-              ←
+              <Icon name="arrow-left" />
             </button>
             <span class="fc-mobile-heading">
               <span class="fc-mobile-title">

@@ -13,6 +13,7 @@ import type {
   ActionStepName,
   SelectorCapture,
 } from "../types"
+import { Icon } from "./Icon"
 
 type ActionsPanelProps = {
   open: boolean
@@ -404,10 +405,11 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
               {t("Refresh")}
             </button>
             <button class="fc-button fc-button-primary" type="button" onClick={beginCreate} disabled={!props.serverAvailable}>
-              ＋ {t("New action")}
+              <Icon name="plus" class="fc-icon-lead" />
+              {t("New action")}
             </button>
             <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
+              <Icon name="close" />
             </button>
           </div>
         </div>
@@ -603,9 +605,10 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
                     <button
                       class="fc-button"
                       type="button"
+                      aria-label={t("Add")}
                       onClick={() => update({ inputs: { ...current().inputs, [`input${Object.keys(current().inputs).length + 1}`]: "string" } })}
                     >
-                      ＋
+                      <Icon name="plus" />
                     </button>
                   </div>
                   <For each={Object.entries(current().inputs)}>
@@ -637,7 +640,7 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
                             update({ inputs: next })
                           }}
                         >
-                          ×
+                          <Icon name="close" />
                         </button>
                       </div>
                     )}
@@ -647,8 +650,8 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
                 <section class="fc-actions-section">
                   <div class="fc-actions-section-head">
                     <h3>{t("Steps")}</h3>
-                    <button class="fc-button" type="button" onClick={() => update({ steps: [...current().steps, { goto: "" }] })}>
-                      ＋
+                    <button class="fc-button" type="button" aria-label={t("Add")} onClick={() => update({ steps: [...current().steps, { goto: "" }] })}>
+                      <Icon name="plus" />
                     </button>
                   </div>
                   <For each={current().steps}>
@@ -738,7 +741,7 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
                           aria-label={t("Remove")}
                           onClick={() => update({ steps: current().steps.filter((_, at) => at !== index()) })}
                         >
-                          ×
+                          <Icon name="close" />
                         </button>
                       </div>
                     )}
@@ -751,6 +754,7 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
                     <button
                       class="fc-button"
                       type="button"
+                      aria-label={t("Add")}
                       onClick={() =>
                         update({
                           extract: {
@@ -760,7 +764,7 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
                         })
                       }
                     >
-                      ＋
+                      <Icon name="plus" />
                     </button>
                   </div>
                   <For each={Object.entries(current().extract ?? {})}>
@@ -807,7 +811,7 @@ export const ActionsPanel: Component<ActionsPanelProps> = (props) => {
                             update({ extract: next })
                           }}
                         >
-                          ×
+                          <Icon name="close" />
                         </button>
                       </div>
                     )}

@@ -35,6 +35,7 @@ import { ModelUnavailableDock } from "./ModelUnavailableDock"
 import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
 import { SessionView } from "./SessionView"
+import { Icon } from "./Icon"
 
 type SessionPaneProps = {
   session: SessionInfo
@@ -372,9 +373,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           onPointerDown={(event) => event.stopPropagation()}
           onClick={props.onClose}
         >
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
+          <Icon name="close" size={14} />
         </button>
       </header>
 

@@ -9,6 +9,7 @@ import { isAbsolutePath, joinPath } from "../folder"
 import { Markdown } from "./Markdown"
 import { PanelBoundary, PanelFailure } from "./PanelBoundary"
 import { createResource } from "../resource"
+import { Icon } from "./Icon"
 
 type ArtifactsPanelProps = {
   open: boolean
@@ -254,7 +255,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
 
                 <Show when={!props.serverAvailable}>
                   <div class="fc-routines-notice">
-                    <span class="fc-routines-notice-icon">⚠</span>
+                    <span class="fc-routines-notice-icon"><Icon name="warning" /></span>
                     <span>{t("The harness server is not reachable, so this is the last it said.")}</span>
                   </div>
                 </Show>
@@ -360,7 +361,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                                   disabled={!props.serverAvailable}
                                   onClick={() => props.onUpdate(artifact.id, { pinned: !artifact.pinned })}
                                 >
-                                  {artifact.pinned ? "★" : "☆"}
+                                  <Icon name={artifact.pinned ? "star-filled" : "star"} />
                                 </button>
                                 <Show when={artifact.runID}>
                                   {(runID) => (
@@ -425,7 +426,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
               <div class="fc-artifact-viewer">
                 <div class="fc-artifact-viewer-bar">
                   <button class="fc-icon-button" type="button" aria-label={t("Back")} title={t("Back")} onClick={back}>
-                    ←
+                    <Icon name="arrow-left" />
                   </button>
                   <span class="fc-artifact-kind">{t(artifact().kind)}</span>
                   <span class="fc-artifact-viewer-title" dir="auto">
