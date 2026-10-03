@@ -40,6 +40,7 @@ import { questionsFor, readAnswers } from "./questions"
 import { completion } from "./decisions/completion"
 import { skillRelevance } from "./decisions/skill-relevance"
 import { contextItem } from "./decisions/context-item"
+import { failure } from "./decisions/failure"
 import type { PredictiveModel, Question } from "./predictive/model"
 import { deterministicBaseline } from "./providers/deterministic"
 import type { DeterministicBaseline } from "./providers/deterministic"
@@ -138,7 +139,7 @@ const QUESTIONS: Record<DecisionKind, string> = {
   completion: completion.question,
   skillRelevance: skillRelevance.question,
   contextItem: contextItem.question,
-  failure: "Should the harness intervene in this loop?",
+  failure: failure.question,
   skillReflection: "Does this episode carry a reusable lesson, and what change does it call for?",
 }
 
@@ -159,7 +160,7 @@ const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
   completion: completion.probabilities,
   skillRelevance: skillRelevance.probabilities,
   contextItem: contextItem.probabilities,
-  failure: "distribution",
+  failure: failure.probabilities,
   skillReflection: "gates",
 }
 
