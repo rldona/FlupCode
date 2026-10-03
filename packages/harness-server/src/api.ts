@@ -1,6 +1,7 @@
 import { normalizeRoutineRetry, normalizeRoutineSchedule } from "./validation"
 import { scheduleProblem } from "./schedule"
 import { ARTIFACT_KINDS } from "./types"
+import { artifactQuote, resolveRefs } from "./packs"
 import type {
   ActionTaskInput,
   ArtifactInput,
@@ -331,6 +332,8 @@ const KINDS: ArtifactKind[] = [...ARTIFACT_KINDS]
 /** How many documents one page of the artifacts list holds, unless the caller asks for fewer. */
 const ARTIFACT_PAGE = 100
 const MAX_ARTIFACT_PAGE = 500
+/** The most refs one message resolves at once (UX-05): a draft, not a bulk export. */
+const CHIP_LIMIT = 50
 
 /** What `artifact_write` reports (RP-03). Anything naming a run or a task is ignored: that is ours. */
 const documentWriteFrom = (value: unknown): DocumentWrite | undefined => {
@@ -1637,6 +1640,18 @@ export const createHarnessHandler = (
       const report = instructionsFor(directory, params.get("project") ?? undefined)
       const content = readInstruction(report, wanted)
       return content === undefined ? error("Not one of this folder's instruction files", 404) : json({ data: { content } })
+    }
+    // The composer's chips resolved on send (UX-05): the files and artifacts somebody pointed at, by
+    // the rules a run's packs follow. Files only inside a project, compared by real path (TI-11).
+    if (path[1] === "context" && path[2] === "resolve" && path.length === 3 && request.method === "POST") {
+      const body = (await readJSON(request)) as { directory?: unknown; refs?: unknown } | undefined
+      const refs = Array.isArray(body?.refs)
+        ? body.refs.filter((ref): ref is string => typeof ref === "string").slice(0, CHIP_LIMIT)
+        : []
+      const wanted = typeof body?.directory === "string" && body.directory ? body.directory : undefined
+      const directory = wanted ? await roots.within(wanted) : undefined
+      if (wanted && !directory) return notAProject()
+      return json({ data: resolveRefs(refs, directory, (key) => artifactQuote(repository, key, { directory: wanted })) })
     }
     // The system prompt the engine assembled, recorded by FlupCode's engine plugin as it went out.
     // The engine has no endpoint for it: it is built at request time and handed straight to the provider.

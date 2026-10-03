@@ -3,6 +3,7 @@ import { startEngine } from "@flupcode/engine-contract/engine"
 import { startModel, type Reply } from "@flupcode/engine-contract/model"
 import { startEngineProxy } from "@flupcode/remote/engine-proxy"
 import { createHarnessHandler } from "../../harness-server/src/api"
+import { projectRoots } from "../../harness-server/src/project-roots"
 import { Engine } from "../../harness-server/src/engine"
 import { SqliteRoutineRepository } from "../../harness-server/src/repository"
 import { RoutineScheduler } from "../../harness-server/src/scheduler"
@@ -45,7 +46,8 @@ const proxy = await startEngineProxy({
   origins: ["http://localhost:4173"],
 })
 
-// The usage ledger the composer's cost reads (UL-06): the harness's routes over an in-memory ledger
+// The usage ledger the composer's cost reads (UL-06), and the routes the composer's chips resolve
+// through (UX-05): the harness's routes over an in-memory ledger
 // that the reconciler fills from the engine's transcripts every second, as the real server does on
 // its own interval. No plugin feeds it here, so a session's title (which only the plugin could see,
 // and on 2.0.18 not even it) is not in it — the ledger is the figure, not the engine's session cost.
@@ -64,6 +66,8 @@ const ledgerServer = Bun.serve({
   hostname: "127.0.0.1",
   fetch: createHarnessHandler(ledger, new RoutineScheduler({ repository: ledger, engineURL: engine.url }), {
     hostname: "127.0.0.1",
+    // The engine's project, so the composer's chips resolve files in it (UX-05).
+    projectRoots: projectRoots(async () => [engine.project]),
   }),
 })
 
@@ -75,6 +79,8 @@ Bun.serve({
   fetch: async (request) => {
     const url = new URL(request.url)
     if (url.pathname === "/__fixture") return Response.json({ project: engine.project })
+    // What the engine sent the model, for a spec that checks what the model was given (UX-05).
+    if (url.pathname === "/__fixture/requests") return Response.json(model.requests)
     if (url.pathname === "/__fixture/model" && request.method === "POST") {
       model.reset()
       model.push(...((await request.json()) as Reply[]))

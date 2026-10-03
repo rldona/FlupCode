@@ -65,6 +65,7 @@ import type {
   StoredDecision,
   ValueGateSnapshot,
   StoredPlan,
+  ResolvedRef,
 } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
@@ -811,6 +812,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         if (input.project) search.set("project", input.project)
         return harnessRequest<{ content: string }>(baseUrl, `/harness/context/file?${search}`)
       },
+      /** The composer's chips resolved on send (UX-05): file parts, quoted artifacts, or missing. */
+      resolve: (input: { directory?: string; refs: string[] }) =>
+        harnessRequest<ResolvedRef[]>(baseUrl, "/harness/context/resolve", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
       /**
        * The system prompt the engine assembled, which no engine endpoint reports: FlupCode's engine
        * plugin records it as the request goes out. A session has more than one recording — the turn,

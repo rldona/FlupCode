@@ -127,6 +127,7 @@ export const REFUSED = [
   ["GET", "/harness/files/read?directory=/tmp&path=a"],
   ["GET", "/harness/context?directory=/tmp"],
   ["GET", "/harness/context/file?directory=/tmp&path=AGENTS.md"],
+  ["POST", "/harness/context/resolve"],
   ["GET", "/harness/context/system-prompt?sessionID=ses_1"],
   ["GET", "/harness/context/tool-uses?sessionID=ses_1"],
   ["GET", "/harness/findings"],

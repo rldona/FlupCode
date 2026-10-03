@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import { chipRefs } from "./context-chip"
 import {
   applyMention,
+  pickMention,
   commandBadge,
   filterCommands,
   mentionItems,
@@ -111,6 +113,7 @@ describe("the @ menu", () => {
       value: "review",
       label: "@review",
       insert: "@src/a.ts @artifact:report",
+      refs: ["@src/a.ts", "@artifact:report"],
     })
   })
 })
@@ -141,5 +144,44 @@ describe("picking a mention", () => {
 
   test("with no token it leaves the draft alone", () => {
     expect(applyMention("nothing here", { kind: "file", value: "a", label: "@a" })).toBe("nothing here")
+  })
+})
+
+describe("a picked mention becomes a chip (UX-05)", () => {
+  test("a file leaves the draft and becomes a file chip", () => {
+    const picked = pickMention("look at @sr", { kind: "file", value: "src/a.ts", label: "@src/a.ts" })
+    expect(picked.value).toBe("look at ")
+    expect(picked.chips).toEqual([expect.objectContaining({ type: "file", ref: "@src/a.ts", label: "src/a.ts" })])
+  })
+
+  test("an artifact is cited by id and shown by its title", () => {
+    const [item] = mentionItems("plan", {
+      files: [],
+      agents: [],
+      artifacts: [{ id: "art_1", path: "docs/plan.md", title: "Plan", kind: "document" }],
+    })
+    expect(item).toMatchObject({ value: "artifact:art_1", label: "@Plan" })
+    const picked = pickMention("@pla and go", item!)
+    expect(picked.value).toBe("and go")
+    expect(picked.chips).toEqual([expect.objectContaining({ type: "artifact", ref: "@artifact:art_1", label: "Plan" })])
+  })
+
+  test("a pack drops a chip for each file and artifact, and keeps anything else as text", () => {
+    const [pack] = mentionItems("review", {
+      files: [],
+      agents: [{ id: "reviewer" }],
+      artifacts: [],
+      packs: [{ name: "review", refs: ["@src/a.ts", "@artifact:report", "@reviewer"] }],
+    }).filter((item) => item.kind === "pack")
+    const picked = pickMention("@review", pack!)
+    expect(chipRefs(picked.chips)).toEqual(["@src/a.ts", "@artifact:report"])
+    expect(picked.value).toBe("@reviewer ")
+  })
+
+  test("an agent is still text: it aims the turn", () => {
+    expect(pickMention("ask @rev", { kind: "agent", value: "reviewer", label: "@reviewer" })).toEqual({
+      value: "ask @reviewer ",
+      chips: [],
+    })
   })
 })

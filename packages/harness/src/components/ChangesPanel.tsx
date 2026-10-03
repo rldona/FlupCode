@@ -1,3 +1,4 @@
+import { hunkChip, type ContextChip } from "../context-chip"
 import { For, Show, createEffect, createMemo, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
 import { parseHunks } from "../patch"
@@ -43,6 +44,8 @@ type ChangesPanelProps = {
   /** A review's points about these files (H-32). */
   findings: Finding[]
   onResolveFinding: (id: string, resolved: boolean) => void
+  /** Puts a hunk in the composer as a chip (UX-05). */
+  onAddChip?: (chip: ContextChip) => void
 }
 
 const name = (directory: string) => directory.split("/").filter(Boolean).at(-1) ?? directory
@@ -370,6 +373,7 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
                     discarding={discarding()}
                     findings={findingsFor().get(change.file)}
                     onResolveFinding={props.onResolveFinding}
+                    onAddHunk={props.onAddChip ? (hunk) => props.onAddChip?.(hunkChip(change.file, hunk)) : undefined}
                   />
                 )}
               </For>

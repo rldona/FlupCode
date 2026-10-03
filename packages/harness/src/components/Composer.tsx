@@ -1,7 +1,8 @@
 import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js"
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, BranchState, CheckLog, CommandOption, ProjectItem } from "../types"
-import type { ContextChip } from "../context-chip"
+import { chipRefs, type ContextChip } from "../context-chip"
+import { ContextChips } from "./ContextChips"
 import { t } from "../i18n"
 import { ModeMenu } from "./ModeMenu"
 import { DeliveryMenu } from "./DeliveryMenu"
@@ -12,7 +13,7 @@ import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, ModelMenu } from "./DockMenus"
 import { Icon } from "./Icon"
 import { ComposerMenu } from "./ComposerMenu"
-import { applyMention, commandBadge, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
+import { commandBadge, filterCommands, mentionItems, mentionToken, pickMention, refsIn, slashQuery, type MentionItem } from "../composer-menus"
 import { stepHistory } from "../prompt-history"
 import { dictationAvailable } from "../dictation"
 import { isCowork, isPlainChat, useDictation } from "../composer-core"
@@ -75,11 +76,14 @@ type ComposerProps = {
     onOpenPullRequest: (title: string) => void
     onOpen: (url: string) => void
     onCheckLog: (job: string) => Promise<CheckLog>
+    onAddChip?: (chip: ContextChip) => void
   }
   attachments: Attachment[]
-  /** What the reader pointed at elsewhere in the app (BU-06), each removable until the message goes. */
+  /** What the reader pointed at (BU-06, UX-05), each removable until the message goes. */
   chips?: ContextChip[]
   onRemoveChip?: (id: string) => void
+  /** A file, an artifact or a pack picked from the `@` menu arrives as chips (UX-05). */
+  onAddChips?: (chips: ContextChip[]) => void
   commands: CommandOption[]
   projects: ProjectItem[]
   /** The folder of the open session, or the one picked for a new session. The picker only shows without one. */
@@ -260,7 +264,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
   })
   const menusDismissed = () => dismissedAt() !== undefined && dismissedAt() === props.value
   const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
-  const menuCanSavePack = () => !!props.onSavePack && refsIn(props.value).length > 0
+  const menuCanSavePack = () => !!props.onSavePack && draftRefs().length > 0
   const mentionMenuOpen = () =>
     !menusDismissed() &&
     commandQuery() === undefined &&
@@ -291,9 +295,13 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
   })
 
   const insertMention = (item: MentionItem) => {
-    props.onInput(applyMention(props.value, item))
+    const picked = pickMention(props.value, item)
+    props.onInput(picked.value)
+    if (picked.chips.length > 0) props.onAddChips?.(picked.chips)
     setFileResults([])
   }
+  // What "save as a pack" saves: the chips' refs, then any typed in the draft.
+  const draftRefs = () => [...new Set([...chipRefs(props.chips ?? []), ...refsIn(props.value)])]
 
   return (
     <footer
@@ -351,12 +359,12 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               if (item) insertMention(item)
             }}
             footer={
-              <Show when={props.onSavePack && refsIn(props.value).length > 0}>
+              <Show when={menuCanSavePack()}>
                 <button
                   class="fc-command-item fc-command-save"
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => props.onSavePack?.(refsIn(props.value))}
+                  onClick={() => props.onSavePack?.(draftRefs())}
                 >
                   <span class="fc-command-name">{t("Save these as a pack")}</span>
                 </button>
@@ -404,27 +412,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               </For>
             </div>
           </Show>
-          <Show when={(props.chips ?? []).length > 0}>
-            <div class="fc-dock-chips">
-              <For each={props.chips}>
-                {(chip) => (
-                  <span class="fc-context-chip" title={[chip.source, chip.note].filter(Boolean).join("\n")}>
-                    <Show when={chip.image}>{(image) => <img class="fc-context-chip-image" src={image()} alt="" />}</Show>
-                    <span class="fc-context-chip-kind">{t("Preview")}</span>
-                    <span class="fc-context-chip-label">{chip.label}</span>
-                    <button
-                      class="fc-context-chip-remove"
-                      type="button"
-                      aria-label={`${t("Remove")} ${chip.label}`}
-                      onClick={() => props.onRemoveChip?.(chip.id)}
-                    >
-                      <Icon name="close" size={12} weight={1.8} />
-                    </button>
-                  </span>
-                )}
-              </For>
-            </div>
-          </Show>
+          <ContextChips chips={props.chips ?? []} onRemove={props.onRemoveChip} />
           <textarea
             ref={input}
             class="fc-input"

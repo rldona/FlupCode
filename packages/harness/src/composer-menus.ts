@@ -1,3 +1,4 @@
+import { chipForRef, chipRefs, type ContextChip } from "./context-chip"
 import type { CommandOption } from "./types"
 
 /**
@@ -18,6 +19,8 @@ export type MentionItem = {
   hint?: string
   /** What replaces the half-typed token; a pack expands to its references. Absent means `value`. */
   insert?: string
+  /** A pack's files and artifacts, which become chips when it is picked (UX-05); its agents stay text. */
+  refs?: string[]
 }
 
 export type MentionSources = {
@@ -91,19 +94,21 @@ export function mentionItems(token: string, sources: MentionSources): MentionIte
     ...sources.artifacts
       .filter((artifact) => matches(artifact.path ?? artifact.title ?? ""))
       .map((artifact) =>
-        artifact.path
+        // By id when there is one (UX-05): the chip resolves to the artifact's own content, wherever
+        // its file lives; a path alone is cited as one.
+        artifact.id
           ? {
               kind: "artifact" as const,
-              value: artifact.path,
-              label: `@${artifact.path}`,
-              hint: artifact.title ?? "artifact",
+              value: `artifact:${artifact.id}`,
+              label: `@${artifact.title ?? artifact.path ?? artifact.id.slice(0, 8)}`,
+              hint: artifact.kind ?? "artifact",
             }
-          : artifact.id
+          : artifact.path
             ? {
                 kind: "artifact" as const,
-                value: `artifact:${artifact.id}`,
-                label: `@${artifact.title ?? artifact.id.slice(0, 8)}`,
-                hint: artifact.kind ?? "artifact",
+                value: artifact.path,
+                label: `@${artifact.path}`,
+                hint: artifact.title ?? "artifact",
               }
             : undefined,
       )
@@ -116,6 +121,7 @@ export function mentionItems(token: string, sources: MentionSources): MentionIte
         label: `@${pack.name}`,
         hint: "pack",
         insert: pack.refs.join(" "),
+        refs: pack.refs.filter((ref) => !sources.agents.some((agent) => ref === `@${agent.id}`)),
       })),
   ]
   return items.slice(0, 8)
@@ -129,6 +135,27 @@ export function applyMention(value: string, item: MentionItem): string {
   const after = value.slice(at + 1)
   const rest = after.includes(" ") ? after.slice(after.indexOf(" ")) : ""
   return `${before}${item.insert ?? `@${item.value}`} ${rest.trimStart()}`.trimEnd() + " "
+}
+
+/**
+ * A picked mention as the draft and the chips it adds (UX-05).
+ *
+ * A file, an artifact and each of a pack's files and artifacts become chips, and the half-typed token
+ * leaves the draft; an agent, and any pack ref that is neither, is still text, which is what aims it.
+ */
+export function pickMention(value: string, item: MentionItem): { value: string; chips: ContextChip[] } {
+  if (item.kind === "agent") return { value: applyMention(value, item), chips: [] }
+  const refs = item.refs ?? [`@${item.value}`]
+  const label = item.refs ? undefined : item.label.replace(/^@/, "")
+  const chips = refs.flatMap((ref) => chipForRef(ref, label) ?? [])
+  const chipped = new Set(chipRefs(chips))
+  const rest = (item.refs ? (item.insert ?? "").split(" ").filter(Boolean) : refs).filter((ref) => !chipped.has(ref))
+  if (rest.length > 0) return { value: applyMention(value, { ...item, insert: rest.join(" ") }), chips }
+  const at = value.lastIndexOf("@")
+  if (at === -1) return { value, chips }
+  const after = value.slice(at + 1)
+  const tail = after.includes(" ") ? after.slice(after.indexOf(" ")).trimStart() : ""
+  return { value: `${value.slice(0, at)}${tail}`, chips }
 }
 
 /**

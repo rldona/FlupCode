@@ -2491,6 +2491,22 @@ button.fc-status {
   display: none;
 }
 
+.fc-terminal-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Over the terminal's corner only while something is selected (UX-05). */
+.fc-terminal-add {
+  position: absolute;
+  top: var(--fc-space-1);
+  right: var(--fc-space-2);
+  z-index: 1;
+}
+
 .fc-loader-dots {
   display: inline-flex;
   align-items: center;
@@ -5668,12 +5684,13 @@ button.fc-status {
   padding: var(--fc-space-2) var(--fc-space-3) 0;
 }
 
-.fc-context-chip {
+/* What the reader pointed at (BU-06, UX-05). Its own names: `.fc-context-chip` is the context panel's. */
+.fc-composer-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--fc-space-1);
   max-width: 100%;
-  padding: 2px 4px 2px 2px;
+  padding: 2px 4px 2px 6px;
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-sm);
   background: var(--fc-bg-elevated);
@@ -5681,19 +5698,34 @@ button.fc-status {
   color: var(--fc-text);
 }
 
-.fc-context-chip-image {
+.fc-composer-chip-missing {
+  border-color: var(--fc-danger);
+}
+
+.fc-composer-chip-missing .fc-composer-chip-kind,
+.fc-composer-chip-cut {
+  color: var(--fc-warning);
+}
+
+.fc-composer-chip-missing .fc-composer-chip-kind {
+  color: var(--fc-danger);
+}
+
+.fc-composer-chip-image {
   width: 28px;
   height: 20px;
+  margin-left: -4px;
   object-fit: cover;
   border-radius: 4px;
 }
 
-.fc-context-chip-kind {
+.fc-composer-chip-kind {
+  flex-shrink: 0;
   font-weight: 600;
   color: var(--fc-text-muted);
 }
 
-.fc-context-chip-label {
+.fc-composer-chip-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5701,8 +5733,14 @@ button.fc-status {
   font-family: var(--fc-font-mono);
 }
 
-.fc-context-chip-remove {
+.fc-composer-chip-cut {
+  flex-shrink: 0;
+  font-size: var(--fc-text-xs);
+}
+
+.fc-composer-chip-remove {
   display: inline-flex;
+  flex-shrink: 0;
   padding: 2px;
   border: 0;
   border-radius: 4px;
@@ -5711,7 +5749,7 @@ button.fc-status {
   cursor: pointer;
 }
 
-.fc-context-chip-remove:hover {
+.fc-composer-chip-remove:hover {
   color: var(--fc-text);
 }
 
@@ -10645,7 +10683,8 @@ button.fc-status {
 }
 
 .fc-diff-discard,
-.fc-diff-discard-file {
+.fc-diff-discard-file,
+.fc-diff-hunk-add {
   flex-shrink: 0;
 }
 

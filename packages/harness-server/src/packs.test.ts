@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { packFiles, packRefs, expandArtifactRefs } from "./packs"
+import { QUOTE_LIMIT, artifactQuote, packFiles, packRefs, expandArtifactRefs, resolveRefs } from "./packs"
+import { SqliteRoutineRepository } from "./repository"
 import type { ContextPack } from "./types"
 
 let directory = ""
@@ -56,10 +57,10 @@ describe("saying an artifact ref as its content (HF-6)", () => {
 
   test("an id resolves, a kind resolves, the rest stays literal", () => {
     expect(expandArtifactRefs(["@artifact:abc123"], lookup)).toEqual([
-      "--- verify — passed (verdict) ---\nVerification: passed\n---",
+      "--- verify — passed (verdict) ---\n\nVerification: passed\n\n---",
     ])
     expect(expandArtifactRefs(["@artifact:verdict"], lookup)).toEqual([
-      "--- verify — passed (verdict) ---\nVerification: passed\n---",
+      "--- verify — passed (verdict) ---\n\nVerification: passed\n\n---",
     ])
     expect(expandArtifactRefs(["@artifact:nope", "@src/a.ts", "@artifact:"], lookup)).toEqual([
       "@artifact:nope",
@@ -67,5 +68,50 @@ describe("saying an artifact ref as its content (HF-6)", () => {
       "@artifact:",
     ])
     expect(expandArtifactRefs(["@artifact:empty"], lookup)).toEqual(["@artifact:empty"])
+  })
+})
+
+describe("a long artifact is cut, and says so (UX-05)", () => {
+  test("past the limit the quote keeps the start and names what was dropped", () => {
+    const long = "x".repeat(QUOTE_LIMIT + 10)
+    const [quoted] = expandArtifactRefs(["@artifact:big"], () => ({ title: "Log", kind: "log", content: long }))
+    expect(quoted).toContain(`[Cut: the first ${QUOTE_LIMIT} of ${QUOTE_LIMIT + 10} characters]`)
+    expect(quoted!.length).toBeLessThan(QUOTE_LIMIT + 200)
+  })
+})
+
+describe("what an artifact key names, for runs and chips alike", () => {
+  test("an id, else the newest of a kind in the run, else in the folder; a document is read from disk", () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    writeFileSync(join(directory, "notes.md"), "Notes on disk")
+    const report = repository.addArtifact({ kind: "report", title: "R", producer: "harness", content: "In the row", directory })
+    const document = repository.addArtifact({
+      kind: "document",
+      title: "Notes",
+      producer: "agent",
+      path: "notes.md",
+      directory,
+      mime: "text/markdown",
+    })
+    expect(artifactQuote(repository, report.id, {})).toEqual({ title: "R", kind: "report", content: "In the row" })
+    expect(artifactQuote(repository, document.id, {})?.content).toBe("Notes on disk")
+    expect(artifactQuote(repository, "report", { directory })?.content).toBe("In the row")
+    expect(artifactQuote(repository, "report", {})).toBeUndefined()
+    rmSync(join(directory, "notes.md"))
+    expect(artifactQuote(repository, document.id, {})?.content).toBeUndefined()
+    repository.close()
+  })
+})
+
+describe("resolving the composer's refs (UX-05)", () => {
+  test("files become file parts, artifacts quotes, and the rest is missing", () => {
+    const lookup = (key: string) => (key === "r1" ? { title: "R", kind: "report", content: "Body" } : undefined)
+    expect(resolveRefs(["@src/a.ts", "@artifact:r1", "@src/b.ts", "@artifact:r2"], directory, lookup)).toEqual([
+      { ref: "@src/a.ts", uri: `file://${join(directory, "src", "a.ts")}`, name: "src/a.ts" },
+      { ref: "@artifact:r1", quote: "--- R (report) ---\n\nBody\n\n---", cut: false },
+      { ref: "@src/b.ts", missing: true },
+      { ref: "@artifact:r2", missing: true },
+    ])
+    expect(resolveRefs(["@src/a.ts"], undefined, lookup)).toEqual([{ ref: "@src/a.ts", missing: true }])
   })
 })

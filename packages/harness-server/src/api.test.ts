@@ -1621,6 +1621,7 @@ describe("the bearer on every other route (AH-A05)", () => {
     ["GET", "/harness/usage/summary"],
     ["GET", "/harness/context?directory=/tmp"],
     ["GET", "/harness/context/file?directory=/tmp&path=AGENTS.md"],
+    ["POST", "/harness/context/resolve"],
     ["GET", "/harness/context/system-prompt?sessionID=ses_1"],
     ["GET", "/harness/context/tool-uses?sessionID=ses_1"],
     ["GET", "/harness/agents"],
@@ -1840,6 +1841,51 @@ describe("harness context packs API", () => {
 
     expect((await handler(new Request(`http://x/harness/packs/${pack.id}`, { method: "DELETE" }))).status).toBe(200)
     expect((await handler(new Request(`http://x/harness/packs/${pack.id}`, { method: "DELETE" }))).status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("harness context chips API (UX-05)", () => {
+  test("a file in the project becomes a file part, an artifact its content, and anything else is missing", async () => {
+    const { handler, repository } = open()
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "flupcode-chips-api-")))
+    made.push(root)
+    mkdirSync(join(root, "src"))
+    writeFileSync(join(root, "src", "a.ts"), "export const a = 1\n")
+    writeFileSync(join(root, "plan.md"), "# The plan on disk\n")
+    const inline = repository.addArtifact({ kind: "report", title: "Run report", producer: "harness", content: "All green" })
+    const onDisk = repository.addArtifact({
+      kind: "document",
+      title: "Plan",
+      producer: "agent",
+      path: "plan.md",
+      directory: root,
+      mime: "text/markdown",
+    })
+    const resolve = (body: unknown) =>
+      handler(new Request("http://x/harness/context/resolve", { method: "POST", body: JSON.stringify(body) }))
+
+    const answered = await resolve({
+      directory: root,
+      refs: ["@src/a.ts", `@artifact:${inline.id}`, `@artifact:${onDisk.id}`, "@src/gone.ts", "@artifact:nope", "@../x"],
+    })
+    expect(answered.status).toBe(200)
+    expect((await answered.json()).data).toEqual([
+      { ref: "@src/a.ts", uri: `file://${join(root, "src", "a.ts")}`, name: "src/a.ts" },
+      { ref: `@artifact:${inline.id}`, quote: "--- Run report (report) ---\n\nAll green\n\n---", cut: false },
+      { ref: `@artifact:${onDisk.id}`, quote: "--- Plan (document) ---\n\n# The plan on disk\n\n---", cut: false },
+      { ref: "@src/gone.ts", missing: true },
+      { ref: "@artifact:nope", missing: true },
+      { ref: "@../x", missing: true },
+    ])
+
+    // A folder that is not a project is refused, not searched.
+    expect((await resolve({ directory: "/", refs: ["@etc/passwd"] })).status).toBe(403)
+    // Without a folder only artifacts resolve.
+    expect((await (await resolve({ refs: ["@src/a.ts", `@artifact:${inline.id}`] })).json()).data).toEqual([
+      { ref: "@src/a.ts", missing: true },
+      { ref: `@artifact:${inline.id}`, quote: "--- Run report (report) ---\n\nAll green\n\n---", cut: false },
+    ])
     repository.close()
   })
 })

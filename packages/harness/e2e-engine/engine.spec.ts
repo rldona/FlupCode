@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test"
 
 /**
@@ -242,4 +244,75 @@ test("the terminal runs a command typed into it and shows what it printed", asyn
   expect(await ptys()).toBe(1)
   await page.getByRole("button", { name: "Terminal" }).click()
   await expect.poll(ptys).toBe(0)
+})
+
+/** Everything the engine sent the model in its last chat request, as one string. */
+const lastModelRequest = async (request: APIRequestContext) =>
+  JSON.stringify(((await (await request.get(`${CONTROL}/__fixture/requests`)).json()) as unknown[]).at(-1))
+
+// UX-05: what the reader points at reaches the model. A file chip goes as a file part the engine reads
+// itself, an artifact chip as the artifact's content, both resolved on send by the harness. Before,
+// `@file` and `@artifact:` were text the engine passed on as text.
+test("a file chip and an artifact chip reach the model as their contents", async ({ page, request }) => {
+  const project = ((await (await request.get(`${CONTROL}/__fixture`)).json()) as { project: string }).project
+  writeFileSync(join(project, "chip-notes.txt"), "CHIP-FILE-7f3a: the port is 4096\n")
+  const created = await request.post(`${LEDGER}/harness/artifacts`, {
+    data: { kind: "report", title: "Live report", producer: "harness", content: "CHIP-ARTIFACT-91c2: all green", directory: project },
+  })
+  expect(created.ok()).toBe(true)
+  await script(request, { type: "text", text: "Read both" })
+  await page.addInitScript((ledger) => {
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify(ledger))
+  }, LEDGER)
+  await openSession(page, request, { mode: "auto" })
+
+  const input = page.locator(".fc-composer textarea.fc-input")
+  await input.fill("@chip-notes")
+  await page.locator(".fc-command-item").filter({ hasText: "chip-notes.txt" }).click({ timeout: 20_000 })
+  await input.fill("@Live")
+  await page.locator(".fc-command-item").filter({ hasText: "Live report" }).click()
+  const chips = page.locator(".fc-composer .fc-composer-chip")
+  await expect(chips).toHaveCount(2)
+  await expect(chips.filter({ hasText: /Missing|Falta/ })).toHaveCount(0)
+
+  await send(page, "Use what I pointed at")
+  await expect(page.locator(".fc-message-assistant").filter({ hasText: "Read both" })).toBeVisible()
+  const sent = await lastModelRequest(request)
+  expect(sent).toContain("Use what I pointed at")
+  expect(sent).toContain("CHIP-FILE-7f3a: the port is 4096")
+  expect(sent).toContain("CHIP-ARTIFACT-91c2: all green")
+  // Not the refs: the contents.
+  expect(sent).not.toContain("@chip-notes.txt")
+  expect(sent).not.toContain("@artifact:")
+})
+
+// UX-05: a terminal selection, on the engine's own PTY, goes to the model as a quoted block.
+test("a terminal selection becomes a chip the model receives", async ({ page, request }) => {
+  await script(request, { type: "text", text: "Saw the output" })
+  await openSession(page, request, { mode: "auto" })
+  await page.getByRole("button", { name: "Terminal" }).click()
+  const terminal = page.locator(".fc-terminal")
+  await expect(terminal.locator(".xterm")).toBeVisible()
+  await terminal.click()
+  await page.keyboard.type("echo chipselect$((6 * 7))")
+  await page.keyboard.press("Enter")
+  const row = terminal.locator(".xterm-rows > div").filter({ hasText: /^chipselect42\s*$/ })
+  await expect(row).toBeVisible({ timeout: 15_000 })
+  // xterm takes the mouse on its screen layer, over the rows: dragging across the line selects it.
+  const box = (await row.boundingBox())!
+  const y = box.y + box.height / 2
+  await page.mouse.move(box.x + 1, y)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, y, { steps: 8 })
+  await page.mouse.move(box.x + box.width - 2, y, { steps: 8 })
+  await page.mouse.up()
+
+  await page.getByRole("button", { name: /Add to the message|Añadir al mensaje/ }).click()
+  const chip = page.locator(".fc-composer .fc-composer-chip")
+  await expect(chip).toContainText("Terminal")
+  await expect(chip).toContainText("chipselect42")
+
+  await send(page, "What did it print?")
+  await expect(page.locator(".fc-message-assistant").filter({ hasText: "Saw the output" })).toBeVisible()
+  expect(await lastModelRequest(request)).toContain("[Terminal selection]\\n```\\nchipselect42\\n```")
 })
