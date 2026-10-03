@@ -45,6 +45,13 @@ const sampleRequests: { [Q in DecisionKind]: DecisionRequest<Q> } = {
     signals: ["verify:test ok"],
     skills: [{ name: "testing", description: "write focused tests", learned: false }],
   }),
+  modelRoute: request("modelRoute", {
+    role: "build",
+    model: "stub/large",
+    fallback: "stub/small",
+    threshold: 0.8,
+    budget: { scope: "run", unit: "usd", share: 0.5 },
+  }),
 }
 
 describe("decision kinds", () => {
@@ -55,6 +62,7 @@ describe("decision kinds", () => {
       "contextItem",
       "failure",
       "skillReflection",
+      "modelRoute",
     ])
     expect(Object.keys(DECISION_KINDS)).toEqual(decisionKinds())
   })

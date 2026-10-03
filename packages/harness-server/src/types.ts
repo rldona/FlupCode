@@ -246,6 +246,20 @@ export type TaskVerdict = {
   source: VerdictSource
 }
 
+/**
+ * Which model an agent task was sent to, and why (PI-04): its own, its role's in the policy, the
+ * engine's default, or the policy's fallback because the run neared a budget or its provider's quota.
+ * `source` says whether the deterministic rule chose it or a routing model did.
+ */
+export type TaskRoute = {
+  /** "provider/model"; absent when the engine's default ran, which the runner does not name. */
+  model?: string
+  /** Whether it is the policy's fallback in place of the model the task would have run on. */
+  fallback: boolean
+  reason: string
+  source: "rule" | "model"
+}
+
 /** A run's verdict is its worst task's, and names that task. */
 export type RunVerdict = TaskVerdict & { taskID: string }
 
@@ -490,6 +504,8 @@ export type Task = TaskInput & {
   cost?: number
   /** Whether it met its goal (RP-06), when it has been judged. Agent and verify tasks are. */
   verdict?: TaskVerdict
+  /** The model it was sent to and why (PI-04), once an agent task has started. */
+  route?: TaskRoute
 }
 
 /**

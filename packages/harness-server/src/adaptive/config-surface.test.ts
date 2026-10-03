@@ -711,6 +711,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
         contextItem: false,
         failure: false,
         skillReflection: false,
+        modelRoute: false,
       },
     })
   })
@@ -1030,7 +1031,7 @@ describe("the surface against a real config file", () => {
     expect(result.view.effective.models.completion).toBe("jev")
     const written = JSON.parse(readFileSync(path, "utf8")).flupcode.adaptive
     expect(written.jev).toEqual({ enabled: false })
-    expect(written.models).toEqual({ completion: "jev", contextItem: "jev", failure: "jev", skillReflection: "jev" })
+    expect(written.models).toEqual({ completion: "jev", contextItem: "jev", failure: "jev", skillReflection: "jev", modelRoute: "jev" })
   })
 
   test("an old config reads the same, and a consent write lands in the new shape without dropping it", async () => {

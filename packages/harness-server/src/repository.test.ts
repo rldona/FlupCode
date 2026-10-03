@@ -317,6 +317,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 13, name: "routine-reliability", backup: join(dirname(path), backup!) },
       { version: 14, name: "budget-policy", backup: join(dirname(path), backup!) },
       { version: 15, name: "quota-sample", backup: join(dirname(path), backup!) },
+      { version: 17, name: "task-route", backup: join(dirname(path), backup!) },
     ])
     repository.close()
   })
@@ -331,7 +332,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -355,6 +356,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 13, backup: null },
       { version: 14, backup: null },
       { version: 15, backup: null },
+      { version: 17, backup: null },
     ])
     expect(backupsOf(path)).toHaveLength(0)
     repository.close()
@@ -362,7 +364,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }])
     repository.close()
   })
 
@@ -1918,6 +1920,39 @@ describe("the quota-sample migration (UL-07)", () => {
     expect(repository.pruneQuotaSamples(2_500)).toBe(1)
     const copy = new Database(join(dirname(path), backup!))
     expect((copy.query("SELECT COUNT(*) AS count FROM runs").get() as { count: number }).count).toBe(1)
+    copy.close()
+    repository.close()
+  })
+})
+
+describe("the task-route migration (PI-04)", () => {
+  test("a populated database is backed up, keeps its tasks unrouted, and can hold a route", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
+    const [task] = before.addTasks(run.id, [{ name: "one", prompt: "Do it", agent: "build" }])
+    before.finishTask(task!.id, "success", { output: "Done", cost: 0.01 })
+    before.db.exec(`
+      DELETE FROM schema_version WHERE version >= 17;
+      ALTER TABLE tasks DROP COLUMN route_json;
+    `)
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v15-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 17").all()).toEqual([
+      { version: 17, name: "task-route" },
+    ])
+    // A task from before keeps what it did, and has no route: the model it ran on was not recorded.
+    const [kept] = repository.listTasks(run.id)
+    expect(kept).toMatchObject({ id: task!.id, status: "success", output: "Done", cost: 0.01 })
+    expect(kept!.route).toBeUndefined()
+    const route = { model: "cheap/small", fallback: true, reason: "The run has spent 82% of its cost budget", source: "rule" as const }
+    expect(repository.setTaskRoute(task!.id, route)?.route).toEqual(route)
+    expect(repository.getTask(task!.id)?.route).toEqual(route)
+    const copy = new Database(join(dirname(path), backup!))
+    expect((copy.query("SELECT COUNT(*) AS count FROM tasks").get() as { count: number }).count).toBe(1)
     copy.close()
     repository.close()
   })

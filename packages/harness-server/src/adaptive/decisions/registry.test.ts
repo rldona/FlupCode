@@ -63,7 +63,7 @@ const toyRequest = {
 
 describe("the decision registry (PI-02)", () => {
   test("the server's kinds are the registry's, in its order", () => {
-    expect([...DECISIONS.kinds]).toEqual(["completion", "skillRelevance", "contextItem", "failure", "skillReflection"])
+    expect([...DECISIONS.kinds]).toEqual(["completion", "skillRelevance", "contextItem", "failure", "skillReflection", "modelRoute"])
     expect(decisionKinds()).toEqual([...DECISIONS.kinds])
     expect(Object.keys(DECISION_KINDS)).toEqual([...DECISIONS.kinds])
   })

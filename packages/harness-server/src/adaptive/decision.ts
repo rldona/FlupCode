@@ -26,6 +26,7 @@ export { ITEM_DISPOSITIONS } from "./decisions/context-item"
 export type { FailureAnswer, FailureState } from "./decisions/failure"
 export type { ReflectionIntent, SkillReflectionAnswer, SkillReflectionState } from "./decisions/skill-reflection"
 export { REFLECTION_INTENTS, isReflectionIntent } from "./decisions/skill-reflection"
+export type { ModelRouteAnswer, ModelRouteState } from "./decisions/model-route"
 export type { ContextItem, ContextItemKind } from "./context-items"
 export {
   CONTEXT_ITEM_KINDS,
@@ -35,9 +36,10 @@ export {
 } from "./context-items"
 
 /**
- * The state and answer of each kind, derived from the registry. `modelRoute`, `agentRoute` and
- * `toolRisk` were removed with nothing asking them (PI-03); audit rows written before read back as an
- * `unknown` kind with the stored name in `raw`.
+ * The state and answer of each kind, derived from the registry. `agentRoute` and `toolRisk` were
+ * removed with nothing asking them (PI-03); audit rows written before read back as an `unknown` kind
+ * with the stored name in `raw`. `modelRoute` came back with its caller, the runner (PI-04), as a
+ * different question; the old one had no caller, so it never wrote a row.
  */
 export type DecisionSpec = SpecOf<(typeof BUILT_IN_DECISIONS)[number]>
 

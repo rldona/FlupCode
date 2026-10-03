@@ -66,6 +66,13 @@ const SAMPLES: { [Q in DecisionKind]: DecisionRequest<Q> } = {
     signals: ["verify:test ok"],
     skills: [{ name: "testing", description: "write focused tests", learned: false }],
   }),
+  modelRoute: request("modelRoute", {
+    role: "build",
+    model: "stub/large",
+    fallback: "stub/small",
+    threshold: 0.8,
+    budget: { scope: "run", unit: "usd", share: 0.5 },
+  }),
 }
 
 const store: GovernorStore = {
@@ -74,9 +81,9 @@ const store: GovernorStore = {
 }
 
 describe("Phase 2 evaluation (offline, recorded)", () => {
-  test("deterministic coverage: 5/5 kinds answer with Jev off", () => {
+  test("deterministic coverage: 6/6 kinds answer with Jev off", () => {
     const answered = decisionKinds().filter((kind) => deterministicBaseline(SAMPLES[kind]).answer !== undefined)
-    expect(answered).toHaveLength(5)
+    expect(answered).toHaveLength(6)
   })
 
   test("parsing: 3/3 Jev answer types land on their question id", async () => {
@@ -116,7 +123,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
     expect(wireQuestions(questions).map((question) => question.id)).toEqual(["w0", "w1", "w2"])
   })
 
-  test("fallback equality: 5/5 answers equal the deterministic baseline byte for byte", async () => {
+  test("fallback equality: 6/6 answers equal the deterministic baseline byte for byte", async () => {
     // A model that is down, asked for every kind through the registry: the service degrades each
     // decision to its baseline, whatever the kind.
     const down = createRetryingModel({
@@ -151,7 +158,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
       expect(result).toMatchObject({ degraded: true, degradedReason: "network" })
       if (JSON.stringify(result.answer) === JSON.stringify(deterministicBaseline(SAMPLES[kind]).answer)) equal += 1
     }
-    expect(equal).toBe(5)
+    expect(equal).toBe(6)
     repository.close()
   })
 

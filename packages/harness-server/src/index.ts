@@ -55,7 +55,7 @@ import { SOCKET_PATH } from "@flupcode/bridge-extension/protocol"
 import { PREVIEW_HOST_PATH, PREVIEW_SOCKET, createPreview, createPreviewCapture, upgradePreviewHost, type PreviewSocket } from "./browser-preview"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
-import { parseModelKey } from "./policy"
+import { createRouter, parseModelKey } from "./policy"
 import { createDecisionService } from "./adaptive/decision-service"
 import { createValueGate } from "./adaptive/value-gate"
 import { createContextManager } from "./adaptive/context-manager"
@@ -337,6 +337,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     // Every agent task is judged (RP-06); the `completion` decision asks a model only where one is
     // assigned and consented to, and otherwise the deterministic rule's verdict stands.
     auditor: createAuditor(decisions, () => adaptive.current()),
+    // A run with a fallback moves its next task there at 80% of a budget or a quota window (PI-04);
+    // `modelRoute` asks a model only where one is assigned, and a model can only move it sooner.
+    router: createRouter(decisions, () => adaptive.current()),
   })
   // The learning manager (FH-034): it reflects on closed episodes and sweeps for terminal ones with
   // no job. The draft is the only model call, through a throwaway engine session, and only when a

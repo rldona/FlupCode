@@ -160,7 +160,7 @@ describe("an old config still loads (PI-01)", () => {
     expect(config.providers).toEqual({
       jev: { endpoint: "https://api.typesafe.test/v1/systemone", model: "jev-1.12.0", timeoutMs: 300, maxInputChars: 900 },
     })
-    expect(Object.values(config.models)).toEqual(Array(5).fill("jev"))
+    expect(Object.values(config.models)).toEqual(Array(6).fill("jev"))
     expect(config.egress.providers.jev).toMatchObject({ enabled: true, projects: ["/work/project"] })
     expect(config.egress.providers.jev?.kinds).toMatchObject({ completion: true, skillRelevance: true })
     expect(config.decisions.skillRelevance).toMatchObject({ allowModel: false, minConfidence: 0.7 })

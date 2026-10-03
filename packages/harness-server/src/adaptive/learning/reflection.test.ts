@@ -63,7 +63,7 @@ describe("the skillReflection kind (FH-031)", () => {
   test("is registered in every exhaustive map, and does not join E2", () => {
     expect(decisionKinds()).toContain("skillReflection")
     expect(Object.keys(DECISION_KINDS)).toEqual(decisionKinds())
-    expect(decisionKinds()).toHaveLength(5)
+    expect(decisionKinds()).toHaveLength(6)
     expect(E2_KINDS).toHaveLength(3)
     expect(isE2Kind("skillReflection")).toBe(false)
   })
