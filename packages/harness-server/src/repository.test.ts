@@ -317,6 +317,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 13, name: "routine-reliability", backup: join(dirname(path), backup!) },
       { version: 14, name: "budget-policy", backup: join(dirname(path), backup!) },
       { version: 15, name: "quota-sample", backup: join(dirname(path), backup!) },
+      { version: 16, name: "semantic-checkpoint", backup: join(dirname(path), backup!) },
       { version: 17, name: "task-route", backup: join(dirname(path), backup!) },
       { version: 20, name: "task-visual", backup: join(dirname(path), backup!) },
     ])
@@ -333,7 +334,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
     const second = open(path)
     expect(backupsOf(path)).toHaveLength(1)
-    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }, { version: 20 }])
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 20 }])
     expect(second.listDecisions()).toEqual(decisions)
     expect(second.listPlans()).toEqual(plans)
     second.close()
@@ -357,6 +358,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
       { version: 13, backup: null },
       { version: 14, backup: null },
       { version: 15, backup: null },
+      { version: 16, backup: null },
       { version: 17, backup: null },
       { version: 20, backup: null },
     ])
@@ -366,7 +368,7 @@ describe("the versioned decision audit migration (AH-C02)", () => {
 
   test("an in-memory database migrates and is never backed up", () => {
     const repository = open()
-    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 17 }, { version: 20 }])
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 20 }])
     repository.close()
   })
 
@@ -1987,6 +1989,59 @@ describe("the quota-sample migration (UL-07)", () => {
   })
 })
 
+describe("the semantic-checkpoint migration (CL-3)", () => {
+  test("a populated database is backed up, its checkpoints keep their rows, and new ones name their conversation", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000, "/work/demo")
+    const [task] = before.addTasks(run.id, [{ name: "one", prompt: "Do it" }])
+    const old = before.addCheckpoint({
+      id: "cp_old",
+      directory: "/work/demo",
+      sha: "a".repeat(40),
+      title: "one",
+      summary: "What one concluded",
+      runID: run.id,
+      taskID: task!.id,
+      createdAt: 2_000,
+    })
+    before.db.exec(`
+      DELETE FROM schema_version WHERE version >= 16;
+      ALTER TABLE checkpoints DROP COLUMN session_id;
+      ALTER TABLE checkpoints DROP COLUMN message_id;
+      ALTER TABLE checkpoints DROP COLUMN summary_artifact_id;
+    `)
+    before.close()
+
+    const repository = open(path)
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v15-/)
+    expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 16").all()).toEqual([
+      { version: 16, name: "semantic-checkpoint" },
+    ])
+    // A point from before names no conversation and no summary: it restores its files alone.
+    expect(repository.getCheckpoint(old.id)).toEqual(old)
+    const summary = repository.addArtifact({ kind: "checkpoint", title: "After one", producer: "harness", content: "After one: 1 of 1 tasks done.", runID: run.id })
+    const point = repository.addCheckpoint({
+      ...old,
+      id: "cp_new",
+      sessionID: "ses_1",
+      messageID: "msg_1",
+      summaryArtifactID: summary.id,
+      createdAt: 3_000,
+    })
+    expect(repository.getCheckpoint(point.id)).toEqual(point)
+    expect(repository.listCheckpoints({ runID: run.id }).map((entry) => entry.id)).toEqual(["cp_new", "cp_old"])
+    // The next summary of the run is the next version of the same document.
+    const next = repository.addArtifact({ kind: "checkpoint", title: "After two", producer: "harness", content: "two", runID: run.id, logicalID: summary.logicalID })
+    expect(next).toMatchObject({ logicalID: summary.logicalID, version: 2 })
+    const copy = new Database(join(dirname(path), backup!))
+    expect(copy.query("SELECT id, summary FROM checkpoints").all()).toEqual([{ id: "cp_old", summary: "What one concluded" }])
+    copy.close()
+    repository.close()
+  })
+})
+
 describe("the task-route migration (PI-04)", () => {
   test("a populated database is backed up, keeps its tasks unrouted, and can hold a route", () => {
     const path = scratch()
@@ -2002,7 +2057,7 @@ describe("the task-route migration (PI-04)", () => {
 
     const repository = open(path)
     const [backup] = backupsOf(path)
-    expect(backup).toMatch(/^harness\.sqlite\.bak-v15-/)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v16-/)
     expect(repository.db.query("SELECT version, name FROM schema_version WHERE version = 17").all()).toEqual([
       { version: 17, name: "task-route" },
     ])

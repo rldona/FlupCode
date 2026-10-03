@@ -297,7 +297,7 @@ export function createWorkspace(app: AppStores) {
     void createHarnessClient(app.connection.harnessServerUrl())
       .checkpoints.restore(id)
       .then((done) => {
-        const plan = done?.plan
+        const plan = done?.plan.files
         setCheckpointTick((tick) => tick + 1)
         void refetchChanges()
         void refetchVcsStatus()
@@ -314,9 +314,13 @@ export function createWorkspace(app: AppStores) {
   const takeCheckpoint = (title: string) => {
     const directory = app.sessions.vcsDirectory()
     if (!directory) return
+    // Taken in the open conversation when it works in this folder (CL-3): restoring the point then
+    // takes that conversation back with the files.
+    const session = app.sessions.selectedSession()
+    const sessionID = session?.location?.directory === directory ? session.id : undefined
     setCheckpointBusy(true)
     void createHarnessClient(app.connection.harnessServerUrl())
-      .checkpoints.take({ directory, title })
+      .checkpoints.take({ directory, title, ...(sessionID ? { sessionID } : {}) })
       .then(() => setCheckpointTick((tick) => tick + 1))
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
       .finally(() => setCheckpointBusy(false))

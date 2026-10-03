@@ -226,7 +226,7 @@ describe("checkpoints in the harness", () => {
 
     const plan = await handler(new Request(`http://x/harness/checkpoints/${oldest.id}/plan`))
     expect(plan.status).toBe(200)
-    expect((await plan.json()).data).toEqual({ write: ["kept.txt"], remove: [] })
+    expect((await plan.json()).data).toEqual({ files: { write: ["kept.txt"], remove: [] }, conversation: { state: "none" } })
     const restored = await handler(new Request(`http://x/harness/checkpoints/${oldest.id}/restore`, { method: "POST" }))
     expect(restored.status).toBe(200)
     expect(read("kept.txt")).toBe("version 0\n")
@@ -297,6 +297,49 @@ describe("checkpoints in the harness", () => {
     expect(await ref(byHand.id)).toBe(byHand.sha)
     // Nothing more to do the second time.
     expect(repository.removeStaleCheckpoints()).toEqual([])
+    repository.close()
+  }, 60_000)
+
+  // CL-3: a fork carries over what the tasks done by the point were and found, not only that they ran.
+  test("a fork carries over a done task's route and its visual check with what it found", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    const parent = repository.startRun({ type: "manual" }, 1_000, directory)
+    const visual = { steps: [{ screenshot: "home" }], mask: [".clock"], tolerance: 0.01, settle: { captures: 3, intervalMs: 100 } }
+    const [build, look, ship] = repository.addTasks(parent.id, [
+      { name: "build", prompt: "Build it", agent: "build" },
+      { name: "look", prompt: "", kind: "verify", visual },
+      { name: "ship", prompt: "Ship it" },
+    ])
+    const route = { model: "cheap/small", fallback: true, reason: "The run has spent 82% of its cost budget", source: "rule" as const }
+    const found = { status: "ran" as const, url: "http://localhost:5173/", shots: [{ name: "home", outcome: "first" as const, changed: 0, stable: true, after: "art_1" }] }
+    repository.setTaskRoute(build!.id, route)
+    repository.finishTask(build!.id, "success", { output: "Built" }, 2_000)
+    repository.finishTask(look!.id, "success", { output: "Looked", visual: found }, 3_000)
+    repository.setTaskVerdict(look!.id, { value: "verified", reason: "The page looks the same", source: "check" })
+    const after = repository.addCheckpoint({ ...(await take({ directory, title: "look", runID: parent.id, taskID: look!.id })), createdAt: 3_500 })
+    repository.finishTask(ship!.id, "failed", { error: "No" }, 4_000)
+    repository.finishRun(parent.id, "failed", "No")
+
+    const plan = await scheduler.forkPlan(after.id)
+    expect(plan.kept.map((task) => task.name)).toEqual(["build", "look"])
+    expect(plan.tasks.map((task) => task.name)).toEqual(["ship"])
+    const child = await scheduler.fork(after.id)
+    const [carriedBuild, carriedLook, again] = repository.listTasks(child!.id)
+    expect(carriedBuild).toMatchObject({ name: "build", status: "success", output: "Built", route })
+    expect(carriedLook).toMatchObject({
+      name: "look",
+      kind: "verify",
+      status: "success",
+      visual,
+      visualResult: found,
+      verdict: { value: "verified" },
+    })
+    // What runs again is a first attempt with nothing of the parent's: its route is decided when it runs.
+    expect(again).toMatchObject({ name: "ship", attempt: 1 })
+    expect(again!.route).toBeUndefined()
+    expect(again!.retryOf).toBeUndefined()
+    await scheduler.stopAll()
     repository.close()
   }, 60_000)
 })

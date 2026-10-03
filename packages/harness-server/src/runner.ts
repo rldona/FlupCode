@@ -12,6 +12,7 @@ import { parseFindings } from "./findings"
 import { artifactQuote, packFiles, packRefs, expandArtifactRefs } from "./packs"
 import { parsePlan } from "./plan"
 import { fallbackModel, nearBudget, noteModel, routeTask, runPressure, modelForTask, type Model, type Pressure, type Router } from "./policy"
+import { filesOfStep, writeSummary } from "./semantic-checkpoint"
 import { announce, hardReason, runStandings } from "./budget"
 import { ActionRunError } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
@@ -327,6 +328,11 @@ export class TaskRunner {
      * no preview, and a task that declares one says it did not run.
      */
     private readonly visualCheck?: VisualRunner,
+    /**
+     * The small model a checkpoint's summary is written by (CL-3), read per checkpoint. Absent, or
+     * resolving to nothing, the summary is written from the facts the run recorded.
+     */
+    private readonly summaryModel?: () => Model | undefined,
   ) {}
 
   /**
@@ -1303,6 +1309,14 @@ export class TaskRunner {
   private async afterTask(task: Task, context: RunContext, directory?: string) {
     if (directory) {
       try {
+        // Where the conversation stands (CL-3): restoring the point takes the task's session back here.
+        const sessionID = this.repository.getTask(task.id)?.sessionID
+        const engine = this.engine as Engine & { newestMessage?: unknown }
+        const messageID =
+          sessionID && typeof engine.newestMessage === "function"
+            ? await this.engine.newestMessage(sessionID).catch(() => undefined)
+            : undefined
+        const previous = this.repository.listCheckpoints({ runID: context.run.id }, 1)[0]
         const checkpoint = await take({
           directory,
           title: task.name,
@@ -1310,8 +1324,10 @@ export class TaskRunner {
           summary: context.handoffs.get(task.id),
           runID: context.run.id,
           taskID: task.id,
+          ...(sessionID && messageID ? { sessionID, messageID } : {}),
         })
-        this.repository.addCheckpoint(checkpoint)
+        const summary = await this.summarise(task, context, checkpoint, previous)
+        this.repository.addCheckpoint({ ...checkpoint, summaryArtifactID: summary.id })
       } catch {
         // Nothing to say here: the run is fine, there is simply no way back from this step.
       }
@@ -1322,6 +1338,45 @@ export class TaskRunner {
       this.repository.setPaused(context.run.id, "gate")
       context.pause = "gate"
     }
+  }
+
+  /**
+   * What the run had decided by this checkpoint (CL-3), kept as the next version of the run's summary
+   * document, so its versions read as the run's history. Written by the small model when one is
+   * configured, and from the facts otherwise; the producer says which.
+   */
+  private async summarise(task: Task, context: RunContext, checkpoint: Checkpoint, previous?: Checkpoint) {
+    const tasks = this.repository.listTasks(context.run.id)
+    const superseded = new Set(tasks.flatMap((entry) => (entry.retryOf ? [entry.retryOf] : [])))
+    const written = await writeSummary({
+      engine: this.engine,
+      model: this.summaryModel?.(),
+      facts: {
+        after: task.name,
+        tasks: tasks.filter((entry) => !superseded.has(entry.id)),
+        // A fork's first step is measured from the point it was forked from, not from the commit.
+        files: await filesOfStep(
+          checkpoint,
+          previous ?? (context.run.forkOf ? this.repository.getCheckpoint(context.run.forkOf.checkpointID) : undefined),
+        ),
+        note: context.handoffs.get(task.id),
+      },
+      directory: checkpoint.directory,
+      onSession: (sessionID) =>
+        this.repository.attributeSession(sessionID, { runID: context.run.id, taskID: task.id, purpose: "checkpoint" }),
+    })
+    const document = previous?.summaryArtifactID ? this.repository.getArtifact(previous.summaryArtifactID)?.logicalID : undefined
+    return this.repository.addArtifact({
+      kind: "checkpoint",
+      title: `After ${task.name}`,
+      producer: written.by === "facts" ? "harness" : "agent",
+      content: written.text,
+      directory: checkpoint.directory,
+      runID: context.run.id,
+      taskID: task.id,
+      ...(checkpoint.sessionID ? { sessionID: checkpoint.sessionID } : {}),
+      ...(document ? { logicalID: document } : {}),
+    })
   }
 }
 

@@ -71,6 +71,8 @@ function DeskRuns() {
       onCancelTask={app.runs.cancelTask}
       onResume={app.runs.resumeRun}
       onResumePlan={app.runs.resumePlan}
+      checkpoints={app.runs.runCheckpoints}
+      onFocusRun={(runID) => app.runs.setRunFocus({ runID })}
       onBestOfN={() => app.router.setBestOfNOpen(true)}
       requests={app.runs.runRequests() ?? {}}
       unattended={app.runs.projectUnattended() ?? {}}

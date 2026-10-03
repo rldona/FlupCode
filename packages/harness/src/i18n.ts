@@ -295,6 +295,7 @@ const ES: Record<string, string> = {
   verdict: "veredicto",
   plan: "plan",
   handoff: "traspaso",
+  checkpoint: "punto de retorno",
   diff: "cambios",
   log: "registro",
   file: "archivo",
@@ -1270,6 +1271,29 @@ const ES: Record<string, string> = {
   "The folder goes back to the checkpoint after {task}.": "La carpeta vuelve al punto de retorno tras {task}.",
   "No checkpoint before this work: the folder stays as it is.":
     "No hay punto de retorno antes de este trabajo: la carpeta se queda como está.",
+
+  // Checkpoints as points in the work (CL-3)
+  "Only the files go back: this point was not taken in a conversation.":
+    "Solo vuelven los archivos: este punto no se guardó en una conversación.",
+  "Only the files go back: the conversation this point was taken in is gone.":
+    "Solo vuelven los archivos: la conversación en la que se guardó este punto ya no existe.",
+  "The conversation is already at this point.": "La conversación ya está en este punto.",
+  "The conversation goes back too: the prompt made since, and its answer, are removed.":
+    "La conversación también vuelve: se eliminan el mensaje enviado desde entonces y su respuesta.",
+  "The conversation goes back too: the {n} prompts made since, and their answers, are removed.":
+    "La conversación también vuelve: se eliminan los {n} mensajes enviados desde entonces y sus respuestas.",
+  "A checkpoint of how the files are now is recorded first, so they can be put back; the removed prompts cannot.":
+    "Antes se guarda un punto con los archivos actuales, así que se pueden recuperar; los mensajes eliminados no.",
+  "By then": "Hasta entonces",
+  "From what the run recorded": "A partir de lo que registró la ejecución",
+  "Written by the small model": "Escrito por el modelo pequeño",
+  "Every checkpoint of this folder": "Todos los puntos de retorno de esta carpeta",
+  "A new run starts from this checkpoint. This run and its conversations stay as they are.":
+    "Una ejecución nueva empieza desde este punto. Esta ejecución y sus conversaciones se quedan como están.",
+  "Carried over as done: {names}": "Se mantienen como hechas: {names}",
+  "Forked from": "Bifurcada desde",
+  "Forked from a run that is gone": "Bifurcada desde una ejecución que ya no existe",
+  "Run forked": "Ejecución bifurcada",
 
   // Why CI failed
   Why: "Por qué",

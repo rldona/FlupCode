@@ -737,6 +737,9 @@ type CheckpointRow = {
   summary: string | null
   run_id: string | null
   task_id: string | null
+  session_id: string | null
+  message_id: string | null
+  summary_artifact_id: string | null
   created_at: number
 }
 
@@ -748,6 +751,9 @@ const decodeCheckpoint = (row: CheckpointRow): Checkpoint => ({
   ...(row.summary ? { summary: row.summary } : {}),
   ...(row.run_id ? { runID: row.run_id } : {}),
   ...(row.task_id ? { taskID: row.task_id } : {}),
+  ...(row.session_id ? { sessionID: row.session_id } : {}),
+  ...(row.message_id ? { messageID: row.message_id } : {}),
+  ...(row.summary_artifact_id ? { summaryArtifactID: row.summary_artifact_id } : {}),
   createdAt: row.created_at,
 })
 
@@ -1198,7 +1204,7 @@ const decodeOptions = (
   value: string | null,
 ): Pick<
   Run,
-  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt" | "nearBudget"
+  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt" | "nearBudget" | "forkOf"
 > => {
   if (!value) return {}
   try {
@@ -1215,6 +1221,7 @@ const decodeOptions = (
       nearBudget?: unknown
       allow?: unknown
       attempt?: unknown
+      forkOf?: { runID?: unknown; checkpointID?: unknown }
     }
     const allow = parseAllow(parsed.allow)
     return {
@@ -1239,6 +1246,9 @@ const decodeOptions = (
       ...(typeof parsed.overBudget === "string" ? { overBudget: parsed.overBudget } : {}),
       ...(allow !== undefined ? { allow } : {}),
       ...(typeof parsed.attempt === "number" && parsed.attempt > 1 ? { attempt: parsed.attempt } : {}),
+      ...(typeof parsed.forkOf?.runID === "string" && typeof parsed.forkOf.checkpointID === "string"
+        ? { forkOf: { runID: parsed.forkOf.runID, checkpointID: parsed.forkOf.checkpointID } }
+        : {}),
     }
   } catch {
     return {}
@@ -1248,7 +1258,7 @@ const decodeOptions = (
 const encodeOptions = (
   run: Pick<
     Run,
-    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt" | "nearBudget"
+    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "overBudget" | "allow" | "attempt" | "nearBudget" | "forkOf"
   >,
 ) => {
   const options = {
@@ -1264,6 +1274,7 @@ const encodeOptions = (
     ...(run.overBudget ? { overBudget: run.overBudget } : {}),
     ...(run.nearBudget ? { nearBudget: run.nearBudget } : {}),
     ...(run.allow && run.allow.length > 0 ? { allow: run.allow } : {}),
+    ...(run.forkOf ? { forkOf: run.forkOf } : {}),
   }
   return Object.keys(options).length > 0 ? JSON.stringify(options) : null
 }
@@ -1696,6 +1707,19 @@ export class SqliteRoutineRepository implements RoutineRepository {
           `),
       },
       {
+        // A checkpoint is also a point in a conversation and in what was decided (CL-3): the session
+        // that did the work and its newest message then, and the summary written for it. Points from
+        // before keep none of them, and restore their files alone, as they always did.
+        version: 16,
+        name: "semantic-checkpoint",
+        rewrites: true,
+        up: () => {
+          this.addColumn("checkpoints", "session_id", "TEXT")
+          this.addColumn("checkpoints", "message_id", "TEXT")
+          this.addColumn("checkpoints", "summary_artifact_id", "TEXT")
+        },
+      },
+      {
         // Which model an agent task was sent to and why (PI-04). Tasks from before have none: the
         // model they ran on was not recorded, and naming one now would be a guess.
         version: 17,
@@ -2110,7 +2134,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     source: RunSource,
     now: number,
     directory?: string,
-    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "allow" | "workflow" | "attempt"> = {},
+    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "allow" | "workflow" | "attempt" | "forkOf"> = {},
   ) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
@@ -2588,8 +2612,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
   addCheckpoint(checkpoint: Checkpoint) {
     this.db
       .query(
-        `INSERT INTO checkpoints (id, directory, sha, title, summary, run_id, task_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+        `INSERT INTO checkpoints
+           (id, directory, sha, title, summary, run_id, task_id, created_at, session_id, message_id, summary_artifact_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
       )
       .run(
         checkpoint.id,
@@ -2600,6 +2625,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
         checkpoint.runID ?? null,
         checkpoint.taskID ?? null,
         checkpoint.createdAt,
+        checkpoint.sessionID ?? null,
+        checkpoint.messageID ?? null,
+        checkpoint.summaryArtifactID ?? null,
       )
     this.append({ type: "checkpoint.added", checkpoint })
     return checkpoint

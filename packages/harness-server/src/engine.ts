@@ -224,6 +224,31 @@ export class Engine {
     return (await this.v2()).describeSession(sessionID)
   }
 
+  /** The id of a session's newest message (CL-3). */
+  async newestMessage(sessionID: string) {
+    return (await this.v2()).newestMessage(sessionID)
+  }
+
+  /** The prompts a session holds after one of its messages, and the first of them (CL-3). */
+  async conversationSince(sessionID: string, messageID: string) {
+    return (await this.v2()).conversationSince(sessionID, messageID)
+  }
+
+  /** Hides a message and everything after it, and puts back the files the session changed since. */
+  async stageRevert(sessionID: string, messageID: string) {
+    return (await this.v2()).stageRevert(sessionID, messageID)
+  }
+
+  /** Undoes a staged revert. */
+  async clearRevert(sessionID: string) {
+    return (await this.v2()).clearRevert(sessionID)
+  }
+
+  /** Drops what a staged revert hid, for good. */
+  async commitRevert(sessionID: string) {
+    return (await this.v2()).commitRevert(sessionID)
+  }
+
   /** A session's whole transcript, oldest first: every message with its parts. */
   async messages(sessionID: string) {
     return (await this.v2()).messages(sessionID)

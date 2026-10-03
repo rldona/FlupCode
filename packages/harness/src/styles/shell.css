@@ -12307,6 +12307,99 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+/* A run's timeline of checkpoints (CL-3): one point per task, what was decided and spent by then. */
+.fc-run-foot .fc-run-timeline[open] {
+  flex-basis: 100%;
+}
+
+.fc-timeline {
+  display: flex;
+  flex-direction: column;
+  margin: var(--fc-space-2) 0;
+  padding: 0;
+  list-style: none;
+  font-family: inherit;
+}
+
+.fc-timeline-point {
+  position: relative;
+  padding: 0 0 var(--fc-space-3) var(--fc-space-4);
+  border-left: 1px solid var(--fc-border);
+  margin-left: 4px;
+}
+
+.fc-timeline-point:last-child {
+  padding-bottom: 0;
+}
+
+.fc-timeline-point::before {
+  position: absolute;
+  top: 6px;
+  left: -5px;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--fc-accent);
+  border-radius: 50%;
+  background: var(--fc-bg-elevated);
+  content: "";
+}
+
+.fc-timeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-1) var(--fc-space-2);
+  align-items: center;
+}
+
+.fc-timeline-head .fc-checkpoint-when {
+  flex: 1 1 auto;
+}
+
+.fc-timeline-actions {
+  display: inline-flex;
+  gap: var(--fc-space-1);
+}
+
+.fc-timeline-decided {
+  margin-top: var(--fc-space-1);
+}
+
+.fc-timeline-by {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-timeline-decided pre {
+  max-height: 160px;
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  margin: 4px 0 0;
+  background: var(--fc-bg);
+  font-family: var(--fc-font-mono);
+  font-size: var(--fc-text-xs);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fc-checkpoint-plan > .fc-run-meta {
+  margin: 0 0 var(--fc-space-1);
+}
+
+.fc-run-fork {
+  margin: 4px 0 0;
+}
+
+.fc-run-fork-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fc-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
 .fc-run-files-none {
   grid-column: 1 / -1;
   margin: 4px 0 0;
