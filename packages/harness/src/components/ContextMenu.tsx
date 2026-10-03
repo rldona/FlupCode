@@ -1,10 +1,11 @@
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { cssPx } from "../text-size"
+import { Icon, type IconName } from "./Icon"
 
 export type MenuItem =
   | {
       label: string
-      icon?: string
+      icon?: IconName
       shortcut?: string
       danger?: boolean
       disabled?: boolean
@@ -153,7 +154,7 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
                 close()
               }}
             >
-              <span class="fc-menu-icon">{item.icon ?? ""}</span>
+              <span class="fc-menu-icon">{item.icon && <Icon name={item.icon} />}</span>
               <span class="fc-menu-label">{item.label}</span>
               <Show when={item.shortcut}>
                 <span class="fc-menu-shortcut">{item.shortcut}</span>

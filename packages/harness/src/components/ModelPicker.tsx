@@ -3,6 +3,7 @@ import type { ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { groupedModels, isDeprecated, modelKey } from "../model-catalog"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type ModelPickerProps = {
   open: boolean
@@ -49,7 +50,7 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
           <span class="fc-model-name">{props.emptyLabel}</span>
           <Show when={!props.selectedKey}>
             <span class="fc-model-clear-check" aria-hidden="true">
-              ✓
+              <Icon name="check" />
             </span>
           </Show>
         </button>
@@ -102,7 +103,7 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
                               aria-label={t("Favorite")}
                               onClick={() => props.onToggleFavorite(key(model))}
                             >
-                              {props.favorites.includes(key(model)) ? "★" : "☆"}
+                              <Icon name={props.favorites.includes(key(model)) ? "star-filled" : "star"} />
                             </button>
                           </li>
                         )

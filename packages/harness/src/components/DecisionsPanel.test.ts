@@ -91,9 +91,9 @@ describe("the provider-neutral audit (AH-C02)", () => {
 
 describe("the real outcome (AH-C06)", () => {
   test("a row carries a tick, a cross or a question mark, and nothing before it is labelled", () => {
-    expect(labelMark({ outcome: "correct", source: "skill-loads", labeledAt: 1 })).toBe("✓")
-    expect(labelMark({ outcome: "incorrect", source: "skill-loads", labeledAt: 1 })).toBe("✗")
-    expect(labelMark({ outcome: "unknown", source: "max-age", labeledAt: 1 })).toBe("?")
+    expect(labelMark({ outcome: "correct", source: "skill-loads", labeledAt: 1 })).toBe("check")
+    expect(labelMark({ outcome: "incorrect", source: "skill-loads", labeledAt: 1 })).toBe("close")
+    expect(labelMark({ outcome: "unknown", source: "max-age", labeledAt: 1 })).toBe("question")
     expect(labelMark(undefined)).toBeUndefined()
   })
 

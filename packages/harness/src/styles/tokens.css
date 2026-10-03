@@ -157,11 +157,27 @@
   --fc-font-brand: "Nunito Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   /* Named in docs/DESIGN.md §3 and written out by hand in twenty-one rules until now. */
   --fc-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Type (UX-06): every font size in the app is one of these, and nothing else writes one
+     (tokens.test.ts checks). The dense UI reads at sm and base; md is a body line; lg up are titles. */
+  --fc-text-2xs: 10px;
   --fc-text-xs: 11px;
   --fc-text-sm: 12px;
+  --fc-text-base: 13px;
   --fc-text-md: 14px;
   --fc-text-lg: 16px;
-  --fc-text-xl: 26px;
+  --fc-text-xl: 18px;
+  --fc-text-2xl: 20px;
+  --fc-text-3xl: 26px;
+  --fc-text-4xl: 32px;
+  --fc-text-display: 40px;
+  /* A screen's own title, which grows with the window. */
+  --fc-text-title: clamp(24px, 3vw, 34px);
+  /* A run of text one step smaller than the text around it, such as inline code. */
+  --fc-text-smaller: 0.9em;
+  /* Headings in a rendered message: the phone remote sets its own below. */
+  --fc-text-h1: var(--fc-text-2xl);
+  --fc-text-h2: var(--fc-text-xl);
+  --fc-text-h3: var(--fc-text-lg);
 
   /* Motion (UX-03): two durations and one easing, and nothing else in the app writes a time or a
      curve (tokens.test.ts checks). Short is a change in place: a hover, a press, a chevron turning.
@@ -615,6 +631,19 @@
   --fc-terminal-bg: #000000;
   --fc-terminal-fg: #ededed;
   --fc-bg-subtle: rgba(255, 255, 255, 0.06);
+}
+
+/* The phone remote reads at a larger scale: the same names, bigger values, so every component that
+   uses a token follows it. */
+.fc-mobile-remote {
+  --fc-text-xs: 13px;
+  --fc-text-sm: 15px;
+  --fc-text-md: 17px;
+  --fc-text-lg: 18px;
+  --fc-text-3xl: 30px;
+  --fc-text-h1: 24px;
+  --fc-text-h2: 21px;
+  --fc-text-h3: 19px;
 }
 
 /* Before the app bundle loads, the inline script in index.html paints this colour, because the

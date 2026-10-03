@@ -2,6 +2,7 @@ import { For, Show, createSignal, type Component } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { QuestionV2Request } from "../engine-types"
 import { t } from "../i18n"
+import { Icon } from "./Icon"
 
 type QuestionDockProps = {
   request: QuestionV2Request
@@ -99,16 +100,7 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
             aria-label={t(collapsed() ? "Expand" : "Collapse")}
             onClick={() => setCollapsed((value) => !value)}
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                d={collapsed() ? "M9 6l6 6-6 6" : "M6 9l6 6 6-6"}
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
+            <Icon name={collapsed() ? "chevron-right" : "chevron-down"} size={16} />
           </button>
           <button
             class="fc-dock-control"
@@ -118,15 +110,7 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
             aria-label={t("Dismiss")}
             onClick={props.onReject}
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                d="M6 6l12 12M18 6L6 18"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
-            </svg>
+            <Icon name="close" size={16} />
           </button>
         </div>
       </div>

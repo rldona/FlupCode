@@ -6,6 +6,7 @@ import { createHarnessClient } from "../client"
 import { toast } from "../toast"
 import { holdModalFocus } from "../modal-focus"
 import type { SessionAdaptiveOverride, SessionTurnSummary } from "../types"
+import { Icon } from "./Icon"
 
 type AdaptiveChipProps = {
   serverUrl: string
@@ -117,7 +118,9 @@ export const AdaptiveChip: Component<AdaptiveChipProps> = (props) => {
         }}
       >
         {chipLabel(current()?.override)}
-        <span class="fc-mode-caret">▾</span>
+        <span class="fc-mode-caret">
+          <Icon name="chevron-down" />
+        </span>
       </button>
       <Show when={open()}>
         <div

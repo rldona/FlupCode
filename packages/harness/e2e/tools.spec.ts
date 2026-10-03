@@ -89,7 +89,8 @@ test("each tool draws its own result, not a wall of text", async ({ page }) => {
   await todos.locator(".fc-tool-header").click()
   await expect(todos.locator(".fc-tool-todo")).toHaveCount(3)
   await expect(todos.locator(".fc-tool-todo").nth(1)).toHaveAttribute("data-status", "in_progress")
-  await expect(todos.locator(".fc-tool-todo").nth(0).locator(".fc-tool-todo-mark")).toHaveText("✓")
+  // The mark is the icon set's, not a glyph (UX-06).
+  await expect(todos.locator(".fc-tool-todo").nth(0).locator(".fc-tool-todo-mark svg.fc-icon")).toBeVisible()
 
   // A glob result is a list of paths.
   const glob = toolCard(page, "glob")
@@ -100,6 +101,8 @@ test("each tool draws its own result, not a wall of text", async ({ page }) => {
   const read = toolCard(page, "read")
   await read.locator(".fc-tool-header").click()
   await expect(read.locator(".fc-tool-read")).toContainText("export const a")
+  // Coloured by the transcript's highlighter, the same one as a code block in a message (UX-06).
+  await expect.poll(() => read.locator(".fc-tool-read span[style*='color']").count(), { timeout: 10_000 }).toBeGreaterThan(0)
 
   // A fetch shows the link it went to.
   const fetch = toolCard(page, "webfetch")

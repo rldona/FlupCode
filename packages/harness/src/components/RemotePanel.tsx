@@ -9,6 +9,7 @@ import { RemoteNotifications } from "./RemoteNotifications"
 import { Toggle } from "./Toggle"
 import { probeServer, type ServerStatus } from "../client"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type RemotePanelProps = {
   open: boolean
@@ -174,7 +175,7 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
                       </span>
                       <Show when={device.notifications}>
                         <span class="fc-status" title={t("Notifications on")} aria-label={t("Notifications on")}>
-                          🔔
+                          <Icon name="bell" />
                         </span>
                       </Show>
                       <button
@@ -416,7 +417,7 @@ export const RemotePanel: Component<RemotePanelProps> = (props) => {
         <span class="fc-modal-heading">
           <Show when={props.onBack}>
             <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-              ←
+              <Icon name="arrow-left" />
             </button>
           </Show>
           <span>{t("Remote control")}</span>

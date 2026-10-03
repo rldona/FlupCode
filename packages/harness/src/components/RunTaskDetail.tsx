@@ -10,6 +10,7 @@ import { StateBadge } from "./StateBadge"
 import { elapsed } from "./RunGraph"
 import { taskState } from "../run-state"
 import { ResumeConfirm } from "./ResumeConfirm"
+import { Icon } from "./Icon"
 
 type RunTaskDetailProps = {
   run: Run
@@ -105,7 +106,7 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
         {/* Where it stands, once, as its node on the card says it (UX-04). */}
         <StateBadge state={taskState(props.task)} reason={props.task.verdict?.reason} />
         <button class="fc-icon-button" type="button" aria-label={t("Close")} title={t("Close")} onClick={props.onClose}>
-          ×
+          <Icon name="close" />
         </button>
       </header>
 

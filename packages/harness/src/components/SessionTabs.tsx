@@ -1,5 +1,6 @@
 import { For, type Component } from "solid-js"
 import { t } from "../i18n"
+import { Icon } from "./Icon"
 
 export type SessionTab = { id: string; title?: string }
 
@@ -37,7 +38,7 @@ export const SessionTabs: Component<SessionTabsProps> = (props) => (
             aria-label={t("Close tab")}
             onClick={() => props.onClose(tab.id)}
           >
-            ×
+            <Icon name="close" />
           </button>
         </div>
       )}

@@ -12,6 +12,7 @@ import { isEditableProvider, type ConfiguredProvider, type CustomProviderResult 
 import { CustomProviderForm } from "./CustomProviderForm"
 import { t } from "../i18n"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type ProvidersEditorProps = {
   providers: ProviderDirectoryInfo[]
@@ -255,7 +256,7 @@ export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
                                 </Show>
                               }
                             >
-                              <span class="fc-spinner">◐</span> {t("Signing in…")}
+                              <span class="fc-spinner"><Icon name="loader" /></span> {t("Signing in…")}
                             </Show>
                           </button>
                         </Show>

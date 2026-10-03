@@ -170,7 +170,7 @@ select:focus-visible,
   border-radius: var(--fc-radius-sm);
   background: transparent;
   text-align: left;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-menu-item:hover:not(:disabled) {
@@ -215,7 +215,7 @@ select:focus-visible,
   width: 16px;
   margin-right: 6px;
   color: var(--fc-text-muted);
-  font-size: 17px;
+  font-size: var(--fc-text-lg);
   line-height: 1;
   text-align: center;
 }
@@ -258,7 +258,7 @@ select:focus-visible,
   display: inline-block;
   width: 16px;
   color: var(--fc-text-muted);
-  font-size: 16px;
+  font-size: var(--fc-text-lg);
   line-height: 1;
   text-align: center;
 }
@@ -354,7 +354,23 @@ select:focus-visible,
   background: color-mix(in srgb, var(--fc-border) 50%, transparent);
 }
 
-/* A dialog's close × meets the 32px hit target (DESIGN §5) even though the glyph is small. */
+/* The one icon set (components/Icon.tsx). A 1em icon sits on its line of text the way the glyph it
+   replaced did, a little below the baseline; in a flex row the row aligns it instead. */
+.fc-icon {
+  flex-shrink: 0;
+  vertical-align: -0.125em;
+}
+
+/* A button is a flex row, which drops the space between an icon and its label: these put it back. */
+.fc-icon-lead {
+  margin-inline-end: 0.3em;
+}
+
+.fc-icon-trail {
+  margin-inline-start: 0.3em;
+}
+
+/* A dialog's close button meets the 32px hit target (DESIGN §5) even though the icon is small. */
 .fc-modal-header .fc-icon-button {
   display: inline-flex;
   align-items: center;
@@ -705,7 +721,7 @@ button.fc-status {
 .fc-greeting {
   margin: 0;
   font-family: var(--fc-font-brand);
-  font-size: 40px;
+  font-size: var(--fc-text-display);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -713,7 +729,7 @@ button.fc-status {
 .fc-subtitle {
   margin: 4px 0 var(--fc-space-4);
   font-family: var(--fc-font-brand);
-  font-size: 17px;
+  font-size: var(--fc-text-lg);
   color: var(--fc-text-muted);
   text-align: center;
   max-width: 560px;
@@ -725,7 +741,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: color-mix(in srgb, var(--fc-danger) 12%, transparent);
   color: var(--fc-danger);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-card {
@@ -811,7 +827,7 @@ button.fc-status {
 }
 
 .fc-stat-value {
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   font-weight: 600;
 }
 
@@ -822,7 +838,7 @@ button.fc-status {
 
 /* What a figure counts, where it could be read two ways: the tokens say they include the cache. */
 .fc-stat-note {
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   color: var(--fc-text-muted);
 }
 
@@ -1014,7 +1030,7 @@ button.fc-status {
 .fc-model-group-label {
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-weight: 600;
   color: var(--fc-text-muted);
   padding-bottom: 4px;
@@ -1082,13 +1098,13 @@ button.fc-status {
   border: 1px solid color-mix(in srgb, var(--fc-text-muted) 40%, transparent);
   border-radius: var(--fc-radius-pill);
   color: var(--fc-text-muted);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .fc-model-id {
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   color: var(--fc-text-muted);
   max-width: 100%;
   overflow: hidden;
@@ -1178,7 +1194,7 @@ button.fc-status {
   border-radius: var(--fc-radius-md);
   background: var(--fc-bg-elevated);
   color: var(--fc-text-muted);
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   line-height: 1;
 }
 
@@ -1276,7 +1292,7 @@ button.fc-status {
   border-radius: var(--fc-radius-md);
   background: var(--fc-bg-elevated);
   color: var(--fc-text);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
   animation: fc-toast-in var(--fc-motion-panel);
 }
@@ -1297,7 +1313,7 @@ button.fc-status {
   border: none;
   background: none;
   color: var(--fc-text-muted);
-  font-size: 16px;
+  font-size: var(--fc-text-lg);
   line-height: 1;
   cursor: pointer;
 }
@@ -1332,7 +1348,7 @@ button.fc-status {
   border-radius: var(--fc-radius-md);
   background: var(--fc-bg-elevated);
   color: var(--fc-text);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
   animation: fc-toast-in var(--fc-motion-panel);
 }
@@ -1384,7 +1400,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   font-weight: 500;
 }
 
@@ -1399,7 +1415,7 @@ button.fc-status {
   border: none;
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: 15px;
+  font-size: var(--fc-text-lg);
   line-height: 1;
 }
 
@@ -1457,7 +1473,7 @@ button.fc-status {
 }
 
 .fc-back {
-  font-size: 16px;
+  font-size: var(--fc-text-lg);
   line-height: 1;
   padding: 2px 8px;
 }
@@ -1470,7 +1486,7 @@ button.fc-status {
 
 .fc-modal-note {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   line-height: 1.5;
 }
 
@@ -1481,7 +1497,7 @@ button.fc-status {
 
 .fc-modal-links a {
   color: var(--fc-accent);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-modal-license {
@@ -1527,7 +1543,7 @@ button.fc-status {
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-pill);
   background: var(--fc-bg-elevated);
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   line-height: 1;
 }
 
@@ -1585,7 +1601,7 @@ button.fc-status {
 
 .fc-dock-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-dock-step {
@@ -1699,7 +1715,7 @@ button.fc-status {
 }
 
 .fc-question-text {
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-question-options {
@@ -1725,7 +1741,7 @@ button.fc-status {
 }
 
 .fc-option-label {
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-option-desc {
@@ -1740,7 +1756,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: var(--fc-bg);
   color: var(--fc-text);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-command-menu {
@@ -2096,15 +2112,15 @@ button.fc-status {
 }
 
 .fc-markdown h1 {
-  font-size: 20px;
+  font-size: var(--fc-text-h1);
 }
 
 .fc-markdown h2 {
-  font-size: 18px;
+  font-size: var(--fc-text-h2);
 }
 
 .fc-markdown h3 {
-  font-size: 16px;
+  font-size: var(--fc-text-h3);
 }
 
 .fc-markdown ul,
@@ -2123,7 +2139,7 @@ button.fc-status {
 
 .fc-markdown :not(pre) > code {
   font-family: var(--fc-font-mono);
-  font-size: 0.9em;
+  font-size: var(--fc-text-smaller);
   padding: 1px 5px;
   border-radius: 5px;
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
@@ -2156,7 +2172,7 @@ button.fc-status {
 }
 
 .fc-code-lang {
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--fc-text-muted);
@@ -2167,7 +2183,7 @@ button.fc-status {
   padding: 10px 12px;
   overflow: auto;
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.55;
   white-space: pre;
   tab-size: 2;
@@ -2179,27 +2195,6 @@ button.fc-status {
   border: none;
   border-radius: 0;
   background: transparent;
-}
-
-.fc-tok-comment {
-  color: var(--fc-syn-comment);
-  font-style: italic;
-}
-
-.fc-tok-string {
-  color: var(--fc-syn-string);
-}
-
-.fc-tok-number {
-  color: var(--fc-syn-number);
-}
-
-.fc-tok-keyword {
-  color: var(--fc-syn-keyword);
-}
-
-.fc-tok-const {
-  color: var(--fc-syn-const);
 }
 
 .fc-markdown pre {
@@ -2220,7 +2215,7 @@ button.fc-status {
   border-collapse: collapse;
   width: 100%;
   margin: 0 0 10px;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-markdown th,
@@ -2294,7 +2289,7 @@ button.fc-status {
 .fc-message-pending {
   margin-top: var(--fc-space-3);
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-loading-center {
@@ -2310,7 +2305,7 @@ button.fc-status {
   align-items: center;
   gap: 6px;
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2397,7 +2392,7 @@ button.fc-status {
 
 .fc-mode-caret {
   color: var(--fc-text-muted);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
 }
 
 .fc-mode-popover {
@@ -2418,7 +2413,7 @@ button.fc-status {
 
 .fc-mode-title {
   padding: 6px 8px 4px;
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fc-text-muted);
@@ -2453,11 +2448,11 @@ button.fc-status {
   padding: 1px 6px;
   border-radius: var(--fc-radius-pill);
   background: color-mix(in srgb, var(--fc-accent) 32%, transparent);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
 }
 
 .fc-mode-item-desc {
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   color: var(--fc-text-muted);
 }
 
@@ -2593,7 +2588,7 @@ button.fc-status {
 
 .fc-tool-name {
   font-family: var(--fc-font-ui);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   font-weight: 500;
 }
 
@@ -2609,7 +2604,7 @@ button.fc-status {
   max-height: 280px;
   overflow: auto;
   background: var(--fc-bg);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -2632,7 +2627,7 @@ button.fc-status {
   border: none;
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   text-decoration: underline dotted;
 }
 
@@ -2649,7 +2644,7 @@ button.fc-status {
 
 .fc-turn-commit {
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-turn-commit code {
@@ -2662,7 +2657,7 @@ button.fc-status {
   align-items: center;
   gap: 10px;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-turn-icon {
@@ -2683,7 +2678,7 @@ button.fc-status {
   white-space: nowrap;
   color: var(--fc-text-muted);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-tool-status {
@@ -2736,7 +2731,7 @@ button.fc-status {
   padding: 8px 12px;
   background: var(--fc-bg);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   color: var(--fc-text);
   white-space: pre-wrap;
   word-break: break-word;
@@ -2757,7 +2752,7 @@ button.fc-status {
   display: flex;
   gap: 8px;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-tool-todo-mark {
@@ -2778,7 +2773,7 @@ button.fc-status {
   margin: 0;
   padding-left: var(--fc-space-4);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-tool-list-item {
@@ -2788,7 +2783,7 @@ button.fc-status {
 .fc-tool-list-more {
   margin: 4px 0 0;
   color: var(--fc-text-muted);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
 }
 
 .fc-tool-action {
@@ -2797,7 +2792,7 @@ button.fc-status {
   gap: 6px;
   padding: 10px 12px;
   background: var(--fc-bg);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-tool-action-head {
@@ -2834,7 +2829,7 @@ button.fc-status {
   display: inline-block;
   margin-bottom: 6px;
   color: var(--fc-accent);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   overflow-wrap: anywhere;
 }
 
@@ -2846,7 +2841,7 @@ button.fc-status {
   margin-bottom: 6px;
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   cursor: pointer;
 }
 
@@ -2860,7 +2855,7 @@ button.fc-status {
   padding: 6px 0;
   background: var(--fc-bg);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.5;
   overflow: auto;
   max-height: 420px;
@@ -2888,7 +2883,7 @@ button.fc-status {
 .fc-diff2 {
   background: var(--fc-bg);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.55;
   overflow: auto;
   max-height: 460px;
@@ -2997,7 +2992,7 @@ button.fc-status {
   background: transparent;
   color: var(--fc-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   text-align: left;
 }
 
@@ -3223,7 +3218,7 @@ button.fc-status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-tabs {
@@ -3305,7 +3300,7 @@ button.fc-status {
   grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-legend-name {
@@ -3456,7 +3451,7 @@ button.fc-status {
    headings read as labels rather than options. */
 .fc-settings-group-label {
   padding: 0 10px 6px;
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -3469,7 +3464,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   color: var(--fc-text);
-  font-size: 14px;
+  font-size: var(--fc-text-md);
   text-align: start;
   cursor: pointer;
 }
@@ -3582,7 +3577,7 @@ button.fc-status {
   align-items: center;
   justify-content: space-between;
   gap: var(--fc-space-3);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-settings-row .fc-question-custom {
@@ -3649,7 +3644,7 @@ button.fc-status {
 */
 .fc-settings > .fc-settings-section > .fc-settings-title {
   margin: 0 0 4px;
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   font-weight: 600;
   text-transform: none;
   letter-spacing: -0.01em;
@@ -3690,7 +3685,7 @@ button.fc-status {
 
   .fc-settings-header-title {
     display: inline;
-    font-size: 16px;
+    font-size: var(--fc-text-lg);
     font-weight: 600;
   }
 
@@ -3761,7 +3756,7 @@ button.fc-status {
 
 .fc-settings-status {
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-dialog-actions {
@@ -3836,7 +3831,7 @@ button.fc-status {
 
 /* An embedded editor's heading should not shout louder than the settings section title. */
 .fc-modal-settings .fc-routines-screen .fc-routines-header h1 {
-  font-size: 20px;
+  font-size: var(--fc-text-2xl);
   letter-spacing: -0.01em;
 }
 
@@ -3859,7 +3854,7 @@ button.fc-status {
 .fc-routine-editor h2,
 .fc-routines-empty h2 {
   margin: 0;
-  font-size: clamp(24px, 3vw, 34px);
+  font-size: var(--fc-text-title);
   letter-spacing: -0.025em;
 }
 
@@ -3873,7 +3868,7 @@ button.fc-status {
 .fc-routines-kicker {
   margin-bottom: 8px;
   color: var(--fc-accent);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3904,7 +3899,7 @@ button.fc-status {
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-md);
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   background: var(--fc-bg-elevated);
 }
 
@@ -3912,7 +3907,7 @@ button.fc-status {
   display: inline-flex;
   align-items: center;
   color: var(--fc-accent);
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   line-height: 1;
 }
 
@@ -4001,7 +3996,7 @@ button.fc-status {
 .fc-routine-card-content small {
   overflow: hidden;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4019,7 +4014,7 @@ button.fc-status {
   border-radius: var(--fc-radius-pill);
   color: var(--fc-success);
   background: color-mix(in srgb, var(--fc-success) 12%, transparent);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   flex: 0 0 auto;
 }
 
@@ -4065,7 +4060,7 @@ button.fc-status {
 
 .fc-routine-facts dt {
   color: var(--fc-text-muted);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   text-transform: uppercase;
 }
 
@@ -4082,7 +4077,7 @@ button.fc-status {
 
 .fc-routine-detail-section h3 {
   margin: 0 0 var(--fc-section-title-gap);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-routine-detail-section pre {
@@ -4093,14 +4088,14 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: var(--fc-bg);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   line-height: 1.5;
   white-space: pre-wrap;
 }
 
 .fc-routine-muted {
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-routine-runs {
@@ -4119,7 +4114,7 @@ button.fc-status {
   min-width: 0;
   padding: 9px 0;
   border-bottom: 1px solid var(--fc-border);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-routine-runs li > span:nth-child(2) {
@@ -4166,7 +4161,7 @@ button.fc-status {
   flex-direction: column;
   gap: 7px;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-routine-editor-wide { grid-column: 1 / -1; }
@@ -4188,7 +4183,7 @@ button.fc-status {
   border-radius: 50%;
   color: var(--fc-accent);
   background: color-mix(in srgb, var(--fc-accent) 12%, transparent);
-  font-size: 28px;
+  font-size: var(--fc-text-3xl);
   line-height: 1;
 }
 
@@ -4204,7 +4199,7 @@ button.fc-status {
   border: 1px solid var(--fc-danger);
   border-radius: var(--fc-radius-md);
   color: var(--fc-text);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-confirm-inline span { margin-inline-end: auto; }
@@ -4264,13 +4259,13 @@ button.fc-status {
 
 .fc-onboarding-title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--fc-text-2xl);
 }
 
 .fc-onboarding-text {
   margin: 0;
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   line-height: 1.5;
 }
 
@@ -4290,7 +4285,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: var(--fc-bg);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -4324,7 +4319,7 @@ button.fc-status {
 
 .fc-offline-banner code {
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-offline-banner .fc-button {
@@ -4397,7 +4392,7 @@ button.fc-status {
 .fc-guardrail-banner-note {
   margin: 2px 0 0;
   color: var(--fc-guardrail-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-guardrail-banner .fc-button {
@@ -4417,7 +4412,7 @@ button.fc-status {
   border-radius: var(--fc-radius-md);
   background: none;
   color: var(--fc-guardrail-muted);
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   line-height: 1;
   cursor: pointer;
 }
@@ -4515,7 +4510,7 @@ button.fc-status {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--fc-font-ui);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-skill-list {
@@ -4720,7 +4715,7 @@ button.fc-status {
   background: var(--fc-bg);
   color: var(--fc-text);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.5;
 }
 
@@ -4784,7 +4779,7 @@ button.fc-status {
   padding: 6px 8px;
   border-radius: var(--fc-radius-sm);
   background: color-mix(in srgb, var(--fc-border) 35%, transparent);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   white-space: nowrap;
 }
 
@@ -4828,7 +4823,7 @@ button.fc-status {
   width: 12px;
   flex-shrink: 0;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-project-name {
@@ -4838,7 +4833,7 @@ button.fc-status {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-session-row {
@@ -4863,7 +4858,7 @@ button.fc-status {
   border-radius: var(--fc-radius-pill);
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   line-height: 16px;
   cursor: pointer;
 }
@@ -4923,7 +4918,7 @@ button.fc-status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   color: var(--fc-text);
 }
 
@@ -4934,7 +4929,7 @@ button.fc-status {
   border-radius: 6px;
   background: var(--fc-accent-soft);
   color: var(--fc-accent);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   font-weight: 600;
   letter-spacing: 0.03em;
   line-height: 14px;
@@ -5196,7 +5191,7 @@ button.fc-status {
 .fc-aside-row {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   line-height: 20px;
 }
 
@@ -5266,7 +5261,7 @@ button.fc-status {
   padding: 8px 10px;
   border-radius: var(--fc-radius-sm);
   background: color-mix(in srgb, var(--fc-accent) 14%, transparent);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-provider-notice > span {
@@ -5390,7 +5385,7 @@ button.fc-status {
   background: var(--fc-bg-elevated);
   color: var(--fc-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   word-break: break-all;
 }
 
@@ -5432,7 +5427,7 @@ button.fc-status {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-agent-browser-url {
@@ -5482,7 +5477,7 @@ button.fc-status {
 }
 
 .fc-agent-browser-notice {
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   color: var(--fc-text-muted);
 }
 
@@ -5749,7 +5744,7 @@ button.fc-status {
   border: none;
   background: transparent;
   color: var(--fc-text);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -5780,7 +5775,7 @@ button.fc-status {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
 }
 
 .fc-file-add {
@@ -5796,7 +5791,7 @@ button.fc-status {
   overflow-x: auto;
   background: var(--fc-bg);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.45;
 }
 
@@ -5976,7 +5971,7 @@ button.fc-status {
 
   .fc-status {
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: var(--fc-text-xs);
   }
 
   .fc-modal,
@@ -6019,7 +6014,7 @@ button.fc-status {
 
   .fc-greeting,
   .fc-chat-greeting {
-    font-size: 26px;
+    font-size: var(--fc-text-3xl);
   }
 }
 
@@ -6106,7 +6101,7 @@ button.fc-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   color: var(--fc-text-muted);
 }
 
@@ -6207,10 +6202,6 @@ button.fc-status {
   white-space: nowrap;
 }
 
-.fc-repo-branch::before {
-  content: "⎇ ";
-}
-
 .fc-repo-right {
   display: flex;
   align-items: center;
@@ -6269,7 +6260,7 @@ button.fc-status {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-2);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-remote-advanced summary {
@@ -6328,7 +6319,7 @@ button.fc-status {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-3);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-onboarding-local summary {
@@ -6343,7 +6334,7 @@ button.fc-status {
 .fc-remote-error {
   margin: 0;
   color: var(--fc-danger);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   line-height: 1.5;
 }
 
@@ -6365,7 +6356,7 @@ button.fc-status {
 
 .fc-remote-home-title {
   margin: var(--fc-space-4) 0 0;
-  font-size: 32px;
+  font-size: var(--fc-text-4xl);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -6453,7 +6444,7 @@ button.fc-status {
   border-radius: 50%;
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: 20px;
+  font-size: var(--fc-text-2xl);
   line-height: 1;
 }
 
@@ -6478,7 +6469,7 @@ button.fc-status {
 }
 
 .fc-remote-card-meta {
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   color: var(--fc-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6487,7 +6478,7 @@ button.fc-status {
 
 .fc-remote-card-time {
   align-self: flex-start;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   color: var(--fc-text-muted);
   white-space: nowrap;
 }
@@ -6659,7 +6650,7 @@ button.fc-status {
   margin-inline-start: calc(var(--fc-space-3) * -1);
   padding: 0;
   padding-inline-start: var(--fc-space-2);
-  font-size: 28px;
+  font-size: var(--fc-text-3xl);
   line-height: 1;
 }
 
@@ -6744,13 +6735,8 @@ button.fc-status {
   flex-shrink: 0;
 }
 
-/* Phone remote: type scale close to the Claude Code mobile app. Components read the tokens. */
+/* Phone remote: its larger type scale is in tokens.css; components read the tokens. */
 .fc-mobile-remote {
-  --fc-text-xs: 13px;
-  --fc-text-sm: 15px;
-  --fc-text-md: 17px;
-  --fc-text-lg: 18px;
-  --fc-text-xl: 30px;
   font-size: var(--fc-text-md);
 }
 
@@ -6758,34 +6744,25 @@ button.fc-status {
   line-height: 1.6;
 }
 
-.fc-mobile-remote .fc-markdown h1 {
-  font-size: 24px;
-}
 
-.fc-mobile-remote .fc-markdown h2 {
-  font-size: 21px;
-}
 
-.fc-mobile-remote .fc-markdown h3 {
-  font-size: 19px;
-}
 
 .fc-mobile-remote .fc-markdown pre,
 .fc-mobile-remote .fc-markdown code {
-  font-size: 14px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-mobile-remote .fc-mobile-title {
-  font-size: 17px;
+  font-size: var(--fc-text-md);
 }
 
 .fc-mobile-remote .fc-remote-card-title {
-  font-size: 18px;
+  font-size: var(--fc-text-lg);
 }
 
 .fc-mobile-remote .fc-remote-card-meta,
 .fc-mobile-remote .fc-remote-card-time {
-  font-size: 15px;
+  font-size: var(--fc-text-sm);
 }
 
 /* Phone prompt dock */
@@ -6820,7 +6797,7 @@ button.fc-status {
   color: var(--fc-text);
   /* 16px or more keeps iOS from zooming in on focus. */
   font: inherit;
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   line-height: 1.4;
 }
 
@@ -6882,7 +6859,7 @@ button.fc-status {
   border-radius: var(--fc-radius-pill);
   background: color-mix(in srgb, var(--fc-border) 70%, var(--fc-bg-elevated));
   color: var(--fc-text);
-  font-size: 16px;
+  font-size: var(--fc-text-lg);
 }
 
 .fc-mobile-pill-label {
@@ -6930,7 +6907,7 @@ button.fc-status {
 }
 
 .fc-sheet-title {
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   font-weight: 600;
 }
 
@@ -6971,7 +6948,7 @@ button.fc-status {
   border-radius: 18px;
   background: transparent;
   color: var(--fc-text);
-  font-size: 16px;
+  font-size: var(--fc-text-lg);
 }
 
 .fc-sheet-group {
@@ -7012,7 +6989,7 @@ button.fc-status {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 17px;
+  font-size: var(--fc-text-lg);
 }
 
 .fc-sheet-option-detail,
@@ -7020,7 +6997,7 @@ button.fc-status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15px;
+  font-size: var(--fc-text-md);
   color: var(--fc-text-muted);
 }
 
@@ -7048,13 +7025,13 @@ button.fc-status {
   padding: 2px 8px;
   border-radius: var(--fc-radius-pill);
   background: var(--fc-bg);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   color: var(--fc-text);
 }
 
 .fc-sheet-section {
   margin: 4px 4px 0;
-  font-size: 15px;
+  font-size: var(--fc-text-md);
   color: var(--fc-text-muted);
 }
 
@@ -7065,7 +7042,7 @@ button.fc-status {
   border-radius: var(--fc-radius-pill);
   background: transparent;
   color: var(--fc-text);
-  font-size: 16px;
+  font-size: var(--fc-text-lg);
 }
 
 /* The body scrolls; its sections keep their height instead of shrinking to fit. */
@@ -7113,7 +7090,7 @@ button.fc-status {
   min-height: 44px;
   padding: 6px 8px 6px 14px;
   border-radius: var(--fc-radius-md);
-  font-size: 14px;
+  font-size: var(--fc-text-md);
 }
 
 .fc-composer .fc-repo-name {
@@ -7131,7 +7108,7 @@ button.fc-status {
 
 .fc-composer .fc-repo-add,
 .fc-composer .fc-repo-del {
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   font-variant-numeric: tabular-nums;
 }
 
@@ -7147,7 +7124,7 @@ button.fc-status {
   padding: 0 12px;
   border-radius: var(--fc-radius-sm);
   background: transparent;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-composer .fc-repo-commit:hover,
@@ -7166,7 +7143,7 @@ button.fc-status {
   padding: 6px 8px 6px 14px;
   border: none;
   border-radius: var(--fc-radius-md);
-  font-size: 14px;
+  font-size: var(--fc-text-md);
 }
 
 .fc-repo-clear {
@@ -7176,7 +7153,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: 18px;
+  font-size: var(--fc-text-xl);
   line-height: 1;
 }
 
@@ -7204,7 +7181,7 @@ button.fc-status {
   border: none;
   border-radius: 14px;
   background: transparent;
-  font-size: 15px;
+  font-size: var(--fc-text-lg);
   line-height: 22px;
 }
 
@@ -7273,7 +7250,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   color: var(--fc-text);
-  font-size: 14px;
+  font-size: var(--fc-text-md);
   white-space: nowrap;
   transition:
     background var(--fc-motion-fast),
@@ -7344,7 +7321,7 @@ button.fc-status {
   bottom: calc(100% + 8px);
   border-radius: var(--fc-radius-md);
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.4);
-  font-size: 14px;
+  font-size: var(--fc-text-md);
 }
 
 .fc-dock-popover {
@@ -7376,7 +7353,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   color: var(--fc-text);
-  font-size: 14px;
+  font-size: var(--fc-text-md);
   text-align: left;
 }
 
@@ -7403,14 +7380,14 @@ button.fc-status {
   border: 1px solid color-mix(in srgb, var(--fc-text-muted) 40%, transparent);
   border-radius: var(--fc-radius-pill);
   color: var(--fc-text-muted);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .fc-dock-item-hint {
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-dock-item-check {
@@ -7425,7 +7402,7 @@ button.fc-status {
 
 .fc-composer .fc-mode-item,
 .fc-composer .fc-folder-item {
-  font-size: 14px;
+  font-size: var(--fc-text-md);
 }
 
 .fc-composer .fc-effort-popover {
@@ -7437,7 +7414,7 @@ button.fc-status {
 .fc-composer .fc-effort-head {
   justify-content: flex-start;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--fc-text-md);
 }
 
 .fc-composer .fc-effort-value {
@@ -7447,7 +7424,7 @@ button.fc-status {
 .fc-effort-ends {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   color: var(--fc-text-muted);
 }
 
@@ -7511,7 +7488,7 @@ button.fc-status {
 
 .fc-composer .fc-chip {
   height: 32px;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-composer .fc-folder-popover > * {
@@ -7612,7 +7589,7 @@ button.fc-status {
   -webkit-box-orient: vertical;
   overflow: hidden;
   color: var(--fc-text);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 16px;
   overflow-wrap: anywhere;
 }
@@ -7713,7 +7690,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: 14px;
+  font-size: var(--fc-text-md);
   text-align: left;
 }
 
@@ -8042,7 +8019,7 @@ button.fc-status {
   border-radius: var(--fc-radius-pill);
   background: color-mix(in srgb, var(--fc-border) 70%, transparent);
   color: var(--fc-text-muted);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -8050,7 +8027,7 @@ button.fc-status {
 .fc-toolgroup-cleared {
   flex-shrink: 0;
   color: var(--fc-text-muted);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -8073,7 +8050,7 @@ button.fc-status {
   border-radius: 50%;
   background: var(--fc-attention-color);
   color: var(--fc-bg);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -8204,7 +8181,7 @@ button.fc-status {
 
 .fc-settings-hint {
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-settings-actions {
@@ -8247,7 +8224,7 @@ button.fc-status {
   padding: var(--fc-space-3) var(--fc-space-4);
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-md);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-adaptive-level {
@@ -8344,7 +8321,7 @@ button.fc-status {
   padding: var(--fc-space-2) var(--fc-space-4);
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-md);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-adaptive-details > summary {
@@ -8366,7 +8343,7 @@ button.fc-status {
 .fc-adaptive-more > summary {
   cursor: pointer;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 /* Hooks the cockpit uses (and E2E selects on); they add no layout of their own. */
@@ -8463,7 +8440,7 @@ button.fc-status {
   border: 1px solid var(--fc-border);
   border-radius: 5px;
   color: var(--fc-text-muted);
-  font: 500 11px/16px var(--fc-font-ui);
+  font: 500 var(--fc-text-xs)/16px var(--fc-font-ui);
   pointer-events: none;
   animation: fc-rise-in var(--fc-motion-panel);
 }
@@ -8472,7 +8449,7 @@ button.fc-status {
 .fc-input-history {
   padding: 12px 16px 0;
   color: var(--fc-text-muted);
-  font: 500 12px/16px var(--fc-font-ui);
+  font: 500 var(--fc-text-sm)/16px var(--fc-font-ui);
   user-select: none;
   animation: fc-rise-in var(--fc-motion-panel);
 }
@@ -8548,7 +8525,7 @@ button.fc-status {
   border-radius: 6px;
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.4;
   white-space: nowrap;
   transition:
@@ -8581,7 +8558,7 @@ button.fc-status {
 .fc-chat-mode-sheet .fc-chat-mode-option {
   flex: 1 1 0;
   padding: 8px 10px;
-  font-size: 14px;
+  font-size: var(--fc-text-md);
   text-align: center;
 }
 
@@ -8601,7 +8578,7 @@ button.fc-status {
   gap: 6px;
   margin: 0;
   font-family: var(--fc-font-brand);
-  font-size: 40px;
+  font-size: var(--fc-text-display);
   font-weight: 600;
   letter-spacing: -0.01em;
   text-align: center;
@@ -8638,7 +8615,7 @@ button.fc-status {
   border-radius: 9px;
   background: var(--fc-bg-elevated);
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   transition:
     color var(--fc-motion-fast),
     border-color var(--fc-motion-fast);
@@ -8688,7 +8665,7 @@ button.fc-status {
   gap: 4px;
   min-width: 0;
   font-family: var(--fc-font-brand);
-  font-size: 19px;
+  font-size: var(--fc-text-xl);
   font-weight: 800;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -8740,7 +8717,7 @@ button.fc-status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   font-weight: 500;
 }
 
@@ -8750,7 +8727,7 @@ button.fc-status {
   border-radius: 5px;
   background: color-mix(in srgb, var(--fc-border) 60%, transparent);
   color: var(--fc-text-muted);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
 }
 
 .fc-pane-close {
@@ -8839,7 +8816,7 @@ button.fc-status {
 }
 
 .fc-folder-recent-name {
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   font-weight: 600;
 }
 
@@ -9012,7 +8989,7 @@ button.fc-status {
 
 .fc-panel-error-detail {
   max-width: 100%;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   color: var(--fc-text-muted);
   overflow-wrap: anywhere;
 }
@@ -9026,7 +9003,7 @@ button.fc-status {
 .fc-permission-path {
   display: block;
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   color: var(--fc-text-muted);
 }
 
@@ -9036,7 +9013,7 @@ button.fc-status {
 
 .fc-permission-scope {
   margin-left: 6px;
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-weight: 400;
   color: var(--fc-text-muted);
 }
@@ -9066,7 +9043,7 @@ button.fc-status {
 
 .fc-permission-browser-origin {
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   overflow-wrap: anywhere;
 }
 
@@ -9109,7 +9086,7 @@ button.fc-status {
   margin-left: 6px;
   color: var(--fc-text-muted);
   font-family: var(--fc-font-mono);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
 }
 
 .fc-permission-screenshot {
@@ -9179,7 +9156,7 @@ button.fc-status {
 
 .fc-compaction-mark {
   color: var(--fc-accent);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
 }
 
 /* The engine compacting by itself is not the reader's doing, so it reads quieter. */
@@ -9284,7 +9261,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: var(--fc-bg);
   color: inherit;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-run-detail-steer {
@@ -9396,7 +9373,7 @@ button.fc-status {
 
 .fc-run-meta {
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-run-head .fc-run-meta {
@@ -9405,7 +9382,7 @@ button.fc-status {
 
 .fc-run-inputs {
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   overflow-wrap: anywhere;
 }
 
@@ -9437,7 +9414,7 @@ button.fc-status {
   align-items: center;
   gap: var(--fc-space-2);
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-run-unattended select {
@@ -9457,7 +9434,7 @@ button.fc-status {
   display: flex;
   align-items: baseline;
   gap: var(--fc-space-2);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-workflow-run .fc-run-meta {
@@ -9468,7 +9445,7 @@ button.fc-status {
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-sm);
   padding: 2px 10px;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -9493,7 +9470,7 @@ button.fc-status {
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-pill);
   color: var(--fc-text-muted);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -9508,11 +9485,11 @@ button.fc-status {
   max-height: 420px;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-artifact-pin {
-  font-size: 15px;
+  font-size: var(--fc-text-lg);
   line-height: 1;
 }
 
@@ -9613,7 +9590,7 @@ button.fc-status {
 .fc-artifact-file-name {
   flex: 0 0 auto;
   font-family: var(--fc-font-mono);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-artifact-file-path {
@@ -9621,7 +9598,7 @@ button.fc-status {
   min-width: 0;
   overflow: hidden;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -9689,7 +9666,7 @@ button.fc-status {
   background: var(--fc-bg);
   color: var(--fc-text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-artifact-diff {
@@ -9861,7 +9838,7 @@ button.fc-status {
 /* The description is prose, not a template: it keeps the field's font and reads a few lines tall. */
 .fc-agent-description {
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   min-height: 72px;
 }
 
@@ -9890,7 +9867,7 @@ button.fc-status {
   background: var(--fc-bg);
   color: var(--fc-text);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.5;
 }
 
@@ -9954,7 +9931,7 @@ button.fc-status {
 .fc-agent-path {
   margin-top: 10px;
   font-family: var(--fc-font-mono);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   opacity: 0.7;
 }
 
@@ -10194,13 +10171,13 @@ button.fc-status {
   flex-basis: 100%;
   margin: var(--fc-space-1) 0 0;
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-run-error {
   margin: var(--fc-space-1) 0 0;
   color: var(--fc-danger);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 /* ── The workflow editor (H-28) ───────────────────────────────────────────── */
@@ -10627,7 +10604,7 @@ button.fc-status {
   border-top: 1px solid var(--fc-border);
   background: var(--fc-bg);
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.5;
 }
 
@@ -10704,7 +10681,7 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   color: var(--fc-text);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   text-align: start;
   cursor: pointer;
 }
@@ -10767,7 +10744,7 @@ button.fc-status {
   overflow: auto;
   padding: 8px 0;
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   line-height: 1.5;
 }
 
@@ -11336,7 +11313,7 @@ button.fc-status {
   margin-left: 3px;
   background: var(--fc-bg);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   text-align: center;
 }
 
@@ -11414,7 +11391,7 @@ button.fc-status {
   margin: var(--fc-space-1) 0 0;
   background: var(--fc-bg);
   font-family: var(--fc-font-mono);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -11548,7 +11525,7 @@ button.fc-status {
 }
 
 .fc-usage-tile-value {
-  font-size: var(--fc-text-xl, 22px);
+  font-size: var(--fc-text-3xl);
   font-weight: 600;
 }
 
@@ -11788,7 +11765,7 @@ button.fc-status {
 
 .fc-usage-day-label {
   color: var(--fc-text-muted);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   white-space: nowrap;
 }
 
@@ -11910,7 +11887,7 @@ button.fc-status {
   border: 1px dashed var(--fc-border);
   border-radius: var(--fc-radius-pill);
   color: var(--fc-text-muted);
-  font-size: 0.92em;
+  font-size: var(--fc-text-smaller);
 }
 
 .fc-usage-tile-value.fc-cost-lens[data-lens="unpriced"] {
@@ -11981,7 +11958,7 @@ button.fc-status {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-run-cost-breakdown {
@@ -12008,7 +11985,7 @@ button.fc-status {
   grid-template-columns: minmax(0, 12rem) minmax(80px, 1fr) max-content;
   gap: 4px var(--fc-space-3);
   align-items: center;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   --fc-budget-fill: var(--fc-accent);
 }
 
@@ -12061,7 +12038,7 @@ button.fc-status {
 .fc-budget-meter-note {
   grid-column: 1 / -1;
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 /* The Cost screen's standing budgets (UL-08): a meter per budget with its remove button, then a row
@@ -12326,7 +12303,7 @@ button.fc-status {
   padding: 1px 7px;
   border-radius: var(--fc-radius-pill);
   background: color-mix(in srgb, currentColor 16%, transparent);
-  font-size: 10px;
+  font-size: var(--fc-text-2xs);
   text-transform: uppercase;
 }
 
@@ -12532,14 +12509,14 @@ button.fc-status {
 
 .fc-actions-header h1 {
   margin: 0;
-  font-size: clamp(24px, 3vw, 34px);
+  font-size: var(--fc-text-title);
   letter-spacing: -0.025em;
 }
 
 .fc-actions-kicker {
   margin-bottom: 8px;
   color: var(--fc-accent);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -12558,7 +12535,7 @@ button.fc-status {
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-md);
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   background: var(--fc-bg-elevated);
 }
 
@@ -12584,7 +12561,7 @@ button.fc-status {
 .fc-actions-group-label {
   margin-top: 10px;
   color: var(--fc-text-muted);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -12615,7 +12592,7 @@ button.fc-status {
 .fc-actions-card small,
 .fc-actions-muted {
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-actions-editor {
@@ -12633,7 +12610,7 @@ button.fc-status {
 
 .fc-actions-editor-head h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--fc-text-2xl);
 }
 
 .fc-actions-badge {
@@ -12641,7 +12618,7 @@ button.fc-status {
   border-radius: var(--fc-radius-pill);
   background: color-mix(in srgb, var(--fc-accent) 18%, transparent);
   color: var(--fc-accent);
-  font-size: 11px;
+  font-size: var(--fc-text-xs);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -12652,14 +12629,14 @@ button.fc-status {
   border: 1px solid color-mix(in srgb, var(--fc-warning, #e90) 40%, var(--fc-border));
   border-radius: var(--fc-radius-md);
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-actions-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   color: var(--fc-text-muted);
 }
 
@@ -12675,7 +12652,7 @@ button.fc-status {
   background: var(--fc-bg);
   color: var(--fc-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-actions-field-inline {
@@ -12708,7 +12685,7 @@ button.fc-status {
 .fc-actions-section-head h3,
 .fc-actions-section h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fc-text-md);
 }
 
 .fc-actions-row,
@@ -12726,7 +12703,7 @@ button.fc-status {
 .fc-actions-preview {
   margin: 0;
   padding-inline-start: 20px;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 .fc-actions-preview li {
@@ -12765,12 +12742,12 @@ button.fc-status {
 
 .fc-actions-candidates .fc-button {
   font-family: var(--fc-font-mono);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-actions-empty {
   color: var(--fc-text-muted);
-  font-size: 13px;
+  font-size: var(--fc-text-base);
 }
 
 /* Pairing a web app tab with the harness on this computer (HE-01). */
@@ -12788,7 +12765,7 @@ button.fc-status {
 
 .fc-pairing-title {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--fc-text-lg);
   font-weight: 600;
   color: var(--fc-text);
 }
@@ -12797,7 +12774,7 @@ button.fc-status {
 .fc-pairing-note,
 .fc-pairing-error {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fc-text-base);
   line-height: 1.5;
 }
 
@@ -12807,7 +12784,7 @@ button.fc-status {
 
 .fc-pairing-note {
   color: var(--fc-text-muted);
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-pairing-error {
@@ -12821,7 +12798,7 @@ button.fc-status {
 }
 
 .fc-pairing-label {
-  font-size: 12px;
+  font-size: var(--fc-text-sm);
   font-weight: 600;
   color: var(--fc-text);
 }

@@ -2,6 +2,7 @@ import { For, Show, createSignal, onCleanup, onMount, type Component } from "sol
 import type { ModelVariant } from "../engine-types"
 import { t } from "../i18n"
 import { effortLabel } from "../effort"
+import { Icon } from "./Icon"
 
 type EffortMenuProps = {
   value: string | undefined
@@ -35,7 +36,9 @@ export const EffortMenu: Component<EffortMenuProps> = (props) => {
         onClick={() => setOpen((value) => !value)}
       >
         {current()}
-        <span class="fc-mode-caret">▾</span>
+        <span class="fc-mode-caret">
+          <Icon name="chevron-down" />
+        </span>
       </button>
       <Show when={open()}>
         <div class="fc-effort-popover">

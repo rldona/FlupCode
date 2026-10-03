@@ -1,6 +1,7 @@
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { t } from "../i18n"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
+import { Icon } from "./Icon"
 
 type ModeMenuProps = {
   value: string
@@ -37,7 +38,9 @@ export const ModeMenu: Component<ModeMenuProps> = (props) => {
     <div class="fc-mode" ref={root}>
       <button class="fc-mode-button" type="button" onClick={() => (open() ? close() : setOpen(true))}>
         {t(permissionMode(props.value).label)}
-        <span class="fc-mode-caret">▾</span>
+        <span class="fc-mode-caret">
+          <Icon name="chevron-down" />
+        </span>
       </button>
       <Show when={open()}>
         <div class="fc-mode-popover">
@@ -65,7 +68,9 @@ export const ModeMenu: Component<ModeMenuProps> = (props) => {
                   {confirming() === mode.id ? t("Click again to confirm") : t(mode.description)}
                 </span>
                 <Show when={props.value === mode.id}>
-                  <span class="fc-mode-check">✓</span>
+                  <span class="fc-mode-check">
+                    <Icon name="check" />
+                  </span>
                 </Show>
               </button>
             )}

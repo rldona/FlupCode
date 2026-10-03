@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount, type Compone
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { isDeprecated } from "../model-catalog"
+import { Icon, type IconName } from "./Icon"
 
 /** A dock button with a menu that opens above it and closes on outside clicks or Escape. */
 const DockPopover: Component<{
@@ -71,7 +72,7 @@ const DockPopover: Component<{
 const MenuItem: Component<{
   label: string
   icon?: JSX.Element
-  hint?: string
+  hint?: JSX.Element
   /** A short marker before the label, e.g. that the model is deprecated. */
   badge?: string
   active?: boolean
@@ -96,46 +97,21 @@ const MenuItem: Component<{
     </Show>
     <Show when={props.active}>
       <span class="fc-dock-item-check" aria-hidden="true">
-        ✓
+        <Icon name="check" />
       </span>
     </Show>
   </button>
 )
 
-export const DockIcon: Component<{ path: string; size?: number }> = (props) => (
-  <svg viewBox="0 0 24 24" width={props.size ?? 18} height={props.size ?? 18} aria-hidden="true">
-    <path
-      d={props.path}
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.8"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-)
-
-const ICONS = {
-  plus: "M12 5v14M5 12h14",
-  clip: "M21 11.5 12.5 20a5 5 0 0 1-7-7L14 4.5a3.3 3.3 0 0 1 4.7 4.7L10.2 17.7a1.7 1.7 0 0 1-2.4-2.4L15.5 7.6",
-  folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
-  slash: "M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM14 8l-4 8",
-  hammer:
-    "M15 12l-8.373 8.373a1 1 0 1 1-3-3L12 9M18 15l4-4M21.5 11.5l-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5",
-  bulb: "M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4",
-  robot:
-    "M12 8V4H8M9 13v2M15 13v2M2 14h2M20 14h2M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z",
-}
-
 /** Hammer for build, bulb for plan; every other agent gets a robot. */
-const AGENT_ICONS: Record<string, string> = {
-  build: ICONS.hammer,
-  plan: ICONS.bulb,
+const AGENT_ICONS: Record<string, IconName> = {
+  build: "hammer",
+  plan: "bulb",
 }
 
 /** The dock icon for an agent: the built-in's own, a robot for anything else. */
-export function agentIconPath(id: string) {
-  return AGENT_ICONS[id] ?? ICONS.robot
+export function agentIcon(id: string): IconName {
+  return AGENT_ICONS[id] ?? "robot"
 }
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -147,11 +123,11 @@ export const AddMenu: Component<{
   /** Left out in chats, which have no commands. */
   onSlashCommands?: () => void
 }> = (props) => (
-  <DockPopover class="fc-dock-icon" title={t("Add")} label={<DockIcon path={ICONS.plus} size={20} />}>
+  <DockPopover class="fc-dock-icon" title={t("Add")} label={<Icon name="plus" size={20} weight={1.8} />}>
     {(close) => (
       <>
         <MenuItem
-          icon={<DockIcon path={ICONS.clip} />}
+          icon={<Icon name="clip" size={18} weight={1.8} />}
           label={t("Add files or photos")}
           hint={isMac ? "⌘U" : "Ctrl+U"}
           onClick={() => {
@@ -161,7 +137,7 @@ export const AddMenu: Component<{
         />
         <Show when={props.canAddFolder}>
           <MenuItem
-            icon={<DockIcon path={ICONS.folder} />}
+            icon={<Icon name="folder" size={18} weight={1.8} />}
             label={t("Add folder")}
             onClick={() => {
               close()
@@ -172,7 +148,7 @@ export const AddMenu: Component<{
         <Show when={props.onSlashCommands}>
           {(open) => (
             <MenuItem
-              icon={<DockIcon path={ICONS.slash} />}
+              icon={<Icon name="slash" size={18} weight={1.8} />}
               label={t("Slash commands")}
               onClick={() => {
                 close()
@@ -250,7 +226,7 @@ export const ModelMenu: Component<{
           </Show>
           <MenuItem
             label={t("More models")}
-            hint="›"
+            hint={<Icon name="chevron-right" />}
             onClick={() => {
               close()
               props.onMore()
@@ -280,7 +256,7 @@ export const AgentMenu: Component<{
       <For each={props.agents}>
         {(agent) => (
           <MenuItem
-            icon={<DockIcon path={agentIconPath(agent.id)} />}
+            icon={<Icon name={agentIcon(agent.id)} size={18} weight={1.8} />}
             label={agent.id.charAt(0).toUpperCase() + agent.id.slice(1)}
             active={agent.id === props.value}
             onClick={() => {

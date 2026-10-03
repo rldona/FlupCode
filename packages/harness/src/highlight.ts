@@ -1,95 +1,8 @@
-const KEYWORDS = new Set([
-  "abstract",
-  "as",
-  "async",
-  "await",
-  "break",
-  "case",
-  "catch",
-  "class",
-  "const",
-  "continue",
-  "default",
-  "def",
-  "defer",
-  "delete",
-  "do",
-  "elif",
-  "else",
-  "enum",
-  "except",
-  "export",
-  "extends",
-  "finally",
-  "fn",
-  "for",
-  "from",
-  "func",
-  "function",
-  "if",
-  "impl",
-  "implements",
-  "import",
-  "in",
-  "instanceof",
-  "interface",
-  "lambda",
-  "let",
-  "match",
-  "mut",
-  "new",
-  "of",
-  "package",
-  "pass",
-  "private",
-  "protected",
-  "pub",
-  "public",
-  "raise",
-  "range",
-  "return",
-  "select",
-  "static",
-  "struct",
-  "super",
-  "switch",
-  "this",
-  "throw",
-  "trait",
-  "try",
-  "type",
-  "typeof",
-  "use",
-  "var",
-  "void",
-  "while",
-  "with",
-  "yield",
-])
-
-const CONSTANTS = new Set(["true", "false", "null", "undefined", "None", "True", "False", "nil", "NaN"])
-
-const HASH_COMMENT = new Set([
-  "bash",
-  "sh",
-  "shell",
-  "zsh",
-  "python",
-  "py",
-  "yaml",
-  "yml",
-  "ruby",
-  "rb",
-  "toml",
-  "ini",
-  "conf",
-  "makefile",
-  "dockerfile",
-  "r",
-  "perl",
-  "pl",
-])
-const DASH_COMMENT = new Set(["sql", "lua", "haskell", "hs", "elm"])
+/**
+ * Diffs and the language of a path. Code itself is coloured by one highlighter, the transcript's Shiki
+ * worker (`markdown/code-lines.ts`, UX-06); what is here only marks a diff's lines as added, removed or
+ * context, which is not about the language at all.
+ */
 
 export function escapeHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -131,12 +44,6 @@ export function diffLines(oldText: string, newText: string): DiffLine[] {
   while (i < a.length) result.push({ type: "del", text: a[i++]! })
   while (j < b.length) result.push({ type: "add", text: b[j++]! })
   return result
-}
-
-function commentPattern(lang: string) {
-  if (DASH_COMMENT.has(lang)) return "--[^\\n]*"
-  if (HASH_COMMENT.has(lang)) return "#[^\\n]*"
-  return "//[^\\n]*|/\\*[\\s\\S]*?\\*/"
 }
 
 export type SideBySideRow = {
@@ -194,39 +101,6 @@ export function highlightDiff(code: string) {
       return escaped
     })
     .join("\n")
-}
-
-export function highlight(code: string, lang = "") {
-  const language = lang.toLowerCase()
-  if (language === "diff" || language === "patch") return highlightDiff(code)
-  if (!language) return escapeHtml(code)
-
-  const pattern = new RegExp(
-    [
-      `(${commentPattern(language)})`,
-      `("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|\`(?:\\\\.|[^\`\\\\])*\`)`,
-      `(\\b\\d[\\d_]*(?:\\.\\d+)?\\b)`,
-      `(\\b[A-Za-z_][A-Za-z0-9_]*\\b)`,
-    ].join("|"),
-    "g",
-  )
-
-  let result = ""
-  let last = 0
-  let match: RegExpExecArray | null
-  while ((match = pattern.exec(code)) !== null) {
-    result += escapeHtml(code.slice(last, match.index))
-    const [value, comment, string, number, word] = match
-    if (comment) result += `<span class="fc-tok-comment">${escapeHtml(value)}</span>`
-    else if (string) result += `<span class="fc-tok-string">${escapeHtml(value)}</span>`
-    else if (number) result += `<span class="fc-tok-number">${escapeHtml(value)}</span>`
-    else if (word && CONSTANTS.has(word)) result += `<span class="fc-tok-const">${escapeHtml(value)}</span>`
-    else if (word && KEYWORDS.has(word)) result += `<span class="fc-tok-keyword">${escapeHtml(value)}</span>`
-    else result += escapeHtml(value)
-    last = match.index + value.length
-  }
-  result += escapeHtml(code.slice(last))
-  return result
 }
 
 const EXT_LANG: Record<string, string> = {

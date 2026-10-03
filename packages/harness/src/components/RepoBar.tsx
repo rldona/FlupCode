@@ -1,6 +1,7 @@
 import { Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { PullRequestDone, PullRequestFailures, PullRequestInline, type PullRequestProps } from "./PullRequestChip"
+import { Icon } from "./Icon"
 
 type RepoBarProps = {
   directory: string
@@ -79,7 +80,9 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
           <div class="fc-repo-left">
             <span class="fc-repo-name">{name()}</span>
             <Show when={branch()}>
-              <span class="fc-repo-branch">{branch()}</span>
+              <span class="fc-repo-branch">
+                <Icon name="branch" /> {branch()}
+              </span>
             </Show>
             {/*
               The repository this would open a pull request in, and only when it is not simply the
@@ -150,7 +153,7 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
                     title={t("Hide until there is something new to say")}
                     onClick={() => setHidden(subject())}
                   >
-                    ×
+                    <Icon name="close" />
                   </button>
                 }
               >
@@ -161,7 +164,7 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
                   title={t("Remove folder")}
                   onClick={() => props.onClear?.()}
                 >
-                  ×
+                  <Icon name="close" />
                 </button>
               </Show>
             }
@@ -173,7 +176,7 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
               title={t("Close session")}
               onClick={() => props.onClose?.()}
             >
-              ×
+              <Icon name="close" />
             </button>
           </Show>
           </div>

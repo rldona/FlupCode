@@ -1,6 +1,7 @@
 import { For, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { McpServer } from "../engine-types"
+import { Icon } from "./Icon"
 
 type McpAuthNoticeProps = {
   /** The servers whose engine status is `needs_auth`, already filtered by the caller. */
@@ -20,7 +21,7 @@ export const McpAuthNotice: Component<McpAuthNoticeProps> = (props) => (
     <div class="fc-mcp-auth-notice-head">
       <span class="fc-mcp-auth-notice-title">{t("MCP servers need authentication")}</span>
       <button class="fc-mcp-auth-notice-close" type="button" aria-label={t("Dismiss")} onClick={props.onDismiss}>
-        ×
+        <Icon name="close" />
       </button>
     </div>
     <p class="fc-mcp-auth-notice-body">{t("Authenticate to let the agent use them.")}</p>

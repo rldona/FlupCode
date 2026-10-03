@@ -124,7 +124,8 @@ test("a failed refresh on Changes keeps the diff it had", async ({ page }) => {
   await expect(file).toBeVisible()
 
   failing.diff = 500
-  await page.getByRole("button", { name: "Refresh" }).click()
+  // The screen's own Refresh: the sidebar's, an icon now, is named "Refresh" too (UX-06).
+  await page.getByRole("region", { name: "Changes" }).getByRole("button", { name: "Refresh" }).click()
   await expect(page.getByRole("alert").filter({ hasText: "The changes could not be read" })).toBeVisible()
   await expect(file).toBeVisible()
 })

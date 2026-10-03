@@ -86,11 +86,13 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
 
   onMount(() => {
     if (!container) return
+    // The terminal draws on a canvas, so it takes its type from the tokens rather than from CSS.
+    const styles = getComputedStyle(document.documentElement)
     term = new XTerm({
       convertEol: true,
       cursorBlink: true,
-      fontSize: 12,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      fontSize: parseFloat(styles.getPropertyValue("--fc-text-sm")),
+      fontFamily: styles.getPropertyValue("--fc-font-mono").trim(),
       theme: xtermTheme(),
     })
     // The mode class and the palette attribute are the app's only signals for a theme change.

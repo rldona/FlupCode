@@ -10,6 +10,7 @@ import { skillAccess } from "../skill-access"
 import { PanelFailure } from "./PanelBoundary"
 import { ConfirmDialog } from "./ConfirmDialog"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type SkillCatalogueProps = {
   open: boolean
@@ -502,7 +503,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                   <div class="fc-skill-file">
                     <button class="fc-routine-card fc-skill-row" type="button" onClick={() => read(file)}>
                       <span class="fc-routine-card-icon" aria-hidden="true">
-                        ✦
+                        <Icon name="sparkle" />
                       </span>
                       <span class="fc-routine-card-content">
                         <strong>{file.name}</strong>

@@ -4,6 +4,7 @@ import { t } from "../i18n"
 import { toast } from "../toast"
 import { failureDetail } from "./PanelBoundary"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type ConfigPanelProps = {
   open: boolean
@@ -68,7 +69,7 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
         <span class="fc-modal-heading">
           <Show when={props.onBack}>
             <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-              ←
+              <Icon name="arrow-left" />
             </button>
           </Show>
           <span>{t("Config (advanced)")}</span>

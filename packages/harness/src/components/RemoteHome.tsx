@@ -9,6 +9,7 @@ import type { Attention } from "../attention"
 import { AttentionMark, attentionLabel } from "./AttentionMark"
 import { runTitle } from "../run-title"
 import { Modal } from "./Modal"
+import { Icon } from "./Icon"
 
 /** Phone home screen while controlling a computer: devices, sessions and a new-session action. */
 
@@ -129,7 +130,7 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
                   aria-label={t("Remove device")}
                   onClick={() => remote.forget(host.hostId)}
                 >
-                  ×
+                  <Icon name="close" />
                 </button>
               </Show>
             </div>

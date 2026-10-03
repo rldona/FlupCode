@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { BranchState, CheckLog, FailedCheck } from "../types"
+import { Icon } from "./Icon"
 
 export type PullRequestProps = {
   state: BranchState | undefined
@@ -219,7 +220,7 @@ export const PullRequestInline: Component<
                       >
                         <span class="fc-pr-dot" aria-hidden="true" />
                         {label()}
-                        <span aria-hidden="true">{props.expanded ? "▴" : "▾"}</span>
+                        <Icon name={props.expanded ? "chevron-up" : "chevron-down"} />
                       </button>
                     </Show>
                   )}
@@ -263,7 +264,7 @@ export const PullRequestDone: Component<{
 }> = (props) => (
   <div class="fc-pr-done" data-state={props.state}>
     <span class="fc-pr-done-icon" aria-hidden="true">
-      ⑂
+      <Icon name="branch" />
     </span>
     <button class="fc-pr-number" type="button" onClick={() => props.onOpen(props.url)}>
       #{props.number}
@@ -280,7 +281,7 @@ export const PullRequestDone: Component<{
       title={t("Hide until there is something new to say")}
       onClick={() => props.onDismiss()}
     >
-      ×
+      <Icon name="close" />
     </button>
   </div>
 )

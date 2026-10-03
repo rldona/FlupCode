@@ -11,6 +11,7 @@ import type { AdaptiveModel, CapturedPrompt, ContextReport, ItemDisposition, Sto
 import { duration } from "./UsagePanel"
 import { PanelFailure } from "./PanelBoundary"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 export type ContextTokens = {
   input: number
@@ -328,7 +329,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
                 <Show when={plan()}>
                   {(entry) => (
                     <span class="fc-context-aside">
-                      {formatTokens(entry().tokensBefore)} → {formatTokens(entry().tokensAfter)}
+                      {formatTokens(entry().tokensBefore)} <Icon name="arrow-right" /> {formatTokens(entry().tokensAfter)}
                     </span>
                   )}
                 </Show>

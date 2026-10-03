@@ -19,6 +19,7 @@ import type {
   Workflow,
 } from "../types"
 import { Modal, ModalClose, modalOpen } from "./Modal"
+import { Icon } from "./Icon"
 
 type RoutinesPanelProps = {
   open: boolean
@@ -407,7 +408,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
             <p>{t("Run repeatable tasks in your OpenCode projects.")}</p>
           </div>
           <div class="fc-routines-header-actions">
-            <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>＋ {t("New routine")}</button>
+            <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}><Icon name="plus" class="fc-icon-lead" />{t("New routine")}</button>
           </div>
         </div>
 
@@ -415,7 +416,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
           when={!props.serverAvailable && !props.serverLoading && props.pairing}
           fallback={
             <div class="fc-routines-notice">
-              <span class="fc-routines-notice-icon">◷</span>
+              <span class="fc-routines-notice-icon"><Icon name="clock" /></span>
               <span>{props.serverLoading ? t("Connecting to the routines server…") : props.serverAvailable ? t("Routines are managed by the harness server and continue when this window is closed.") : t("The routines server is unavailable. Start FlupCode's harness server to manage routines.")}</span>
             </div>
           }
@@ -427,9 +428,9 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
           <input class="fc-question-custom fc-routines-search" value={search()} placeholder={t("Search routines")} aria-label={t("Search routines")} onInput={(event) => setSearch(event.currentTarget.value)} />
         </div>
 
-        <Show when={visible().length > 0} fallback={(!props.pairing || props.serverAvailable) && <div class="fc-routines-empty"><div class="fc-routines-empty-icon">◷</div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
+        <Show when={visible().length > 0} fallback={(!props.pairing || props.serverAvailable) && <div class="fc-routines-empty"><div class="fc-routines-empty-icon"><Icon name="clock" /></div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
             <div class="fc-routines-layout">
-              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small><Show when={lastSettled(routine)}>{(run) => <span class="fc-routine-card-last"><StateBadge state={runState(run())} reason={run().verdict?.reason ?? run().error} /><Show when={routine.failedInARow > 0}><small>{t("{count} failed in a row", { count: routine.failedInARow })}</small></Show></span>}</Show></span><Show when={props.routineAttention[routine.id]}>{(level) => <AttentionMark level={level()} />}</Show><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
+              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon"><Icon name="clock" /></span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small><Show when={lastSettled(routine)}>{(run) => <span class="fc-routine-card-last"><StateBadge state={runState(run())} reason={run().verdict?.reason ?? run().error} /><Show when={routine.failedInARow > 0}><small>{t("{count} failed in a row", { count: routine.failedInARow })}</small></Show></span>}</Show></span><Show when={props.routineAttention[routine.id]}>{(level) => <AttentionMark level={level()} />}</Show><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
             </div>
             <Show when={selected()}>
               {(routine) => (
@@ -460,7 +461,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                         </>
                       }
                     >
-                      <Show when={props.busy && props.busyRoutineID === routine().id} fallback={<button class="fc-button fc-button-primary" type="button" disabled={props.busy || !props.serverAvailable} onClick={() => props.onRun(routine().id)}>▶ {t("Run now")}</button>}>
+                      <Show when={props.busy && props.busyRoutineID === routine().id} fallback={<button class="fc-button fc-button-primary" type="button" disabled={props.busy || !props.serverAvailable} onClick={() => props.onRun(routine().id)}><Icon name="play" class="fc-icon-lead" />{t("Run now")}</button>}>
                         <button class="fc-button fc-button-danger" type="button" onClick={props.onStop}>{t("Stop run")}</button>
                       </Show>
                       <button class="fc-button" type="button" onClick={() => openEdit(routine())}>{t("Edit")}</button>

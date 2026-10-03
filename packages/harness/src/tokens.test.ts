@@ -277,3 +277,124 @@ describe("motion (UX-03)", () => {
     expect(elsewhere.map((file) => file.name)).toEqual([])
   })
 })
+
+describe("type (UX-06)", () => {
+  /** Every `font-size` and `font` declaration outside tokens.css, with where it is. */
+  const declarations = () =>
+    css()
+      .filter((file) => file.name !== "tokens.css")
+      .flatMap((file) =>
+        [...file.text.matchAll(/^[^\S\n]*(font-size|font)\s*:\s*([^;]*);/gm)].map((match) => ({
+          property: match[1]!,
+          value: match[2]!.trim(),
+          where: `${file.name}:${file.text.slice(0, match.index).split("\n").length}`,
+        })),
+      )
+
+  test("every font size is a token, and nothing else writes one", () => {
+    // A size written in pixels does not move when the scale does, and is how this file collected
+    // 195 of them next to 197 that used the tokens. `font: inherit` sets no size of its own; the
+    // shorthand may carry a line height after the slash, but its size is a token too.
+    const offenders = declarations()
+      .filter((declaration) => {
+        if (declaration.value === "inherit") return false
+        if (declaration.property === "font-size") return !/^var\(--fc-text-[\w-]+\)$/.test(declaration.value)
+        return /\d*\.?\d+(?:px|r?em|pt|%)|\b(?:small|medium|large|smaller|larger)\b/.test(
+          declaration.value.split("/")[0]!.replace(/var\(--fc-[\w-]+\)/g, ""),
+        )
+      })
+      .map((declaration) => `${declaration.where} ${declaration.property}: ${declaration.value}`)
+    expect(offenders).toEqual([])
+  })
+
+  test("is reading the real declarations", () => {
+    expect(declarations().filter((declaration) => declaration.property === "font-size").length).toBeGreaterThan(400)
+  })
+
+  test("the scale is the one in docs/DESIGN.md", () => {
+    const tokens = readFileSync(join(STYLES, "tokens.css"), "utf8")
+    const scale = { "2xs": 10, xs: 11, sm: 12, base: 13, md: 14, lg: 16, xl: 18, "2xl": 20, "3xl": 26, "4xl": 32, display: 40 }
+    for (const [name, size] of Object.entries(scale)) expect(tokens).toContain(`--fc-text-${name}: ${size}px;`)
+    const design = readFileSync(join(import.meta.dir, "..", "..", "..", "docs", "DESIGN.md"), "utf8")
+    expect(design).toContain(Object.values(scale).join(" / "))
+  })
+
+  test("docs/DESIGN.md sets FlupCode's own direction, not another product's", () => {
+    // It used to open with "The target look is the Anthropic Claude Code desktop harness" (audit P1).
+    const design = readFileSync(join(import.meta.dir, "..", "..", "..", "docs", "DESIGN.md"), "utf8")
+    expect(design).not.toMatch(/target look|Claude|Anthropic|OpenChamber|-style palette/i)
+    expect(design).toContain("supervised, verified and costed")
+  })
+
+  test("no component sets a font size of its own", () => {
+    const offenders = readdirSync(join(import.meta.dir), { recursive: true })
+      .filter((name): name is string => typeof name === "string" && /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name))
+      .flatMap((name) =>
+        readFileSync(join(import.meta.dir, name), "utf8")
+          .split("\n")
+          .flatMap((text, index) =>
+            /["']?font-?size["']?\s*:\s*["']?\d/i.test(text) ? [`${name}:${index + 1} ${text.trim()}`] : [],
+          ),
+      )
+    expect(offenders).toEqual([])
+  })
+})
+
+describe("icons (UX-06)", () => {
+  // Arrows, technical symbols, enclosed and geometric shapes, dingbats, the multiplication sign, the
+  // angle quotes, the full-width plus and emoji: the characters that end up standing in for an icon.
+  // The minus sign (U+2212) is not here: "−12" is a number, not an icon.
+  const GLYPH = /[×‹›←-⇿⌀-⏿①-⓿■-➿⬀-⯿＋\u{1f300}-\u{1faff}]/u
+  const ONLY_GLYPHS = new RegExp(`^\\s*${GLYPH.source}(?:\\s|${GLYPH.source})*$`, "u")
+
+  /** The app's own source, comments taken out: a comment may draw an arrow. */
+  const sources = () =>
+    readdirSync(join(import.meta.dir), { recursive: true })
+      .filter((name): name is string => typeof name === "string" && /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name))
+      .map((name) => ({
+        name,
+        text: readFileSync(join(import.meta.dir, name), "utf8")
+          .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "))
+          .replace(/(^|[^:"'`])\/\/[^\n]*/gm, "$1"),
+      }))
+
+  const at = (text: string, index: number) => text.slice(0, index).split("\n").length
+
+  test("no glyph is used as an icon: an icon comes from components/Icon.tsx", () => {
+    const offenders = sources().flatMap((file) => {
+      // The names of keys, shown as keys: ⌘, ⌥ and ⇧ are what the keyboard says, not icons.
+      if (file.name === "keybinds.ts") return []
+      // A run of JSX text that is nothing but glyphs, unless it is a key in a <kbd>.
+      const text = [...file.text.matchAll(/[>}]([^<>{}]*)[<{]/g)]
+        .filter((match) => ONLY_GLYPHS.test(match[1]!) && !file.text.slice(0, match.index + 1).endsWith("<kbd>"))
+        .map((match) => `${file.name}:${at(file.text, match.index)} ${match[1]!.trim()}`)
+      // A string that is nothing but glyphs: a menu icon, a caret, a mark chosen in a ternary.
+      const strings = [...file.text.matchAll(/(["'`])((?:(?!\1)[^\n\\])*)\1/g)]
+        .filter((match) => ONLY_GLYPHS.test(match[2]!))
+        .map((match) => `${file.name}:${at(file.text, match.index)} ${match[0]}`)
+        // An arrow joining names in a sentence ("Runs: plan → build") is punctuation in the text.
+        .filter((offender) => !/^components\/ResumeConfirm\.tsx:\d+ " → "$/.test(offender))
+      return [...text, ...strings]
+    })
+    expect(offenders).toEqual([])
+  })
+
+  test("nor does a stylesheet draw one", () => {
+    const offenders = css().flatMap((file) =>
+      [...file.text.matchAll(/content:\s*([^;]*);/g)]
+        .filter((match) => GLYPH.test(match[1]!))
+        .map((match) => `${file.name}:${at(file.text, match.index)} ${match[0]}`),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  test("is reading the real source", () => {
+    // The set is in use, and the check above would have found the glyphs it replaced.
+    const all = sources()
+    expect(all.filter((file) => file.text.includes("<Icon ")).length).toBeGreaterThan(30)
+    expect(ONLY_GLYPHS.test("▾")).toBe(true)
+    expect(ONLY_GLYPHS.test("×")).toBe(true)
+    expect(ONLY_GLYPHS.test("−")).toBe(false)
+    expect(ONLY_GLYPHS.test("⌘K")).toBe(false)
+  })
+})

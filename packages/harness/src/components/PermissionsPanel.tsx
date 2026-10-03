@@ -1,5 +1,6 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { Icon } from "./Icon"
 
 export type PermissionAction = "ask" | "allow" | "deny"
 
@@ -205,7 +206,7 @@ export const PermissionsPanel: Component<PermissionsPanelProps> = (props) => {
                     aria-label={t("Delete rule")}
                     onClick={() => setRules(rules().filter((_, at) => at !== index()))}
                   >
-                    ×
+                    <Icon name="close" />
                   </button>
                 </li>
               )}

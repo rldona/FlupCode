@@ -1,6 +1,7 @@
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { Delivery } from "../pending-prompts"
+import { Icon } from "./Icon"
 
 /**
  * What the engine does with a prompt typed while a turn is already running. Both are real engine
@@ -36,7 +37,9 @@ export const DeliveryMenu: Component<{ value: Delivery; onChange: (value: Delive
         onClick={() => setOpen((value) => !value)}
       >
         {t(current().label)}
-        <span class="fc-mode-caret">▾</span>
+        <span class="fc-mode-caret">
+          <Icon name="chevron-down" />
+        </span>
       </button>
       <Show when={open()}>
         <div class="fc-mode-popover">
@@ -56,7 +59,9 @@ export const DeliveryMenu: Component<{ value: Delivery; onChange: (value: Delive
                 <span class="fc-mode-item-label">{t(option.label)}</span>
                 <span class="fc-mode-item-desc">{t(option.description)}</span>
                 <Show when={props.value === option.id}>
-                  <span class="fc-mode-check">✓</span>
+                  <span class="fc-mode-check">
+                    <Icon name="check" />
+                  </span>
                 </Show>
               </button>
             )}

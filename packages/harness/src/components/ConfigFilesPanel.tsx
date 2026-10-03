@@ -8,6 +8,7 @@ import type {
   ConfigFileKind,
 } from "../types"
 import { Modal, ModalClose } from "./Modal"
+import { Icon } from "./Icon"
 
 type ConfigFilesPanelProps = {
   open: boolean
@@ -304,7 +305,7 @@ export const ConfigFilesPanel: Component<ConfigFilesPanelProps> = (props) => {
         <span class="fc-modal-heading">
           <Show when={props.onBack}>
             <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-              ←
+              <Icon name="arrow-left" />
             </button>
           </Show>
           <span>{t("Config files")}</span>
