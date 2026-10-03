@@ -50,6 +50,8 @@ import { createActionApprover } from "./action-approval"
 import { createBrowserPolicy } from "./browser-policy"
 import { createBrowserMcpGate } from "./browser-mcp"
 import { createBrowserAttach } from "./browser-attach"
+import { createBrowserBridge } from "./browser-bridge"
+import { SOCKET_PATH } from "@flupcode/bridge-extension/protocol"
 import { Engine } from "./engine"
 import { planExit } from "./plan-exit"
 import { parseModelKey } from "./policy"
@@ -99,6 +101,8 @@ export type HarnessServerOptions = {
   remoteTokenFile?: string
   /** Browser tabs paired with a one-time code (HE-01); only on a loopback host with a UI token. */
   pairing?: Pairing
+  /** Where the browsers paired through FlupCode Bridge are kept (BU-04); beside the tokens when absent. */
+  browserBridgeFile?: string
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
@@ -418,77 +422,104 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         ask: (request) => new Engine(engineURL).askChoice(request),
       })
     : undefined
+  // The person's own browser through FlupCode Bridge (BU-04): the same attach client and policy, on a
+  // driver that reaches the browser's FlupCode tab group. Only on the loopback, where the UI token is.
+  const bridge =
+    browser && isLoopbackHostname(hostname)
+      ? createBrowserBridge({
+          repository,
+          egress: createEgressGuard(),
+          hostname,
+          ...(options.browserDataDir ? { dataDir: options.browserDataDir } : {}),
+          ...(options.browserBridgeFile ? { file: options.browserBridgeFile } : {}),
+        })
+      : undefined
+  const bridgeAttach = bridge
+    ? createBrowserAttach({
+        engine: new Engine(engineURL),
+        driver: bridge.driver,
+        policy: browserPolicy,
+        place: "your browser, in its FlupCode tab group",
+        ask: (request) => new Engine(engineURL).askChoice(request),
+      })
+    : undefined
   // What the server can tell of a ledger row's money (UL-05), shared by the ingest and the reconciler.
   const usagePricing = createUsagePricing({ engine: scheduler.engine, repository })
   // The connected providers' quotas (UL-07), read on the server and kept as samples.
   const quotas = createQuotaPoller({ engine: scheduler.engine, repository })
+  const handler = createHarnessHandler(repository, scheduler, {
+    hostname,
+    usagePricing,
+    quotas,
+    ...(browser ? { browser } : {}),
+    ...(browserAttach ? { browserAttach } : {}),
+    ...(bridge && bridgeAttach ? { bridge, bridgeAttach } : {}),
+    ...(browserToken ? { token: browserToken } : {}),
+    ...(pluginToken ? { pluginToken } : {}),
+    ...(remoteToken ? { remoteToken } : {}),
+    // A paired tab is a UI caller, so pairing exists only where the UI's token does, on the loopback.
+    ...(options.pairing && browserToken && isLoopbackHostname(hostname) ? { pairing: options.pairing } : {}),
+    ...(actions ? { actions } : {}),
+    ...(actions
+      ? {
+          actionApprover: createActionApprover({
+            actions,
+            policy: browserPolicy,
+            ask: (request) => new Engine(engineURL).askChoice(request),
+          }),
+          browserPolicy,
+        }
+      : {}),
+    ...(vault ? { credentials: vault } : {}),
+    // The user's browser through an MCP preset (BU-02): asked by the plugins, under the same policy.
+    browserMcp: createBrowserMcpGate({
+      policy: browserPolicy,
+      ask: (request) => new Engine(engineURL).askChoice(request),
+    }),
+    planExit: (sessionID) => planExit(new Engine(engineURL), sessionID),
+    runtimeProbe,
+    decisions,
+    valueGate,
+    context,
+    proposals: repository,
+    learnedSkills: curator,
+    proposalReview: createProposalReview({ repository, curator }),
+    learnedSkillActions: curator,
+    adaptiveConfig,
+    modelKeys: { keys, slots: keySlots },
+    overrides,
+    ...(adaptiveToken
+      ? {
+          adaptiveToken,
+          relevance,
+          guardrails,
+          toolTrimConfig: () => adaptive.current(),
+          // Selection acts only through the legacy `messages.transform` hook, so the probe gates it
+          // like relevance (docs/V2-HOOKS.md).
+          selectionPolicy: () => {
+            const config = adaptive.current()
+            return {
+              ...config.selection,
+              enabled:
+                config.enabled && config.selection.enabled && runtimeProbe.capabilities().canTransformMessages,
+            }
+          },
+        }
+      : {}),
+    holdoutFraction: () => adaptive.current().holdout.fraction,
+    compactionAnchors: () => {
+      const config = adaptive.current()
+      return config.enabled && config.compaction.anchors
+    },
+  })
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname,
-    fetch: createHarnessHandler(repository, scheduler, {
-      hostname,
-      usagePricing,
-      quotas,
-      ...(browser ? { browser } : {}),
-      ...(browserAttach ? { browserAttach } : {}),
-      ...(browserToken ? { token: browserToken } : {}),
-      ...(pluginToken ? { pluginToken } : {}),
-      ...(remoteToken ? { remoteToken } : {}),
-      // A paired tab is a UI caller, so pairing exists only where the UI's token does, on the loopback.
-      ...(options.pairing && browserToken && isLoopbackHostname(hostname) ? { pairing: options.pairing } : {}),
-      ...(actions ? { actions } : {}),
-      ...(actions
-        ? {
-            actionApprover: createActionApprover({
-              actions,
-              policy: browserPolicy,
-              ask: (request) => new Engine(engineURL).askChoice(request),
-            }),
-            browserPolicy,
-          }
-        : {}),
-      ...(vault ? { credentials: vault } : {}),
-      // The user's browser through an MCP preset (BU-02): asked by the plugins, under the same policy.
-      browserMcp: createBrowserMcpGate({
-        policy: browserPolicy,
-        ask: (request) => new Engine(engineURL).askChoice(request),
-      }),
-      planExit: (sessionID) => planExit(new Engine(engineURL), sessionID),
-      runtimeProbe,
-      decisions,
-      valueGate,
-      context,
-      proposals: repository,
-      learnedSkills: curator,
-      proposalReview: createProposalReview({ repository, curator }),
-      learnedSkillActions: curator,
-      adaptiveConfig,
-      modelKeys: { keys, slots: keySlots },
-      overrides,
-      ...(adaptiveToken
-        ? {
-            adaptiveToken,
-            relevance,
-            guardrails,
-            toolTrimConfig: () => adaptive.current(),
-            // Selection acts only through the legacy `messages.transform` hook, so the probe gates it
-            // like relevance (docs/V2-HOOKS.md).
-            selectionPolicy: () => {
-              const config = adaptive.current()
-              return {
-                ...config.selection,
-                enabled:
-                  config.enabled && config.selection.enabled && runtimeProbe.capabilities().canTransformMessages,
-              }
-            },
-          }
-        : {}),
-      holdoutFraction: () => adaptive.current().holdout.fraction,
-      compactionAnchors: () => {
-        const config = adaptive.current()
-        return config.enabled && config.compaction.anchors
-      },
-    }),
+    // The extension's WebSocket is the one request answered before the `/harness/*` routes.
+    fetch: (request, bunServer) =>
+      bridge && new URL(request.url).pathname === SOCKET_PATH ? bridge.socket(request, bunServer) : handler(request),
+    // Nothing is upgraded without the bridge, so its absence never meets a socket.
+    websocket: bridge?.websocket ?? { message: (socket) => socket.close() },
   })
   // Background work starts only once the port is bound: a harness that fails to bind throws above
   // with no scheduler, sweep, learning pass or timer left running behind it. The handler cannot see
@@ -548,6 +579,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       episodes.stop()
       scheduler.stop()
       await browserAttach?.stop().catch(() => undefined)
+      await bridgeAttach?.stop().catch(() => undefined)
+      bridge?.stop()
       await browser?.stop().catch(() => undefined)
       repository.close()
       server.stop()

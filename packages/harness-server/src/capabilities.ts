@@ -11,6 +11,7 @@ export const CAPABILITIES = ["session-prefs", "stash", "packs", "files", "shares
 export type Capability =
   | (typeof CAPABILITIES)[number]
   | "browser"
+  | "bridge"
   | "web-actions"
   | "credentials"
   | "action-profiles"

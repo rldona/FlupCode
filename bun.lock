@@ -30,6 +30,16 @@
         "typescript": "catalog:",
       },
     },
+    "packages/bridge-extension": {
+      "name": "@flupcode/bridge-extension",
+      "version": "3.0.1",
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/engine-contract": {
       "name": "@flupcode/engine-contract",
       "version": "0.0.0",
@@ -116,6 +126,7 @@
       "name": "@flupcode/harness-server",
       "version": "3.0.1",
       "dependencies": {
+        "@flupcode/bridge-extension": "workspace:*",
         "@flupcode/remote": "workspace:*",
         "@opencode/client": "2.0.18",
         "croner": "10.0.1",
@@ -300,6 +311,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
     "@flupcode/adaptive-eval": ["@flupcode/adaptive-eval@workspace:packages/adaptive-eval"],
+
+    "@flupcode/bridge-extension": ["@flupcode/bridge-extension@workspace:packages/bridge-extension"],
 
     "@flupcode/cli": ["@flupcode/cli@workspace:packages/flupcode-cli"],
 

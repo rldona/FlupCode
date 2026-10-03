@@ -23,6 +23,7 @@ import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
 import type { BrowserAttach } from "./browser-attach"
+import type { BrowserBridge } from "./browser-bridge"
 import type { RecipeDriver } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
 import { remoteEvent, remoteScopeAllows } from "./remote-scope"
@@ -480,6 +481,13 @@ export type HarnessHandlerOptions = {
   browser?: RecipeDriver
   /** The agent's own browser (BU-05): a session handed a browser, from the live view. */
   browserAttach?: BrowserAttach
+  /**
+   * The person's own browser through FlupCode Bridge (BU-04): its pairing, from the app. The
+   * extension's token opens only its socket, never a route.
+   */
+  bridge?: BrowserBridge
+  /** The attach client a session is handed the person's browser with (BU-04). */
+  bridgeAttach?: BrowserAttach
   /** The UI's bearer: every guarded route. */
   token?: string
   /**
@@ -607,7 +615,28 @@ export const createHarnessHandler = (
     if (path[1] === "browser" && options.browser) {
       if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleBrowserRequest(request, path.slice(2), options.browser, options.browserAttach)
+      return handleBrowserRequest(
+        request,
+        path.slice(2),
+        options.browser,
+        options.browserAttach,
+        options.bridge && options.bridgeAttach ? { bridge: options.bridge, attach: options.bridgeAttach } : undefined,
+      )
+    }
+    // FlupCode Bridge's pairing (BU-04): what the app shows and its one click. The reader's, so the UI
+    // token only; the extension's own token is good for its socket and is refused here like any other.
+    if (path[1] === "bridge" && options.bridge) {
+      if (!uiCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      const bridge = options.bridge
+      if (path.length === 2 && request.method === "GET") return json({ data: bridge.status() })
+      if (path[2] === "pair" && path.length === 3 && request.method === "POST") {
+        const body = (await readJSON(request)) as { id?: unknown } | undefined
+        const paired = typeof body?.id === "string" ? bridge.pair(body.id) : undefined
+        return paired ? json({ data: paired }) : error("That browser is no longer waiting to pair", 404)
+      }
+      if (path[2] === "paired" && path[3] && path.length === 4 && request.method === "DELETE")
+        return bridge.forget(path[3]) ? json({ data: { forgotten: true } }) : error("No such browser", 404)
+      return error("Not found", 404)
     }
     // The runner drives the browser on the user's machine, so it sits behind the same bearer as
     // `/harness/browser/*` (WA-2). Without a runner the path is an ordinary 404.
@@ -996,6 +1025,7 @@ export const createHarnessHandler = (
         capabilities: [
           ...CAPABILITIES,
           ...(options.browser ? (["browser"] as const) : []),
+          ...(options.bridge ? (["bridge"] as const) : []),
           ...(options.actions ? (["web-actions"] as const) : []),
           // Its grants are revoked with the browser's bearer, so it is announced only when that exists.
           ...(options.browserPolicy && options.token ? (["browser-policy"] as const) : []),

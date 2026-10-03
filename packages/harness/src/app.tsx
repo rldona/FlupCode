@@ -138,6 +138,7 @@ export const App: Component = () => {
                 panels={app.settings.panels()}
                 serverUrl={app.connection.serverUrl()}
                 harnessServerUrl={app.connection.harnessServerUrl()}
+                bridge={app.connection.supports("bridge")}
                 session={app.sessions.selectedSession()}
                 revision={[app.sessions.messages(), app.workspace.vcsStatus()]}
                 changedFiles={app.workspace.changedFiles()}

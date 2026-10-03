@@ -62,8 +62,8 @@ jobs:
             *) all "event $EVENT" ;;
           esac
           matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
-          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|adaptive-eval|remote|relay|flupcode-cli|engine-contract)/|package\.json$|bun\.lock$|script/opencode-pin\.ts$|docs/opencode-boundary\.txt$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
-          echo "engine=$(matches '^(packages/(engine-contract|remote|harness-server)/|packages/harness/src/engine/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|bridge-extension|adaptive-eval|remote|relay|flupcode-cli|engine-contract)/|package\.json$|bun\.lock$|script/opencode-pin\.ts$|docs/opencode-boundary\.txt$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "engine=$(matches '^(packages/(engine-contract|remote|harness-server|bridge-extension)/|packages/harness/src/engine/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
   build:
@@ -95,6 +95,7 @@ jobs:
           bun run --cwd packages/harness typecheck
           bun run --cwd packages/harness-desktop typecheck
           bun run --cwd packages/harness-server typecheck
+          bun run --cwd packages/bridge-extension typecheck
           bun run --cwd packages/adaptive-eval typecheck
           bun run --cwd packages/remote typecheck
           bun run --cwd packages/relay typecheck
@@ -111,6 +112,7 @@ jobs:
           bun run --cwd packages/relay test
           bun run --cwd packages/flupcode-cli test
           bun run --cwd packages/harness-server test
+          bun run --cwd packages/bridge-extension test
           bun run --cwd packages/adaptive-eval test
           bun run --cwd packages/harness-desktop test
 
@@ -160,7 +162,8 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      # The agent's browser over the engine's attach protocol (BU-05) drives a real Chromium.
+      # The agent's browser over the engine's attach protocol (BU-05) drives a real Chromium, and FlupCode
+      # Bridge (BU-04) runs in it.
       - name: Install Playwright browsers
         run: cd packages/harness && bunx playwright install --with-deps chromium
 
@@ -175,7 +178,7 @@ jobs:
           bun run --cwd packages/engine-contract typecheck
           bun run --cwd packages/engine-contract test
           (cd packages/harness && bun test src/engine --timeout 60000)
-          (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts src/project-roots.engine.test.ts src/usage-attribution.engine.test.ts src/usage-ledger.engine.test.ts src/usage-reconciler.engine.test.ts src/artifact-lineage.engine.test.ts src/browser-attach.engine.test.ts --timeout 120000)
+          (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts src/project-roots.engine.test.ts src/usage-attribution.engine.test.ts src/usage-ledger.engine.test.ts src/usage-reconciler.engine.test.ts src/artifact-lineage.engine.test.ts src/browser-attach.engine.test.ts src/browser-bridge.engine.test.ts --timeout 120000)
 
   # oxlint over the whole repository: errors fail, warnings are reported. Cheap, so it runs on every
   # change rather than behind `changes`.

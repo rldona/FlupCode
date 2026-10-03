@@ -12,6 +12,7 @@
 import { parseViewport, readSessionID } from "./browser"
 import type { RecipeDriver } from "./browser"
 import type { BrowserAttach } from "./browser-attach"
+import type { BrowserBridge } from "./browser-bridge"
 import { BrowserError } from "./browser-driver"
 import { NavigationBlockedError } from "./browser-egress"
 
@@ -33,9 +34,10 @@ export async function handleBrowserRequest(
   segments: string[],
   browser: RecipeDriver,
   attach?: BrowserAttach,
+  bridge?: Bridge,
 ): Promise<Response> {
   try {
-    return await dispatch(request, segments, browser, attach)
+    return await dispatch(request, segments, browser, attach, bridge)
   } catch (cause) {
     return failure(cause)
   }
@@ -46,6 +48,7 @@ const dispatch = async (
   segments: string[],
   browser: RecipeDriver,
   attach: BrowserAttach | undefined,
+  bridge: Bridge | undefined,
 ): Promise<Response> => {
   const id = readSessionID(request.headers.get("x-flupcode-session") ?? undefined)
   const route = segments[0]
@@ -93,8 +96,27 @@ const dispatch = async (
   }
 
   // A person hands the agent a browser for this session (BU-05): the engine's `browser.*` tools then
-  // run here, each one under the browser policy.
-  if (route === "attach" && method === "POST" && attach) return json({ data: await attach.attach(id) }, 201)
+  // run here, each one under the browser policy. `driver: "bridge"` hands it the person's own browser
+  // through FlupCode Bridge instead (BU-04); a session has one or the other, never both.
+  if (route === "attach" && method === "POST" && attach) {
+    const body = await bodyFrom(request)
+    if (body.driver !== "bridge") {
+      await bridge?.attach.detach(id)
+      return json({ data: await attach.attach(id) }, 201)
+    }
+    if (!bridge) return error("FlupCode Bridge is not available on this computer", "not_found", 404)
+    await attach.detach(id)
+    return json({ data: { ...(await bridge.attach.attach(id)), driver: "bridge" } }, 201)
+  }
+
+  const bridged = bridge?.bridge.driver.get(id)
+  if (route === "session" && method === "GET" && bridged) return json({ data: { ...bridged, driver: "bridge" } })
+  // The person's browser has no frame to poll and no window to take over: it is theirs already.
+  if (route === "stop" && method === "POST" && bridge && bridged) {
+    await bridge.attach.detach(id)
+    await bridge.bridge.driver.close(id)
+    return json({ data: { stopped: true } })
+  }
 
   if (route === "session" && method === "GET") {
     const session = browser.get(id)
@@ -146,6 +168,8 @@ const dispatch = async (
 
   return error("Not found", "not_found", 404)
 }
+
+type Bridge = { bridge: BrowserBridge; attach: BrowserAttach }
 
 const failure = (cause: unknown): Response => {
   if (cause instanceof NavigationBlockedError)

@@ -17,6 +17,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@flupcode/bridge-extension": "workspace:*",
     "@flupcode/remote": "workspace:*",
     "@opencode/client": "2.0.18",
     "croner": "10.0.1",

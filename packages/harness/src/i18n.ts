@@ -696,6 +696,16 @@ const ES: Record<string, string> = {
   "Give the agent a browser": "Darle un navegador al agente",
   "The agent browses in its own browser, not yours, and asks before acting on each site.":
     "El agente navega en su propio navegador, no en el tuyo, y pregunta antes de actuar en cada sitio.",
+  // The person's own browser through FlupCode Bridge (BU-04)
+  "Give the agent your browser": "Darle tu navegador al agente",
+  "Install FlupCode Bridge in Chrome or Edge with this app open: your browser shows up here to pair.":
+    "Instala FlupCode Bridge en Chrome o Edge con esta app abierta: tu navegador aparecerá aquí para emparejarlo.",
+  "{browser} wants to connect. Check that FlupCode Bridge shows {code}.":
+    "{browser} quiere conectarse. Comprueba que FlupCode Bridge muestra {code}.",
+  "{browser} is connected. The agent works only in its FlupCode tab group.":
+    "{browser} está conectado. El agente solo trabaja en su grupo de pestañas FlupCode.",
+  "The agent works in your browser, only in the FlupCode tab group. Take it back there: Cancel on the bar at the top of the browser, or Take back on the page.":
+    "El agente trabaja en tu navegador, solo en el grupo de pestañas FlupCode. Recupéralo allí: Cancelar en la barra de arriba del navegador, o Recuperar en la página.",
   "The agent's browser appears here while it acts on a site.":
     "El navegador del agente aparece aquí mientras actúa en un sitio.",
   "Files changed": "Ficheros cambiados",

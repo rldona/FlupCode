@@ -1,0 +1,12 @@
+{
+  "name": { "message": "FlupCode Bridge" },
+  "description": { "message": "Lets FlupCode's agent work in the FlupCode tab group of this browser, and nowhere else." },
+  "offline": { "message": "Not connected. Open FlupCode on this computer." },
+  "pairing": { "message": "Waiting for FlupCode. Click Pair there and check that it shows this code:" },
+  "connected": { "message": "Connected to FlupCode. The agent works only in the FlupCode tab group." },
+  "handTab": { "message": "Hand this tab to FlupCode" },
+  "takeBack": { "message": "Take back all tabs" },
+  "indicator": { "message": "FlupCode is using this tab" },
+  "indicatorTakeBack": { "message": "Take back" },
+  "port": { "message": "FlupCode port" }
+}

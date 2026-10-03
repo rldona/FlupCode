@@ -55,6 +55,8 @@ export function createBrowserAttach(input: {
   answerWindowMs?: number
   /** How often an attachment checks that its browser is still open. */
   watchMs?: number
+  /** Where the agent acts, as the approval names it: the person's own browser says so (BU-04). */
+  place?: string
 }) {
   const attachments = new Map<string, Attachment>()
   const asks = new Map<string, Promise<BrowserPermit | undefined>>()
@@ -209,7 +211,7 @@ export function createBrowserAttach(input: {
           .ask({
             sessionID: attachment.sessionID,
             title: `Allow the agent to ${TIER_WORDS[tier]} on ${site}?`,
-            description: `In FlupCode's browser for this session: ${question.action}.`,
+            description: `In ${input.place ?? "FlupCode's browser for this session"}: ${question.action}.`,
             options: approvalOptions(tier, site),
             metadata: {
               flupcode: "browser-approval",

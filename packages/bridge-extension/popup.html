@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root { color-scheme: light dark; --accent: #f97316; --plate: #ffedd5; --text: #1c1917; --muted: #57534e; --bg: #ffffff; --line: #e7e5e4; }
+      @media (prefers-color-scheme: dark) { :root { --text: #f5f5f4; --muted: #a8a29e; --bg: #1c1917; --line: #44403c; } }
+      body { margin: 0; width: 300px; padding: 14px; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, sans-serif; }
+      h1 { margin: 0 0 8px; font-size: 14px; }
+      p { margin: 0 0 10px; color: var(--muted); }
+      .code { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; background: var(--plate); color: #1c1917; font: 600 16px ui-monospace, monospace; letter-spacing: 1px; text-align: center; }
+      button { display: block; width: 100%; margin: 0 0 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+      button.primary { border-color: var(--accent); background: var(--accent); color: #1c1917; }
+      label { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--muted); }
+      input { width: 80px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text); font: inherit; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1 id="name"></h1>
+    <p id="status"></p>
+    <div id="code" class="code" hidden></div>
+    <div id="actions" hidden>
+      <button id="hand" class="primary" type="button"></button>
+      <button id="take-back" type="button"></button>
+    </div>
+    <label><span id="port-label"></span><input id="port" type="number" min="1" max="65535" /></label>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
