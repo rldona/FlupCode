@@ -29,9 +29,12 @@ test("the evaluation tools are not part of the server any more", () => {
   expect(reached.filter((file) => /adaptive\/(promotion\/|learning\/eval|learning\/heuristics-cli)/.test(file))).toEqual([])
 })
 
-// P8: a decision kind is declared because something in the server asks it, not for later.
+// P8: a decision kind is declared because something in the server asks it, not for later. A kind's
+// own module names it in its definition (PI-02), which is not asking it, so the modules are not read.
 test("every decision kind is asked by the server", () => {
-  const sources = [...serverModules()].map((file) => readFileSync(file, "utf8"))
+  const sources = [...serverModules()]
+    .filter((file) => !file.includes("/adaptive/decisions/"))
+    .map((file) => readFileSync(file, "utf8"))
   const unasked = decisionKinds().filter((kind) => !sources.some((source) => source.includes(`kind: "${kind}"`)))
   expect(unasked).toEqual([])
 })
