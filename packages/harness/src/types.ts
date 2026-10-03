@@ -373,6 +373,8 @@ export type Task = {
   verdict?: TaskVerdict
   /** The model it was sent to and why (PI-04), once an agent task has started. */
   route?: TaskRoute
+  /** What a verify task's look at the page found (CL-4), once it ran. */
+  visualResult?: VisualResult
 }
 
 /**
@@ -384,8 +386,6 @@ export type TaskRoute = {
   fallback: boolean
   reason: string
   source: "rule" | "model"
-  /** What a verify task's look at the page found (CL-4), once it ran. */
-  visualResult?: VisualResult
 }
 
 /**
