@@ -238,11 +238,11 @@ describe.skipIf(!existsSync(chromiumPath))("FlupCode Bridge refuses on its own (
       const outside = await browser.context.newPage()
       await outside.goto("about:blank")
       await browser.connectTo(server.port ?? 0)
-      const socket = (await until(() => sockets[0], (value) => value !== undefined))!
+      const socket = (await until(() => sockets[0], (value) => value !== undefined, 15_000, "the extension's hello"))!
       const outsideTab = (await browser.chromeTabs()).find((entry) => entry.group === undefined)!.tabId
       const ask = async (id: number, method: string, params: Record<string, unknown>) => {
         socket.send(JSON.stringify({ type: "request", id, method, params }))
-        return until(() => answers.get(id), (value) => value !== undefined)
+        return until(() => answers.get(id), (value) => value !== undefined, 15_000, `the answer to ${method}`)
       }
       expect(await ask(1, "cdp", { tabId: outsideTab, method: "Accessibility.getFullAXTree" })).toMatchObject({
         type: "error",

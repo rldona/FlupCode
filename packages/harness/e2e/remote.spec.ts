@@ -18,6 +18,8 @@ import {
 import { REFUSED } from "../../harness-server/src/remote-scope.fixture"
 
 // A free port, not a fixed one, so suites running side by side never share a relay.
+/** How late the computer answers the phone in the HE-02 test: past the runs loop's early retries. */
+const LATE_HOST_MS = 8_000
 let relayPort = 0
 let relayUrl = ""
 let relay: ChildProcess
@@ -449,6 +451,7 @@ test.describe("on a phone", () => {
   })
 
   test("a paired phone approves a run's gate and stops a run, and nothing more (HE-02)", async ({ page, baseURL }) => {
+    test.setTimeout(60_000)
     // The real harness routes over two runs held at a gate, beside the fake engine.
     const harnessPort = await freePort()
     const harnessUrl = `http://127.0.0.1:${harnessPort}`
@@ -474,10 +477,14 @@ test.describe("on a phone", () => {
       relay: relayUrl,
       identity: await createHostIdentity(),
       onStatus: (next) => statuses.push(next),
+      // The computer answers late, as over a slow relay: by then the phone's runs loop has failed a few
+      // times and backed off. The runs must still show as soon as the tunnel is up, not at the next
+      // step of the back-off (which, with this delay, is past the 15 s the home is given below).
       onChannel: (wire) =>
-        void acceptChannel(wire, (mode, id) =>
+        void new Promise((resolve) => setTimeout(resolve, LATE_HOST_MS))
+          .then(() => acceptChannel(wire, (mode, id) =>
           mode === "pair" && id === pairingId ? secret : mode === "device" && id === "e2e-phone" ? deviceKey : undefined,
-        )
+          ))
           .then((accepted) => {
             // As the desktop and `flupcode remote` do: `/harness/*` with the remote scope's token.
             const tunnel = serveTunnel(accepted.channel, {

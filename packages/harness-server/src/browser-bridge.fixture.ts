@@ -125,13 +125,21 @@ export async function launchBridgeBrowser() {
   }
 }
 
-/** Waits for `check` to hold, polling; fails with what it last saw. */
-export async function until<T>(read: () => Promise<T> | T, check: (value: T) => boolean, timeoutMs = 15_000) {
+/**
+ * Waits for `check` to hold, polling; fails with what it waited for and what it last saw. `what`
+ * names the wait, so a timeout in CI says which one it was: the stack only reaches this function.
+ */
+export async function until<T>(
+  read: () => Promise<T> | T,
+  check: (value: T) => boolean,
+  timeoutMs = 15_000,
+  what = "a condition",
+) {
   const deadline = Date.now() + timeoutMs
   const poll = async (): Promise<T> => {
     const value = await read()
     if (check(value)) return value
-    if (Date.now() > deadline) throw new Error(`Timed out; last saw ${JSON.stringify(value)}`)
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}; last saw ${JSON.stringify(value)}`)
     await Bun.sleep(100)
     return poll()
   }

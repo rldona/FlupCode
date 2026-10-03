@@ -62,6 +62,9 @@ export function createBrowserAttach(input: {
   const asks = new Map<string, Promise<BrowserPermit | undefined>>()
   const leftover = new Map<string, BrowserPermit>()
   const waiting = new Map<string, () => void>()
+  // A session being detached still holds the tools until the engine is told to stop offering them:
+  // until then it is still attached to whoever asks, so nobody acts on a browser it no longer has.
+  const leaving = new Map<string, Promise<void>>()
   const stream = { controller: undefined as AbortController | undefined }
   const answerWindowMs = input.answerWindowMs ?? 45_000
 
@@ -89,6 +92,14 @@ export function createBrowserAttach(input: {
     const current = attachments.get(sessionID)
     if (!current || (attachment && current !== attachment)) return
     attachments.delete(sessionID)
+    const done = release(sessionID, current).finally(() => {
+      if (leaving.get(sessionID) === done) leaving.delete(sessionID)
+    })
+    leaving.set(sessionID, done)
+    await done
+  }
+
+  const release = async (sessionID: string, current: Attachment) => {
     clearInterval(current.watch)
     current.controller.abort()
     if (attachments.size === 0) {
@@ -291,7 +302,7 @@ export function createBrowserAttach(input: {
 
     detach: (sessionID: string) => detach(sessionID),
 
-    attached: (sessionID: string) => attachments.has(sessionID),
+    attached: (sessionID: string) => attachments.has(sessionID) || leaving.has(sessionID),
 
     async stop() {
       await Promise.all([...attachments.keys()].map((sessionID) => detach(sessionID)))
