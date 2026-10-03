@@ -233,7 +233,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                 {/*
                   What it exposes (H-34). The engine reports resources; it does not report tools —
                   they bypass its registry, so only the calls it made are known, and those are on the
-                  context panel with their latency.
+                  Context screen with their latency.
                 */}
                 <Show when={resourcesFor(server.name).length > 0}>
                   <div class="fc-mcp-resources">

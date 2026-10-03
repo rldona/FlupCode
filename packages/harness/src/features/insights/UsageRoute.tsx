@@ -7,7 +7,7 @@ export default function UsageRoute() {
   const app = useApp()
   return (
     <UsagePanel
-      open={app.router.usageOpen()}
+      open={app.router.costOpen()}
       serverUrl={app.connection.harnessServerUrl()}
       serverAvailable={app.runs.routinesServerAvailable()}
       directory={app.sessions.vcsDirectory()}

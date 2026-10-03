@@ -14,7 +14,7 @@ type SessionTabsProps = {
  * The sessions open in this window, as a strip (H-36).
  *
  * The selected session is the active tab, so switching one is selecting it: the sidebar, the top bar
- * and the context panel follow, exactly as they do when a session is chosen from the list. Closing a
+ * and the details panel follow, exactly as they do when a session is chosen from the list. Closing a
  * tab is not deleting the session — it is closing the window's view of it.
  */
 export const SessionTabs: Component<SessionTabsProps> = (props) => (

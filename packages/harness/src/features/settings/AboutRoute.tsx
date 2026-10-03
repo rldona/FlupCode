@@ -8,10 +8,6 @@ export default function AboutRoute() {
     <About
       open={app.router.aboutOpen()}
       onClose={() => app.router.setAboutOpen(false)}
-      onBack={() => {
-        app.router.setAboutOpen(false)
-        app.router.setSettingsOpen(true)
-      }}
     />
   )
 }

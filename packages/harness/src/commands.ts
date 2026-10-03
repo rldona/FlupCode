@@ -1,6 +1,6 @@
 import { UNAVAILABLE_FEATURES } from "./features"
 import { t } from "./i18n"
-import type { Screen } from "./screen"
+import { DESTINATIONS, type DestinationId } from "./navigation"
 
 /**
  * The app's own `/` commands, in one place for the palette and the composer (TI-13).
@@ -19,9 +19,8 @@ export type CommandContext = {
   draft: string
   notify: (message: string) => void
   newSession: () => void
-  showScreen: (screen: Screen) => void
-  openSettings: (section: "mcp" | "providers") => void
-  open: (dialog: "about" | "settings" | "stashes" | "remote" | "skills" | "best-of-n" | "memory" | "config") => void
+  /** Opens a destination (UX-01), the same way the sidebar and the search do. */
+  go: (id: DestinationId) => void
   /** Sends text as a message, through whatever the open view sends with. */
   send: (text: string) => void
   stash: (text: string) => void
@@ -87,7 +86,6 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     // Typed, it saves what follows it; from the palette, the draft.
     run: (context, args) => context.stash(args || context.draft),
   },
-  { id: "stashes", title: "View saved prompts", group: "Session", run: (context) => context.open("stashes") },
   {
     id: "rename",
     title: "Rename session",
@@ -125,36 +123,24 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     session: true,
     run: (context) => context.closeTab(context.session!),
   },
-  { id: "files", title: "Files", group: "Go to", run: (context) => context.showScreen("files") },
-  { id: "artifacts", title: "Artifacts", group: "Go to", run: (context) => context.showScreen("artifacts") },
-  { id: "skills", title: "Skills", group: "Go to", run: (context) => context.open("skills") },
-  { id: "workflows", title: "Workflows", group: "Go to", run: (context) => context.showScreen("workflows") },
-  { id: "routines", title: "Scheduled tasks", group: "Go to", run: (context) => context.showScreen("routines") },
-  {
-    id: "actions",
-    title: "Web actions",
-    group: "Go to",
-    desktop: true,
-    // With nothing after it, the screen. With text, the reader is asking for an action to run, so the
-    // text goes to the agent, which owns the tool and its approval.
-    run: (context, args) => (args ? context.send(args) : context.showScreen("actions")),
-  },
-  { id: "compare", title: "Compare two runs", group: "Go to", run: (context) => context.showScreen("compare") },
-  {
-    id: "best-of-n",
-    title: "Best of N: one task, several models",
-    group: "Go to",
-    run: (context) => context.open("best-of-n"),
-  },
-  { id: "memory", title: "Memory", group: "Go to", run: (context) => context.open("memory") },
+  // A destination with a `/name` opens under the same name as everywhere else (UX-01).
+  ...DESTINATIONS.flatMap((entry): BuiltinCommand[] =>
+    entry.command
+      ? [
+          {
+            id: entry.command,
+            title: entry.title,
+            group: "Go to",
+            desktop: entry.desktop,
+            // `/actions` with text after it is the reader asking for an action to run, so the text goes
+            // to the agent, which owns the tool and its approval. Alone, it opens the screen.
+            run: (context, args) => (entry.id === "actions" && args ? context.send(args) : context.go(entry.id)),
+          },
+        ]
+      : [],
+  ),
   { id: "steps", title: "Show or hide tool steps", group: "App", run: (context) => context.toggleSteps() },
   { id: "toggle-sidebar", title: "Toggle sidebar", group: "App", run: (context) => context.toggleSidebar() },
-  { id: "settings", title: "Customize FlupCode", group: "App", run: (context) => context.open("settings") },
-  { id: "providers", title: "Providers & API keys", group: "App", run: (context) => context.openSettings("providers") },
-  { id: "mcp", title: "MCP servers…", group: "App", run: (context) => context.openSettings("mcp") },
-  { id: "config", title: "Config (advanced)", group: "App", run: (context) => context.open("config") },
-  { id: "remote", title: "Remote control / mobile", group: "App", run: (context) => context.open("remote") },
-  { id: "about", title: "About FlupCode", group: "App", run: (context) => context.open("about") },
 ]
 
 export function builtinCommand(name: string) {

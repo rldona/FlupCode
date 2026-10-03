@@ -124,7 +124,7 @@ test("settings change the app and chat text size and remember them", async ({ pa
   await page.goto("/")
   await page.locator(".fc-profile-button").click()
   await page.locator(".fc-menu").getByText("Settings", { exact: true }).click()
-  const dialog = page.getByRole("dialog", { name: "Customize" })
+  const dialog = page.getByRole("dialog", { name: "Settings" })
   await dialog.getByLabel("App text size").selectOption("large")
   await dialog.getByLabel("Chat text size").selectOption("xlarge")
   const applied = () =>
@@ -441,8 +441,9 @@ test("the slash menu walks with the arrow keys and Enter runs the chosen command
   // The first match starts highlighted; the arrows move it around the list.
   // With no session open, `/resume` and `/skillify` are shown but skipped, and the walk starts on `/stash`.
   await expect(activeName).toHaveText("/stash")
+  // The next match is the first of the "Go to" group, in the registry's order (UX-01).
   await input.press("ArrowDown")
-  await expect(activeName).toHaveText("/stashes")
+  await expect(activeName).toHaveText("/workflows")
   await input.press("ArrowUp")
   await expect(activeName).toHaveText("/stash")
 
@@ -451,7 +452,7 @@ test("the slash menu walks with the arrow keys and Enter runs the chosen command
   await expect(activeName).toHaveText("/settings")
   await input.press("Enter")
   await expect(menu).toHaveCount(0)
-  await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible()
 })
 
 
@@ -716,7 +717,7 @@ test("a panel button shows its panel is open", async ({ page }) => {
 test("the search is not a top bar button", async ({ page }) => {
   await page.goto("/")
   // The magnifier lives in the sidebar; the top bar no longer carries a second one.
-  await expect(page.getByRole("button", { name: "Command palette" })).toHaveCount(0)
+  await expect(page.locator(".fc-topbar").getByRole("button", { name: "Search" })).toHaveCount(0)
   await expect(page.locator(".fc-sidebar-search")).toBeVisible()
 })
 

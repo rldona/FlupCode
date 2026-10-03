@@ -159,10 +159,8 @@ test("the model's thinking stays out of the conversation until it is asked for",
 test("turning thinking on in Settings puts it back, closed", async ({ page }) => {
   await openThinkingSession(page)
 
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
   await page.getByRole("tab", { name: /Conversation|Conversación/ }).click()
   await page
     .locator(".fc-settings-row")

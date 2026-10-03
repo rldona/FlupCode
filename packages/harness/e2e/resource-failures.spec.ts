@@ -131,7 +131,7 @@ test("a failed refresh on Changes keeps the diff it had", async ({ page }) => {
 
 test("a 500 on Cost is said there, keeps the last report, and trying again recovers", async ({ page }) => {
   const failing: Failing = {}
-  await openApp(page, failing, "/usage")
+  await openApp(page, failing, "/cost")
   const spent = page.locator('.fc-usage-tile[data-lens="estimated"]')
   await expect(spent).toContainText("~$1.50")
 
@@ -152,7 +152,7 @@ test("a 500 on Cost is said there, keeps the last report, and trying again recov
 test("a refused token on Cost says it needs the desktop app or pairing, not that the server is away", async ({
   page,
 }) => {
-  await openApp(page, { usage: 403 }, "/usage")
+  await openApp(page, { usage: 403 }, "/cost")
 
   const alert = page.getByRole("alert").filter({ hasText: "The cost report could not be read" })
   await expect(alert).toBeVisible()
@@ -165,7 +165,7 @@ test("a harness that refuses this page's token says so on Cost, and trying again
   page,
 }) => {
   const failing: Failing = { refused: true }
-  await openApp(page, failing, "/usage")
+  await openApp(page, failing, "/cost")
 
   const alert = page.getByRole("alert").filter({ hasText: "The cost report could not be read" })
   await expect(alert).toContainText("pair this tab under Runs")

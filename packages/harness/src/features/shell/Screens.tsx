@@ -16,9 +16,8 @@ const SCREENS: Array<[Screen, Component]> = [
   ["actions", lazy(() => import("../runs/ActionsRoute"))],
   ["context", lazy(() => import("../workspace/ContextRoute"))],
   ["decisions", lazy(() => import("../insights/DecisionsRoute"))],
-  ["agents", lazy(() => import("../catalog/AgentsRoute"))],
   ["skills", lazy(() => import("../catalog/SkillsRoute"))],
-  ["usage", lazy(() => import("../insights/UsageRoute"))],
+  ["cost", lazy(() => import("../insights/UsageRoute"))],
 ]
 
 /**

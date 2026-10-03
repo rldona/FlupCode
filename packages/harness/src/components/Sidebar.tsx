@@ -12,6 +12,8 @@ import { ContextMenu, separator, type MenuItem } from "./ContextMenu"
 import logo from "../assets/flupcode-logo.png"
 import { tallyAttention, type Attention } from "../attention"
 import { AttentionMark } from "./AttentionMark"
+import { offered, type DestinationId } from "../navigation"
+import { formatKeybind, type Keybinds } from "../keybinds"
 
 /** The sidebar's width until the reader drags it; double-clicking its edge goes back to it. */
 export const SIDEBAR_WIDTH_DEFAULT = 280
@@ -86,30 +88,40 @@ type SidebarProps = {
   onCollapse: () => void
   onCopyPath: (path: string) => void
   onRefresh: () => void
-  onSettings: () => void
+  /** Opens a routine on the Routines screen, from the list of routines. */
   onRoutines: (focus?: string) => void
   /** The routines there are, for the section at the top. Empty means no section at all. */
   routines: Routine[]
   onSearch: () => void
   /** The tool screen open in the main column, if any, so the nav marks it (HF-9). */
   activeScreen?: Screen
-  onRuns: () => void
-  onUsage: () => void
-  onContext: () => void
-  onDecisions: () => void
-  onAgents: () => void
-  onSkills: () => void
-  onWorkflows: () => void
-  /** The Actions editor: the web action profiles (WA-8). */
-  onActions: () => void
-  /** False in the browser build, where Actions are not operative: the nav item is hidden. */
-  showActions: boolean
-  onArtifacts: () => void
-  onProviders: () => void
-  onConfig: () => void
-  onRemote: () => void
-  onMcp: () => void
+  /** Opens a destination from the nav or the profile menu (UX-01). */
+  onGo: (id: DestinationId) => void
+  /** The desktop app: the destinations only it can run (Actions) are offered. */
+  desktop: boolean
+  /** The shortcuts, for the one the profile menu shows beside Settings. */
+  keybinds: Keybinds
 }
+
+/** The nav's and the menu's icons, by destination. The names and the order come from the registry. */
+const ICONS: Partial<Record<DestinationId, string>> = {
+  runs: "⛭",
+  workflows: "⛓",
+  routines: "↻",
+  artifacts: "▤",
+  cost: "▦",
+  settings: "⚙",
+  skills: "✦",
+  actions: "⌘",
+  context: "◫",
+  decisions: "◆",
+  memory: "◈",
+  remote: "◉",
+  about: "ⓘ",
+}
+
+/** Where the profile menu draws a line: Settings, then the work's tools, then this app and its devices. */
+const MENU_BREAKS = new Set<DestinationId>(["skills", "remote"])
 
 export const Sidebar: Component<SidebarProps> = (props) => {
   const [menu, setMenu] = createSignal<{
@@ -473,79 +485,36 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         >
           {/* The nav scrolls with the lists under it; "+ New" is the one thing that stays put. */}
           <nav class="fc-nav">
-            <Show when={props.view === "code"}>
-              {/* Live first: runs are what the harness is doing now, workflows launch them,
-                  artifacts are what they leave, routines run on their own. */}
-              <button
-                class="fc-nav-item"
-                classList={{ "fc-nav-item-active": props.activeScreen === "runs" }}
-                type="button"
-                onClick={props.onRuns}
-              >
-                <span class="fc-nav-icon">⛭</span>
-                {t("Runs")}
-                {/* A gate waiting on the reader shows here from any screen (UX-02). */}
-                <Show when={props.runsAttention}>
-                  {(tally) => (
-                    <span class="fc-nav-attention">
-                      <AttentionMark level={tally().level} count={tally().count} />
-                    </span>
-                  )}
-                </Show>
-              </button>
-              <button
-                class="fc-nav-item"
-                classList={{ "fc-nav-item-active": props.activeScreen === "workflows" }}
-                type="button"
-                onClick={props.onWorkflows}
-              >
-                <span class="fc-nav-icon">⛓</span>
-                {t("Workflows")}
-              </button>
-              <button
-                class="fc-nav-item"
-                classList={{ "fc-nav-item-active": props.activeScreen === "artifacts" }}
-                type="button"
-                disabled={UNAVAILABLE_FEATURES.has("artifacts")}
-                title={UNAVAILABLE_FEATURES.has("artifacts") ? t("Coming soon") : undefined}
-                onClick={props.onArtifacts}
-              >
-                <span class="fc-nav-icon">▤</span>
-                {t("Artifacts")}
-                <Show when={UNAVAILABLE_FEATURES.has("artifacts")}>
-                  <span class="fc-nav-soon">{t("Soon")}</span>
-                </Show>
-              </button>
-              <button
-                class="fc-nav-item"
-                classList={{ "fc-nav-item-active": props.activeScreen === "routines" }}
-                type="button"
-                disabled={UNAVAILABLE_FEATURES.has("routines")}
-                title={UNAVAILABLE_FEATURES.has("routines") ? t("Coming soon") : undefined}
-                onClick={() => props.onRoutines()}
-              >
-                <span class="fc-nav-icon">↻</span>
-                {t("Routines")}
-                <Show when={UNAVAILABLE_FEATURES.has("routines")}>
-                  <span class="fc-nav-soon">{t("Soon")}</span>
-                </Show>
-              </button>
-              <Show when={props.showActions}>
+            {/* The work itself (UX-01), in both views: a gate waiting in a run needs the reader whether
+                they are chatting or coding. Live first: runs are what the harness is doing now,
+                workflows launch them, routines run on their own, artifacts are what they leave and cost
+                is what they spent. */}
+            <For each={offered(props.desktop).filter((entry) => entry.home === "sidebar")}>
+              {(entry) => (
                 <button
                   class="fc-nav-item"
-                  classList={{ "fc-nav-item-active": props.activeScreen === "actions" }}
+                  classList={{ "fc-nav-item-active": !!entry.screen && props.activeScreen === entry.screen }}
                   type="button"
-                  onClick={props.onActions}
+                  disabled={UNAVAILABLE_FEATURES.has(entry.id)}
+                  title={UNAVAILABLE_FEATURES.has(entry.id) ? t("Coming soon") : undefined}
+                  onClick={() => props.onGo(entry.id)}
                 >
-                  <span class="fc-nav-icon">⌘</span>
-                  {t("Actions")}
+                  <span class="fc-nav-icon">{ICONS[entry.id]}</span>
+                  {t(entry.title)}
+                  {/* A gate waiting on the reader shows here from any screen (UX-02). */}
+                  <Show when={entry.id === "runs" && props.runsAttention}>
+                    {(tally) => (
+                      <span class="fc-nav-attention">
+                        <AttentionMark level={tally().level} count={tally().count} />
+                      </span>
+                    )}
+                  </Show>
+                  <Show when={UNAVAILABLE_FEATURES.has(entry.id)}>
+                    <span class="fc-nav-soon">{t("Soon")}</span>
+                  </Show>
                 </button>
-              </Show>
-            </Show>
-            <button class="fc-nav-item" type="button" onClick={props.onSettings}>
-              <span class="fc-nav-icon">⚙</span>
-              {t("Customize")}
-            </button>
+              )}
+            </For>
           </nav>
           {/*
             Routines first, and only when there are any (§ the reader's own layout): they run
@@ -739,19 +708,17 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 y: rect.top - 6,
                 placement: "above",
                 width: rect.width,
-                items: [
-                  { label: t("Settings"), icon: "⚙", shortcut: "⌘,", onSelect: props.onSettings },
-                  separator,
-                  { label: t("Providers & API keys"), icon: "⚿", onSelect: props.onProviders },
-                  { label: t("Context"), icon: "◫", onSelect: props.onContext },
-                  { label: t("Decisions"), icon: "◆", onSelect: props.onDecisions },
-                  { label: t("Agents"), icon: "◍", onSelect: props.onAgents },
-                  { label: t("Skills"), icon: "✦", onSelect: props.onSkills },
-                  separator,
-                  { label: t("Cost"), icon: "▦", onSelect: props.onUsage },
-                  separator,
-                  { label: t("Remote control"), icon: "◉", onSelect: props.onRemote },
-                ],
+                items: offered(props.desktop)
+                  .filter((entry) => entry.home === "menu")
+                  .flatMap((entry): MenuItem[] => [
+                    ...(MENU_BREAKS.has(entry.id) ? [separator] : []),
+                    {
+                      label: t(entry.title),
+                      icon: ICONS[entry.id],
+                      shortcut: entry.keybind ? formatKeybind(props.keybinds[entry.keybind]) || undefined : undefined,
+                      onSelect: () => props.onGo(entry.id),
+                    },
+                  ]),
               })
             }}
           >

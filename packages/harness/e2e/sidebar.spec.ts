@@ -153,20 +153,21 @@ test("the list scrolls under + New, and + New does not move", async ({ page }) =
   expect((await page.locator(".fc-new").boundingBox())!.y).toBe(newBefore)
 })
 
-// The inspector screens live in the profile menu now: they are consulted, not worked in, and the
-// nav on the left keeps the work.
-test("cost, context, agents and skills moved from the nav to the profile menu", async ({ page }) => {
+// The inspector screens live in the profile menu: they are consulted, not worked in, and the nav on
+// the left keeps the work, which includes what it cost (UX-01). Agents are a Settings section.
+test("context and skills live in the profile menu, cost in the nav, agents in Settings", async ({ page }) => {
   await open(page)
 
-  for (const name of ["Cost", "Context", "Agents", "Skills"]) {
-    await expect(page.locator(".fc-nav").getByRole("button", { name, exact: true })).toHaveCount(0)
-  }
+  const nav = page.locator(".fc-nav .fc-nav-item")
+  await expect(nav.filter({ hasText: "Cost" })).toHaveCount(1)
+  for (const name of ["Context", "Agents", "Skills"]) await expect(nav.filter({ hasText: name })).toHaveCount(0)
 
   await page.locator(".fc-profile-button").click()
   const menu = page.locator(".fc-menu")
-  for (const name of ["Cost", "Context", "Agents", "Skills"]) {
+  for (const name of ["Context", "Skills"]) {
     await expect(menu.getByText(name, { exact: true })).toBeVisible()
   }
+  for (const name of ["Cost", "Agents"]) await expect(menu.getByText(name, { exact: true })).toHaveCount(0)
 
   // And they are still the doors to their screens.
   await menu.getByText("Context", { exact: true }).click()

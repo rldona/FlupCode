@@ -1,6 +1,6 @@
 /**
  * Split view: several sessions side by side in one window, each with its own transcript and input.
- * The focused pane is the app's selected session, so the sidebar, top bar and context panel follow it.
+ * The focused pane is the app's selected session, so the sidebar, top bar and details panel follow it.
  */
 
 /** Two is the usual case; more gets too narrow to read. */

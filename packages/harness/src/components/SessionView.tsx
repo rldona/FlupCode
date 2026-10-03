@@ -1201,7 +1201,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
 
   // The conversation navigator's rail sits over the chat's left edge. Below this column width the
   // transcript and the prompt dock narrow together so neither runs under the rail; this is measured
-  // from the frame, not the viewport, so an open context panel (or a resized sidebar) is accounted
+  // from the frame, not the viewport, so an open details panel (or a resized sidebar) is accounted
   // for. See fc-chat-narrow in shell.css.
   const [chatNarrow, setChatNarrow] = createSignal(false)
   const frameWidth = new ResizeObserver((entries) => {

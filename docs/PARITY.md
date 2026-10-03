@@ -23,7 +23,7 @@ Paths are relative to `packages/`.
 
 | Feature                                                       | Upstream  | FlupCode | Evidence                                                                                 |
 | ------------------------------------------------------------- | --------- | -------- | ---------------------------------------------------------------------------------------- |
-| Sidebar, top bar, right context panel                         | ✅        | ✅       | `harness/src/components/{Sidebar,Topbar,RightAside}.tsx`                                 |
+| Sidebar, top bar, right details panel                         | ✅        | ✅       | `harness/src/components/{Sidebar,Topbar,RightAside}.tsx`                                 |
 | Tool screens in the main column, sidebar kept, nav active     | ❌        | ➕       | `RunsPanel/WorkflowsPanel/ArtifactsPanel/RoutinesPanel.tsx` in `fc-main`, `toolScreen()` |
 | Side panels (browser, diff, terminal), split up to 4 sessions | 🟡 (tabs) | ➕       | `WorkspacePanels.tsx`, `split.ts` (`MAX_PANES = 4`)                                      |
 | URL routing, session tabs, lineage breadcrumb                 | ✅        | ✅       | path screens via `screen.ts`, `SessionTabs.tsx` (H-36), `SessionBreadcrumb` (H-18)       |
@@ -68,7 +68,7 @@ Paths are relative to `packages/`.
 | Tool renderers                                | ✅ (per tool)      | ✅       | per-tool bodies for bash, read, edit/write, glob/grep/list, websearch, webfetch, task, skill, todo (`SessionView.tsx`) |
 | Reasoning blocks                              | ✅                 | ✅       | collapsed by default in the transcript                                                                                 |
 | Inline diff per edit + full diff viewer       | ✅ (Pierre)        | 🟡       | LCS diff on the main thread; `FileDiff.tsx` parses hunks into a highlighted, line-numbered view                        |
-| Subagent cards, compaction and revert markers | ✅                 | 🟡       | compaction divider in the timeline; subagents are a list in the context panel (`SubagentList.tsx`); no revert marker   |
+| Subagent cards, compaction and revert markers | ✅                 | 🟡       | compaction divider in the timeline; subagents are a list in the details panel (`SubagentList.tsx`); no revert marker   |
 | LSP diagnostics under edits                   | ✅                 | 🟡       | the runtime produces them; the transcript does not render them                                                         |
 | Line comments on a diff                       | ✅                 | ✅       | own viewer anchors findings to the new file's line, resolve/reopen (`FileDiff.tsx`, H-32)                              |
 

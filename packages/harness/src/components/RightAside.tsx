@@ -33,7 +33,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         class="fc-rightaside-resizer"
         role="separator"
         aria-orientation="vertical"
-        aria-label={t("Resize context panel")}
+        aria-label={t("Resize details panel")}
         title={t("Drag to resize, double-click to reset")}
         onDblClick={() => props.onResize(CONTEXT_PANEL_WIDTH.default)}
         onPointerDown={(event) => {

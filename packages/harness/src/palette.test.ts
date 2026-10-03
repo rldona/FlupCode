@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { capped, kindsIn, search } from "./components/CommandPalette"
 import type { SessionInfo } from "./engine-types"
 import type { Artifact, CommandOption, ProjectItem, Routine, Run, Workflow } from "./types"
+import type { Destination } from "./navigation"
 
 const session = (id: string, title: string, directory?: string, agent?: string) =>
   ({
@@ -16,6 +17,7 @@ const session = (id: string, title: string, directory?: string, agent?: string) 
   }) as unknown as SessionInfo
 
 const empty = {
+  places: [] as Destination[],
   commands: [] as CommandOption[],
   sessions: [] as SessionInfo[],
   projects: [] as ProjectItem[],

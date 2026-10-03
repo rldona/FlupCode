@@ -342,11 +342,11 @@ export function createCatalog(app: AppStores) {
     setSkillsRefresh((count) => count + 1)
   }
   /**
-   * The agents this folder has, for the screen that is about this folder's agent files. It is the
+   * The agents this folder has, for the Settings section that is about this folder's agent files. It is the
    * legacy `/agent?directory=` list, which is the one the engine reads those files with.
    */
   const folderAgentsKey = () =>
-    (app.router.agentsSectionVisible() || app.router.agentsOpen()) && app.connection.ready()
+    app.router.agentsSectionVisible() && app.connection.ready()
       ? `${app.connection.serverUrl()}\n${app.sessions.vcsDirectory() ?? ""}`
       : undefined
   const [folderAgents] = createResource(folderAgentsKey, (key) => {
@@ -357,8 +357,7 @@ export function createCatalog(app: AppStores) {
   // what exists comes from the engine, which reports more than there are files.
   const agentFilesKey = () => {
     // Also when Settings is open: who may reach a server is read from the agent files (H-34).
-    if ((!app.router.settingsOpen() && !app.router.agentsOpen()) || !app.runs.routinesServerAvailable())
-      return undefined
+    if (!app.router.settingsOpen() || !app.runs.routinesServerAvailable()) return undefined
     return `${app.connection.harnessServerUrl()}\n${app.sessions.vcsDirectory() ?? ""}\n${agentsRefresh()}`
   }
   const [agentsRefresh, setAgentsRefresh] = createSignal(0)
@@ -447,7 +446,7 @@ export function createCatalog(app: AppStores) {
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   const toolsKey = () =>
-    (app.router.contextOpen() || app.router.agentsOpen() || app.router.agentsSectionVisible()) && app.connection.ready()
+    (app.router.contextOpen() || app.router.agentsSectionVisible()) && app.connection.ready()
       ? app.connection.serverUrl()
       : undefined
   const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())

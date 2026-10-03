@@ -751,7 +751,7 @@ export type EngineClient = {
          * What the connected servers expose (H-34).
          *
          * The engine never lists an MCP server's **tools** — they bypass its registry, so only the
-         * calls it makes are known, which is what the context panel reads. Resources it does report.
+         * calls it makes are known, which is what the Context screen reads. Resources it does report.
          */
         resources: (input?: {
             directory?: string | undefined;

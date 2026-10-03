@@ -107,11 +107,9 @@ test("a question from the agent is a form the reader answers, and the turn goes 
 test("the MCP servers the engine runs are listed with their state", async ({ page, request }) => {
   await openSession(page, request, { mode: "auto" })
 
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
-  const dialog = page.getByRole("dialog", { name: "Customize" })
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
   await dialog.getByRole("tab", { name: "MCP servers" }).click()
   const row = dialog.locator(".fc-mcp-row").filter({ hasText: "contract" })
   await expect(row).toBeVisible()

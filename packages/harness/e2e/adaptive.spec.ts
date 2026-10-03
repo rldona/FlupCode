@@ -292,11 +292,9 @@ async function openApp(page: Page, options: Options = {}) {
 }
 
 const openSettings = async (page: Page, section: string) => {
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
-  const dialog = page.getByRole("dialog", { name: "Customize" })
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
   await expect(dialog).toBeVisible()
   await dialog.getByRole("tab", { name: section }).click()
   return dialog

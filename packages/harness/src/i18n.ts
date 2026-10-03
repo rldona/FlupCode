@@ -12,7 +12,6 @@ const ES: Record<string, string> = {
   Routines: "Rutinas",
   Soon: "Pronto",
   "Coming soon": "Próximamente",
-  Customize: "Personalizar",
   Projects: "Proyectos",
   Sessions: "Sesiones",
   Pinned: "Fijado",
@@ -44,9 +43,10 @@ const ES: Record<string, string> = {
   "Your name": "Tu nombre",
   About: "Acerca de",
   "About FlupCode": "Acerca de FlupCode",
+  "Toggle details panel": "Alternar panel de detalles",
+  "Resize details panel": "Cambiar el ancho del panel de detalles",
+  "The details panel": "el panel de detalles",
   "Toggle sidebar": "Alternar barra lateral",
-  "Toggle context panel": "Alternar panel de contexto",
-  "Resize context panel": "Cambiar el ancho del panel de contexto",
   "App text size": "Tamaño del texto de la app",
   "Chat text size": "Tamaño del texto del chat",
   "Open sessions as tabs": "Abrir sesiones en pestañas",
@@ -261,7 +261,6 @@ const ES: Record<string, string> = {
   "The conversation": "la conversación",
   "The sidebar": "la barra lateral",
   "The side panels": "los paneles laterales",
-  "The context panel": "el panel de contexto",
   "The files screen": "la pantalla de archivos",
   "The artifacts screen": "la pantalla de artefactos",
   "The folder": "la carpeta",
@@ -350,7 +349,6 @@ const ES: Record<string, string> = {
   Retried: "Reintentado",
   Synthetic: "Sintético",
   Compare: "Comparar",
-  "Compare two runs": "Comparar dos ejecuciones",
   "Two runs against each other: what they spent, how long, what they touched, what the check said — and the context each was given.":
     "Dos ejecuciones frente a frente: qué gastaron, cuánto tardaron, qué tocaron, qué dijo la comprobación y qué contexto recibió cada una.",
   "No runs to compare yet.": "Todavía no hay ejecuciones que comparar.",
@@ -373,7 +371,6 @@ const ES: Record<string, string> = {
     "{left} ficheros a la izquierda, {right} a la derecha, {shared} en ambas.",
   // Best of N (H-44)
   "Best of N": "Mejor de N",
-  "Best of N: one task, several models": "Mejor de N: una tarea, varios modelos",
   "The same task on several models, each in its own run, then compare what they did.":
     "La misma tarea en varios modelos, cada uno en su propia ejecución, y luego compara lo que hicieron.",
   Task: "Tarea",
@@ -446,7 +443,6 @@ const ES: Record<string, string> = {
   Yes: "Sí",
   No: "No",
   Server: "Servidor",
-  Integrations: "Integraciones",
   "MCP servers": "Servidores MCP",
   "MCP servers need authentication": "Los servidores MCP necesitan autenticación",
   "Authenticate to let the agent use them.": "Autentícate para que el agente pueda usarlos.",
@@ -471,8 +467,6 @@ const ES: Record<string, string> = {
   Copy: "Copiar",
   "Path copied": "Ruta copiada",
   Skills: "Skills",
-  "No skills": "Sin skills",
-  Insert: "Insertar",
   Memory: "Memoria",
   "Add memory": "Añadir memoria",
   "Search memory": "Buscar en la memoria",
@@ -505,7 +499,6 @@ const ES: Record<string, string> = {
   Notifications: "Notificaciones",
   "Enable notifications": "Activar notificaciones",
   Shortcuts: "Atajos",
-  "Command palette": "Paleta de comandos",
   "Press keys…": "Pulsa teclas…",
   Unbound: "Sin atajo",
   Clear: "Quitar",
@@ -634,12 +627,7 @@ const ES: Record<string, string> = {
   "New session…": "Nueva sesión",
   "Compact the current session": "Compactar la sesión actual",
   "Show or hide tool steps": "Mostrar u ocultar los pasos de herramientas",
-  "MCP servers…": "Servidores MCP",
   "Save the current prompt": "Guardar el prompt actual",
-  "View saved prompts": "Ver prompts guardados",
-  "Customize FlupCode": "Personalizar FlupCode",
-  "Scheduled tasks": "Tareas programadas",
-  "Remote control / mobile": "Control remoto / móvil",
   "No results": "Sin resultados",
 
   // Dialogs and actions
@@ -715,7 +703,6 @@ const ES: Record<string, string> = {
   "No session": "Sin sesión",
   "No changes": "Sin cambios",
   "No diff available": "Sin diff disponible",
-  "Providers & API keys": "Proveedores y API keys",
   "Add an API key for a provider. It is stored by the OpenCode server.":
     "Añade una API key para un proveedor. La guarda el servidor de OpenCode.",
   "No providers": "Sin proveedores",
@@ -1360,7 +1347,6 @@ const ES: Record<string, string> = {
 
   // Settings as a rail of sections, and the editors inside it (H-25)
   "Settings sections": "Secciones de ajustes",
-  Editors: "Editores",
   "Agents and skills are edited on their own screens, where the files they came from are shown.":
     "Los agentes y los skills se editan en sus propias pantallas, donde se ven los ficheros de los que salen.",
   "A command is a slash command. What is written here shows up in the palette.":
@@ -1545,7 +1531,6 @@ const ES: Record<string, string> = {
   outside: "fuera",
   // Web actions editor (WA-8)
   Actions: "Acciones",
-  "Web actions": "Acciones web",
   "New action": "Nueva acción",
   "Not loaded": "No cargadas",
   "No global actions yet.": "Todavía no hay acciones globales.",

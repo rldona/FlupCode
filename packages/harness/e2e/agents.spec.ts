@@ -109,11 +109,9 @@ async function open(page: Page, options: Options = {}) {
   })
   await page.goto("/")
   // Agents live in Settings now, not on a screen of their own (CU-1).
-  await page
-    .getByRole("button", { name: /Customize|Personalizar/ })
-    .first()
-    .click()
-  const dialog = page.getByRole("dialog", { name: "Customize" })
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
   await expect(dialog).toBeVisible()
   await dialog.getByRole("tab", { name: /^Agents$/ }).click()
   await expect(dialog.getByRole("heading", { name: /^Agents$|^Agentes$/ })).toBeVisible()

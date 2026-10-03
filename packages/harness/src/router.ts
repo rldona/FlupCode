@@ -2,13 +2,23 @@ import { createEffect, createSignal, onCleanup } from "solid-js"
 import {
   compareFromSearch,
   decisionFromSearch,
+  movedFromPath,
   screenFromPath,
   searchForDecision,
   urlForScreen,
   type Screen,
 } from "./screen"
 import { isBrowsableUrl, isExternalLinkAllowed, openExternalUrl } from "./external-links"
-import type { SettingsSection } from "./components/SettingsPanel"
+import {
+  DESTINATIONS,
+  MOVED_DIALOGS,
+  PICKERS,
+  SETTINGS_GROUPS,
+  destination,
+  type DestinationId,
+  type Dialog,
+  type SettingsSection,
+} from "./navigation"
 import type { AppStores } from "./app-context"
 
 /**
@@ -24,39 +34,16 @@ import type { AppStores } from "./app-context"
  * link, a model switch, a workflow's inputs) are not routes: without their target there is nothing
  * for them to show.
  */
-export const DIALOGS = [
-  "settings",
-  "about",
-  "stashes",
-  "remote",
-  "skills",
-  "best-of-n",
-  "memory",
-  "config",
-  "config-files",
-  "palette",
-  "model",
-  "folder",
-] as const
-
-export type Dialog = (typeof DIALOGS)[number]
-
-const SETTINGS_SECTIONS: readonly SettingsSection[] = [
-  "appearance",
-  "profile",
-  "model",
-  "providers",
-  "conversation",
-  "notifications",
-  "shortcuts",
-  "permissions",
-  "commands",
-  "agents",
-  "mcp",
-  "adaptive",
-  "server",
-  "advanced",
+export const DIALOGS: readonly Dialog[] = [
+  ...new Set(DESTINATIONS.flatMap((entry) => (entry.dialog ? [entry.dialog] : []))),
+  ...PICKERS,
 ]
+
+export type { Dialog }
+
+const SETTINGS_SECTIONS: readonly SettingsSection[] = SETTINGS_GROUPS.flatMap((group) =>
+  group.items.map((item) => item.id),
+)
 
 /** The dialog a link names, with the Settings section it opens on. Anything else names none. */
 export function dialogFromSearch(search: string): { dialog: Dialog; section?: SettingsSection } | undefined {
@@ -70,6 +57,12 @@ export function dialogFromSearch(search: string): { dialog: Dialog; section?: Se
 /** Where a dialog lives: its link, beside the screen's own address. */
 export function searchForDialog(dialog: Dialog, section?: SettingsSection) {
   return `?${new URLSearchParams({ dialog, ...(dialog === "settings" && section ? { section } : {}) })}`
+}
+
+/** The destination a `?dialog=` name from before UX-01 leads to now (see `MOVED_DIALOGS`). */
+export function movedFromSearch(search: string) {
+  const name = new URLSearchParams(search).get("dialog") ?? ""
+  return Object.hasOwn(MOVED_DIALOGS, name) ? MOVED_DIALOGS[name] : undefined
 }
 
 /** The address without its dialog link, once the dialog it named is open. */
@@ -109,19 +102,18 @@ export function createRouter(app: AppStores) {
   const artifactsOpen = () => screen() === "artifacts"
   const filesOpen = () => screen() === "files"
   const changesOpen = () => screen() === "changes"
-  const usageOpen = () => screen() === "usage"
+  const costOpen = () => screen() === "cost"
   const contextOpen = () => screen() === "context"
   const decisionsOpen = () => screen() === "decisions"
   // The composer chip's "Why?" (AH-E02) links to the decision like the banner does.
   const showDecision = (decisionID: string) => showScreen("decisions", searchForDecision(decisionID))
-  const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
   const actionsOpen = () => screen() === "actions"
   const compareOpen = () => screen() === "compare"
   /**
    * The tool screens that live in the main column (HF-9): runs, workflows, artifacts, changes,
-   * routines, context, agents, skills and usage render where the conversation goes, with the
+   * routines, context, skills and cost render where the conversation goes, with the
    * sidebar visible, instead of a fixed overlay. Anything else keeps its overlay.
    */
   const toolScreen = () => {
@@ -135,9 +127,8 @@ export function createRouter(app: AppStores) {
       current === "actions" ||
       current === "context" ||
       current === "decisions" ||
-      current === "agents" ||
       current === "skills" ||
-      current === "usage" ||
+      current === "cost" ||
       current === "compare"
     )
   }
@@ -169,7 +160,6 @@ export function createRouter(app: AppStores) {
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [stashOpen, setStashOpen] = createSignal(false)
   const [remoteOpen, setRemoteOpen] = createSignal(false)
-  const [skillsOpen, setSkillsOpen] = createSignal(false)
   /**
    * One task, several models (H-44).
    *
@@ -194,7 +184,6 @@ export function createRouter(app: AppStores) {
     if (dialog === "about") return setAboutOpen(true)
     if (dialog === "stashes") return setStashOpen(true)
     if (dialog === "remote") return setRemoteOpen(true)
-    if (dialog === "skills") return setSkillsOpen(true)
     if (dialog === "best-of-n") return setBestOfNOpen(true)
     if (dialog === "memory") return setMemoryOpen(true)
     if (dialog === "config") return setConfigOpen(true)
@@ -203,8 +192,32 @@ export function createRouter(app: AppStores) {
     if (dialog === "model") return setModelPickerOpen(true)
     setFolderOpen(true)
   }
-  /** Opens the dialog the address names, and takes the link out of it. */
+  /** Opens a destination (UX-01): the one way the sidebar, the menu, the search and the shortcuts open one. */
+  const go = (id: DestinationId) => {
+    const target = destination(id)
+    if (!target) return
+    if (target.screen) return showScreen(target.screen)
+    if (target.dialog) openDialog(target.dialog, target.section)
+  }
+  /**
+   * Opens the dialog the address names, and takes the link out of it. An address from before UX-01
+   * (`/usage`, `/agents`, `?dialog=skills`) is first rewritten to where it leads now, in place, so
+   * Back does not return to the old one.
+   */
   const openLinkedDialog = () => {
+    const moved = movedFromPath(window.location.pathname) ?? movedFromSearch(window.location.search)
+    const target = moved ? destination(moved) : undefined
+    if (target) {
+      const search = searchWithoutDialog(window.location.search)
+      window.history.replaceState(
+        window.history.state,
+        "",
+        urlForScreen(target.screen, { search, hash: window.location.hash }),
+      )
+      setScreen(target.screen)
+      if (target.dialog) openDialog(target.dialog, target.section)
+      return
+    }
     const linked = dialogFromSearch(window.location.search)
     if (!linked) return
     window.history.replaceState(
@@ -264,10 +277,9 @@ export function createRouter(app: AppStores) {
     artifactsOpen,
     filesOpen,
     changesOpen,
-    usageOpen,
+    costOpen,
     contextOpen,
     decisionsOpen,
-    agentsOpen,
     skillsScreenOpen,
     workflowsScreenOpen,
     actionsOpen,
@@ -277,6 +289,7 @@ export function createRouter(app: AppStores) {
     decisionFocus,
     showDecision,
     openDialog,
+    go,
     openLinkedDialog,
     settingsOpen,
     setSettingsOpen,
@@ -291,8 +304,6 @@ export function createRouter(app: AppStores) {
     setStashOpen,
     remoteOpen,
     setRemoteOpen,
-    skillsOpen,
-    setSkillsOpen,
     bestOfNOpen,
     setBestOfNOpen,
     memoryOpen,

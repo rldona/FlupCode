@@ -97,7 +97,7 @@ test("the panel opens itself while there is work to watch", async ({ page }) => 
   await expect(page.locator(".fc-subagent")).toHaveCount(1)
 
   // A reader who closes it is not fought by the next render.
-  await page.getByRole("button", { name: /Toggle context panel|Alternar panel de contexto/ }).click()
+  await page.getByRole("button", { name: /Toggle details panel|Alternar panel de detalles/ }).click()
   await expect(page.locator(".fc-rightaside")).toHaveCount(0)
   await page.waitForTimeout(300)
   await expect(page.locator(".fc-rightaside")).toHaveCount(0)

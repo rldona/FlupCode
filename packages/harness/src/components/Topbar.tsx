@@ -31,7 +31,7 @@ type TopbarProps = {
    * could do nothing with, and the engine it names is the one serving this page either way.
    */
   showEngineStatus: boolean
-  /** The session's right-hand context panel, when a session is open. */
+  /** The session's right-hand details panel, when a session is open. */
   contextPanel?: { open: boolean; onToggle: () => void }
   /**
    * The agent-browser panel toggle. Only the desktop app shows it: the live browser view it opens
@@ -251,8 +251,8 @@ export const Topbar: Component<TopbarProps> = (props) => {
             <button
               class="fc-nav-arrow"
               type="button"
-              title={t("Toggle context panel")}
-              aria-label={t("Toggle context panel")}
+              title={t("Toggle details panel")}
+              aria-label={t("Toggle details panel")}
               aria-pressed={panel().open}
               onClick={panel().onToggle}
             >

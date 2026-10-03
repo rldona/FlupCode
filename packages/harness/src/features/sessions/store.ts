@@ -309,7 +309,7 @@ export function createSessions(app: AppStores) {
   const [chatMode, setChatMode] = createSignal<ChatClass>(readStorage<ChatClass>(STORAGE_KEYS.chatMode, "chat"))
   const composerChatClass = (): ChatClass | undefined => (chatView() ? (selectedChatClass() ?? chatMode()) : undefined)
   const plainChatView = () => chatView() && composerChatClass() === "chat"
-  // The Code chrome Cowork earns: repo bar, workspace panels, context panel.
+  // The Code chrome Cowork earns: repo bar, workspace panels, details panel.
   const codeChrome = () => !plainChatView()
   const changeChatClass = (next: ChatClass) => {
     setChatMode(next)
@@ -326,7 +326,7 @@ export function createSessions(app: AppStores) {
     setSelected(undefined)
     setMobileComposing(false)
   }
-  // Sessions the engine forked for a subagent live in the context panel, under the parent they
+  // Sessions the engine forked for a subagent live in the details panel, under the parent they
   // belong to; as rows in this column they read as projects of their own.
   const viewSessions = () => sessionList()?.filter((session) => isChatLike(session) === chatView() && !session.parentID)
   const changeView = (next: AppView) => {
@@ -699,7 +699,7 @@ export function createSessions(app: AppStores) {
     return result.data.filter((session) => !isSuggestionSession(session))
   }
 
-  // Subagents the reader removed from the context panel, per session. The children belong to the
+  // Subagents the reader removed from the details panel, per session. The children belong to the
   // engine, so removal only hides them here, and one spawned later still shows up.
   const [clearedSubagents, setClearedSubagents] = createSignal<Record<string, string[]>>(
     readStorage(STORAGE_KEYS.clearedSubagents, {}),

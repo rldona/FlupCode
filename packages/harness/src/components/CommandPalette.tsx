@@ -6,9 +6,13 @@ import { t } from "../i18n"
 import { sessionTitle } from "../session-title"
 import { isCoworkSession } from "../chat"
 import { Modal, ModalClose } from "./Modal"
+import type { Destination, DestinationId } from "../navigation"
 
-/** What can be found. The order is the order of the tabs. */
-export const KINDS = ["session", "project", "artifact", "routine", "run", "workflow", "command", "file"] as const
+/**
+ * What can be found. The order is the order of the tabs. Places come first: every destination is
+ * here under the name it has everywhere else (UX-01), and "settings" is the search for a section.
+ */
+export const KINDS = ["place", "session", "project", "artifact", "routine", "run", "workflow", "command", "file"] as const
 export type Kind = (typeof KINDS)[number]
 
 export type PaletteItem = {
@@ -24,6 +28,7 @@ export type PaletteItem = {
 }
 
 const LABELS: Record<Kind, string> = {
+  place: "Go to",
   session: "Sessions",
   project: "Projects",
   artifact: "Artifacts",
@@ -35,6 +40,7 @@ const LABELS: Record<Kind, string> = {
 }
 
 const BADGES: Record<Kind, string> = {
+  place: "→",
   session: "S",
   project: "P",
   artifact: "A",
@@ -59,6 +65,7 @@ const contains = (haystack: string, query: string) => haystack.toLowerCase().inc
 export function search(
   query: string,
   sources: {
+    places: Destination[]
     commands: CommandOption[]
     sessions: SessionInfo[]
     projects: ProjectItem[]
@@ -71,6 +78,17 @@ export function search(
 ): PaletteItem[] {
   const value = query.trim().toLowerCase()
   const items: PaletteItem[] = []
+  for (const place of sources.places ?? []) {
+    // The English name and the id find it too, so a reader using Spanish can still type "settings".
+    if (value && !contains(`${t(place.title)} ${place.title} ${place.id}`, value)) continue
+    items.push({
+      kind: "place",
+      id: `place:${place.id}`,
+      label: t(place.title),
+      detail: place.section ? t("Settings") : undefined,
+      value: place.id,
+    })
+  }
   // Every list is guarded: a resource that answers without a value must not take the app down when
   // the palette is built, which is what `for...of undefined` did.
   for (const session of sources.sessions ?? []) {
@@ -145,6 +163,7 @@ export const capped = (items: PaletteItem[], limit = LIMIT) =>
 
 type CommandPaletteProps = {
   open: boolean
+  places: Destination[]
   commands: CommandOption[]
   sessions: SessionInfo[]
   projects: ProjectItem[]
@@ -154,6 +173,7 @@ type CommandPaletteProps = {
   workflows: Workflow[]
   onClose: () => void
   onCommand: (name: string) => void
+  onPlace: (id: DestinationId) => void
   onSession: (id: string) => void
   onProject: (directory: string) => void
   onArtifact: (id: string) => void
@@ -219,6 +239,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
   const all = createMemo(() =>
     search(query(), {
+      places: props.places,
       commands: props.commands,
       sessions: sessions(),
       projects: props.projects,
@@ -252,7 +273,8 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
   const select = (item: PaletteItem | undefined) => {
     if (!item || item.disabled) return
-    if (item.kind === "command") props.onCommand(item.value)
+    if (item.kind === "place") props.onPlace(item.value as DestinationId)
+    else if (item.kind === "command") props.onCommand(item.value)
     else if (item.kind === "session") props.onSession(item.value)
     else if (item.kind === "project") props.onProject(item.value)
     else if (item.kind === "artifact") props.onArtifact(item.value)

@@ -3,7 +3,7 @@ import { DIALOGS, dialogFromSearch, searchForDialog, searchWithoutDialog } from 
 
 describe("a dialog's link", () => {
   test("names every dialog that opens without a target, and reads back what it wrote", () => {
-    expect(DIALOGS).toHaveLength(12)
+    expect(DIALOGS).toHaveLength(11)
     for (const dialog of DIALOGS) expect(dialogFromSearch(searchForDialog(dialog))).toEqual({ dialog })
   })
 
