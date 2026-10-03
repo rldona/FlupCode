@@ -1,9 +1,11 @@
 import { NeedsPerson, sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task, TaskStatus, TaskVerdict, Artifact, Unattended } from "./types"
+import { VERDICTS } from "./types"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { previewEvidence, type PreviewCapture } from "./browser-preview"
+import { PREVIEW_ONLY, visualEvidence, visualVerdict, type VisualRunner } from "./visual-verify"
 import { externalCommand, fillCommand, runExternal } from "./external"
 import { take, type Checkpoint } from "./checkpoint"
 import { parseFindings } from "./findings"
@@ -318,6 +320,11 @@ export class TaskRunner {
      * assigned to `modelRoute`. A failure to ask never fails the task: the rule's route stands.
      */
     private readonly router?: Router,
+    /**
+     * A verify task's look at the page in the desktop's preview (CL-4). Absent means this server has
+     * no preview, and a task that declares one says it did not run.
+     */
+    private readonly visualCheck?: VisualRunner,
   ) {}
 
   /**
@@ -357,6 +364,7 @@ export class TaskRunner {
         dependsOn: [executor.name],
         // One less: the budget is spent as it is used, so a run cannot loop whatever goes wrong.
         retries: budget - 1,
+        ...(verify.visual ? { visual: verify.visual } : {}),
         attempt: verify.attempt + 1,
         retryOf: verify.id,
       },
@@ -749,34 +757,74 @@ export class TaskRunner {
       // and no model: it costs time, not tokens, which is what makes it worth running after every
       // attempt rather than once at the end.
       if (task.kind === "verify") {
-        const report = await runVerify(directory ?? process.cwd(), { stopped })
+        const folder = directory ?? process.cwd()
+        const report = await runVerify(folder, { stopped })
+        // A look at the page (CL-4), when the task declares one: in the desktop's preview, or not at
+        // all, which it says. A project that declares no commands is checked by the look alone.
+        const visual =
+          task.visual && !stopped()
+            ? this.visualCheck
+              ? await this.visualCheck({
+                  check: task.visual,
+                  directory: folder,
+                  runID: run.id,
+                  taskID: task.id,
+                  name: task.name,
+                  ...(run.workflow ? { workflow: run.workflow.name } : {}),
+                  stopped,
+                })
+              : { status: "not-run" as const, problem: PREVIEW_ONLY, shots: [] }
+            : undefined
+        const commands = !task.visual || report.steps.length > 0 || report.problem !== undefined
         // Evidence, not a check: the page the project names, as the preview showed it after the checks.
-        const preview = stopped()
-          ? undefined
-          : await this.previewCapture?.({ directory: directory ?? process.cwd(), runID: run.id, taskID: task.id, name: task.name })
-        const evidence = previewEvidence(evidenceText(report), preview)
-        this.repository.finishTask(task.id, stopped() ? "stopped" : report.ok ? "success" : "failed", {
+        // A visual check already looked at it.
+        const preview =
+          stopped() || task.visual
+            ? undefined
+            : await this.previewCapture?.({ directory: folder, runID: run.id, taskID: task.id, name: task.name })
+        const evidence = [
+          ...(commands ? [previewEvidence(evidenceText(report), preview)] : []),
+          ...(visual ? [visualEvidence(visual)] : []),
+        ].join("\n\n")
+        const ok = (!commands || report.ok) && visual?.status !== "failed"
+        const failure = commands && !report.ok ? failureSummary(report) : visual?.status === "failed" ? `The visual check failed: ${visual.problem}` : undefined
+        this.repository.finishTask(task.id, stopped() ? "stopped" : ok ? "success" : "failed", {
           output: evidence,
-          error: report.ok ? undefined : failureSummary(report),
+          error: failure,
+          ...(visual ? { visual } : {}),
         })
         // A check that ran is the one thing that makes work `verified` (RP-06): the check itself, and
         // the agent task it checked, unless that task already said it did not finish — a passing suite
-        // does not turn "I stop here" into done. A failed check fails the work it checked.
+        // does not turn "I stop here" into done. A failed check fails the work it checked. With a look
+        // at the page too, the worse of the two speaks: a page that changed needs a person to see it.
         if (!stopped()) {
-          const verdict = report.ok
-            ? { value: "verified" as const, reason: passSummary(report), source: "check" as const }
-            : { value: "failed" as const, reason: failureSummary(report), source: "check" as const }
+          const verdict = [
+            ...(commands
+              ? [
+                  report.ok
+                    ? { value: "verified" as const, reason: passSummary(report), source: "check" as const }
+                    : { value: "failed" as const, reason: failureSummary(report), source: "check" as const },
+                ]
+              : []),
+            ...(visual ? [visualVerdict(visual)] : []),
+          ].reduce((worst, next) => (VERDICTS.indexOf(next.value) > VERDICTS.indexOf(worst.value) ? next : worst))
           this.repository.setTaskVerdict(task.id, verdict)
           const checked = this.checkedTask(run, task)
           const standing = checked?.verdict?.value
-          if (checked && (!report.ok || standing === undefined || standing === "unverified"))
+          if (
+            checked &&
+            (verdict.value === "failed" ||
+              standing === undefined ||
+              standing === "unverified" ||
+              VERDICTS.indexOf(verdict.value) > VERDICTS.indexOf(standing))
+          )
             this.recordVerdict(run, checked, verdict, checked.directory ?? directory)
         }
         // And it is kept (H-14): the verdict of a check is the evidence the audit asks for, and it
         // outlives the task list, which only shows the last twenty runs.
         this.repository.addArtifact({
           kind: "verdict",
-          title: `${task.name} — ${report.ok ? "passed" : "failed"}`,
+          title: `${task.name} — ${ok ? "passed" : "failed"}`,
           producer: "harness",
           content: evidence,
           directory,
@@ -791,15 +839,16 @@ export class TaskRunner {
         context.directories.set(task.id, directory)
         // The checks cost time, not tokens, but the run they belong to may already be over budget.
         if (this.pauseForBudget(run, context)) return
-        if (!report.ok && !stopped()) {
+        if (!ok && !stopped()) {
           // A failed check is not the end of the run if it was given a budget to try again. The
           // retry carries the evidence in its own prompt, so the handoff is cleared, not repeated.
-          if (this.scheduleRetry(run, task, focusedEvidence(report))) return
+          const retryEvidence = commands && !report.ok ? focusedEvidence(report) : visualEvidence(visual!)
+          if (this.scheduleRetry(run, task, retryEvidence)) return
           // Or if a task declared it expects this failure: that is a recovery step, not an ending.
           if (this.expectsFailure(run.id, task.name)) return
           // The task already recorded the failure; ending the run here is the loop's job, and doing
           // it by throwing would let the catch below overwrite the evidence with a bare message.
-          context.failure = failureSummary(report)
+          context.failure = failure ?? failureSummary(report)
           return
         }
         return this.afterTask(task, context, directory)

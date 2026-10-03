@@ -92,6 +92,36 @@ describe("the preview as a browser driver (BU-06)", () => {
     expect((await driver.tabs.close("s1", tab)).tabs).toHaveLength(1)
   })
 
+  test("a recipe step names elements by selector, read from the document without running script (CL-4)", async () => {
+    const { preview, desktop } = subject()
+    desktop.page.elements.set("#email", { nodeId: 5, quad: [100, 200, 300, 200, 300, 240, 100, 240], html: "<input id=email>" })
+    desktop.page.elements.set(".note", { nodeId: 6, html: "<p class=note>Saved &amp; <b>sent</b><script>x()</script>\n</p>" })
+    const driver = preview.driver
+    await driver.open({ id: "v", project: "/work" })
+    await driver.act("v", { kind: "waitFor", selector: "#email" })
+    await driver.act("v", { kind: "type", selector: "#email", text: "me@example.com" })
+    expect(desktop.cdp("DOM.focus")).toEqual([{ nodeId: 5 }])
+    expect(desktop.cdp("Input.insertText")).toEqual([{ text: "me@example.com" }])
+    await driver.act("v", { kind: "click", selector: "#email" })
+    expect(desktop.cdp("Input.dispatchMouseEvent").map((event) => [event.type, event.x, event.y])).toEqual([
+      ["mouseMoved", 200, 220],
+      ["mousePressed", 200, 220],
+      ["mouseReleased", 200, 220],
+    ])
+    // Read from its markup, attached or not: the text a browser would show.
+    expect(await driver.act("v", { kind: "read", selector: ".note" })).toMatchObject({ value: "Saved & sent" })
+    // Something with no box is not visible, and nothing matched is a failure with the selector.
+    await expect(driver.act("v", { kind: "waitFor", selector: ".note", timeoutMs: 150 })).rejects.toThrow("Nothing visible matched .note within 150 ms")
+    await expect(driver.act("v", { kind: "click", selector: "#gone", timeoutMs: 150 })).rejects.toThrow("Nothing visible matched #gone")
+    expect(await preview.regions(["#email", "#gone"])).toEqual({ width: 1000, height: 600, boxes: [{ x: 100, y: 200, width: 200, height: 40 }] })
+    // Every method it sent is one the desktop lets through, and none of them runs script.
+    expect(new Set(desktop.commands.filter((entry) => entry.method === "cdp").map((entry) => entry.params.method))).toEqual(
+      new Set(["DOM.getDocument", "DOM.querySelectorAll", "DOM.getContentQuads", "DOM.focus", "Input.dispatchKeyEvent", "Input.insertText", "DOM.scrollIntoViewIfNeeded", "Input.dispatchMouseEvent", "DOM.getOuterHTML", "Page.getLayoutMetrics"]),
+    )
+    // Nothing that sends a form or a file.
+    await expect(driver.act("v", { kind: "submit", selector: "form" })).rejects.toThrow("does not run the recipe step submit")
+  })
+
   test("a site off this machine is held to the egress guard before main is asked, and allowed to main first", async () => {
     const { preview, desktop } = subject()
     await expect(preview.show("http://169.254.169.254/latest/meta-data")).rejects.toBeInstanceOf(NavigationBlockedError)

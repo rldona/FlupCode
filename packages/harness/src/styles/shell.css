@@ -12260,6 +12260,90 @@ button.fc-status {
   font-size: var(--fc-text-xs);
 }
 
+/* A verify task's look at the page (CL-4): before, after and where they differ, side by side. */
+.fc-run-foot .fc-run-visual[open] {
+  flex-basis: 100%;
+}
+
+.fc-visual-list,
+.fc-run-files .fc-visual-list {
+  display: grid;
+  gap: var(--fc-space-3);
+  margin: var(--fc-space-2) 0 0;
+  padding: 0;
+  font-family: inherit;
+  list-style: none;
+}
+
+.fc-visual-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fc-space-2);
+  margin: 0 0 var(--fc-space-1);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-visual-name {
+  font-weight: 600;
+}
+
+.fc-visual-outcome {
+  color: var(--fc-text-muted);
+}
+
+.fc-visual-shot[data-outcome="changed"] .fc-visual-outcome {
+  color: var(--fc-warning);
+}
+
+.fc-visual-pictures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--fc-space-2);
+}
+
+.fc-visual-picture {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.fc-visual-picture figcaption {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-visual-open {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  cursor: zoom-in;
+}
+
+.fc-visual-open img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: contain;
+  object-position: top;
+}
+
+.fc-visual-placeholder {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  border: 1px dashed var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
 /* ── A review's points, on the diff (H-32) ────────────────────────────────── */
 
 .fc-diff-finding {

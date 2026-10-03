@@ -337,6 +337,52 @@ run and the task; the evidence says so ("Preview: captured …"). It is evidence
 changes the verdict. Only a page on this machine is captured, and nothing is when the desktop app is
 not open, which the evidence says too.
 
+### A look at the page, compared
+
+A `verify` task in a workflow can also check what the page looks like: it opens the page in the
+desktop app's **Preview**, walks a short script, takes pictures and compares each one with the picture
+the same step took the last time.
+
+```yaml
+- id: look
+  kind: verify
+  visual:
+    url: http://localhost:5173/        # or leave it out to use `preview` in .flupcode/project.yaml
+    steps:                             # the same steps as a web action's recipe
+      - waitFor: "#app"
+      - assert: { selector: ".basket", text: "3 items" }
+      - screenshot: home
+      - click: "a[href='/settings']"
+      - screenshot: settings
+    mask: [".clock", ".avatar"]        # not compared
+    tolerance: 0.1%                    # of the page's pixels (the default)
+    settle: { captures: 4, interval: 250ms }
+```
+
+- **Steps.** `goto`, `waitFor`, `click`, `fill` (with `text`), `assert` and `screenshot`, written as in a
+  web action. Nothing that sends a form or a file and no credentials. Every page is on this machine.
+  With no `screenshot` step there is one at the end, named after the task. `visual: true` takes one
+  picture of the project's page.
+- **Pictures.** Each `screenshot` is kept as the next version of one screenshot artifact per
+  project, workflow, task and name. "Before" is the version before it, and the difference (changed
+  pixels in red, masked ones in grey) is kept beside it. The run card shows **Before / after** next
+  to the files the run changed, open when something changed. So does the task's detail.
+- **Pages that move.** A picture is kept once two in a row agree within the tolerance (`settle`).
+  Masked regions are left out of the comparison, and a pixel counts as changed only when a colour
+  moves by more than a small threshold, so antialiasing does not count. Mask clocks, timestamps and
+  avatars. The tolerance is a share of the whole page, so a changed heading on a large page is a
+  small share: keep it low.
+- **Verdict.** A failed step fails the task. A page that changed beyond the tolerance **needs your
+  input**: look at before and after. The first picture of a step has nothing to compare with, and a
+  page that did not hold still was not checked; both leave the task **unverified**. Only pictures
+  that match the last ones make it **verified**. With the project's own `verify` commands, the worse
+  of the two counts. A project with no commands is checked by the look alone.
+- **Where it runs.** Only in the desktop app, whose Preview may open your dev server. FlupCode's own
+  browser does not open pages on this machine, and on the web or with `flupcode serve` the task
+  says the look did not run, which leaves it unverified. Each step goes through the browser policy
+  and is in its audit. The workflow file is the project's consent for its own script on its own
+  page.
+
 ### The verdict on a task
 
 A task that ended is not a task that did what it was asked. Every agent task carries a **verdict**,

@@ -31,7 +31,12 @@ export function initPreview(input: {
   ownPorts: () => Set<number>
 }) {
   const allowed = new Set<string>()
-  const preview = { view: undefined as WebContentsView | undefined, owner: undefined as BrowserWindow | undefined }
+  const preview = {
+    view: undefined as WebContentsView | undefined,
+    owner: undefined as BrowserWindow | undefined,
+    /** Held behind the app's page for a capture, not shown by a panel (CL-4). */
+    held: false,
+  }
   const link = { socket: undefined as WebSocket | undefined, stopped: false, retry: 1000 }
 
   const view = () => preview.view ?? create()
@@ -45,6 +50,9 @@ export function initPreview(input: {
         nodeIntegration: false,
         webSecurity: true,
         safeDialogs: true,
+        // Frames are drawn while the window is behind others, or a verify task's capture of the
+        // page (CL-4) fails with nothing painted to copy.
+        backgroundThrottling: false,
       },
     })
     created.setBackgroundColor("#ffffff")
@@ -140,8 +148,35 @@ export function initPreview(input: {
     })
 
   const capture = async () => {
-    const image = await view().webContents.capturePage(undefined, { stayHidden: true })
-    return image.toPNG()
+    const shown = view()
+    // A view in no window, hidden or out of the window's bounds paints nothing, and its capture is
+    // empty. Until a panel shows it, it is held visible behind the app's own page, where nobody sees
+    // it but it still paints, so a verify task can capture the project's page with the panel closed
+    // (CL-4). A panel that shows it brings it back to the front (`place`).
+    if (!preview.owner || preview.owner.isDestroyed() || !shown.getVisible()) {
+      const window = preview.owner && !preview.owner.isDestroyed() ? preview.owner : BrowserWindow.getAllWindows()[0]
+      if (window) {
+        if (preview.owner && !preview.owner.isDestroyed()) preview.owner.contentView.removeChildView(shown)
+        window.contentView.addChildView(shown, 0)
+        if (preview.owner !== window)
+          window.once("closed", () => {
+            if (preview.owner === window) preview.owner = undefined
+          })
+        shown.setBounds({ x: 0, y: 0, ...UNSEEN })
+        shown.setVisible(true)
+        preview.owner = window
+        preview.held = true
+      }
+    }
+    // A view that has not painted since it was placed has no frame to copy yet: ask for one first,
+    // and again a little later when the compositor had none to give (a window behind others).
+    for (const attempt of [1, 2, 3, 4]) {
+      shown.webContents.invalidate()
+      await new Promise((resolve) => setTimeout(resolve, FRAME_MS * attempt))
+      const image = await shown.webContents.capturePage().catch(() => undefined)
+      if (image && !image.isEmpty()) return image.toPNG()
+    }
+    throw new PreviewError("action_failed", "The preview painted nothing to capture")
   }
 
   const cdp = async (method: string, params: Record<string, unknown>) => {
@@ -217,9 +252,10 @@ export function initPreview(input: {
 
   const place = (window: BrowserWindow, bounds: { x: number; y: number; width: number; height: number }) => {
     const shown = view()
-    if (preview.owner !== window) {
+    if (preview.owner !== window || preview.held) {
       if (preview.owner && !preview.owner.isDestroyed()) preview.owner.contentView.removeChildView(shown)
       window.contentView.addChildView(shown)
+      preview.held = false
       preview.owner = window
       window.once("closed", () => {
         if (preview.owner === window) preview.owner = undefined
@@ -302,14 +338,20 @@ export function initPreview(input: {
 const PARTITION = "persist:flupcode-preview"
 const PROTOCOL = "flupcode-preview"
 const UNSEEN = { width: 1280, height: 800 }
+/** Long enough for the view to paint the frame a capture copies. */
+const FRAME_MS = 200
 
 /**
- * What the harness server may send through the debugger: reading the accessibility tree and an
- * element's box, focusing it, input events, the viewport's size, the history. Nothing that runs
- * script in the page or reads its storage.
+ * What the harness server may send through the debugger: reading the accessibility tree, the
+ * elements a selector names and their markup (a verify task's visual check, CL-4) and an element's
+ * box, focusing it, input events, the viewport's size, the history. Nothing that runs script in the
+ * page or reads its storage.
  */
 const CDP_METHODS = new Set([
   "Accessibility.getFullAXTree",
+  "DOM.getDocument",
+  "DOM.querySelectorAll",
+  "DOM.getOuterHTML",
   "DOM.scrollIntoViewIfNeeded",
   "DOM.getContentQuads",
   "DOM.focus",

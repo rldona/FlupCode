@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import {
   BrowserError,
+  type BrowserAction,
   type BrowserDriver,
   type BrowserSession,
   type BrowserTab,
@@ -16,6 +17,7 @@ import { flupcodeConfigDir, tokenMatches } from "./browser-token"
 import { redactSecrets } from "./redact"
 import type { SqliteRoutineRepository } from "./repository"
 import { previewTarget } from "./verify"
+import { DEFAULT_STEP_TIMEOUT_MS } from "./actions"
 
 /**
  * The desktop app's preview as a browser driver (BU-06, audit §9.5).
@@ -193,7 +195,7 @@ export function createPreview(input: {
       })
     const quad = quads.quads[0]
     if (!quad) throw new BrowserError("action_failed", 422, `${ref} has nothing visible to click`)
-    return { x: (quad[0]! + quad[2]! + quad[4]! + quad[6]!) / 4, y: (quad[1]! + quad[3]! + quad[5]! + quad[7]!) / 4 }
+    return centre(quad)
   }
 
   const key = async (combo: string) => {
@@ -210,18 +212,84 @@ export function createPreview(input: {
     await cdp("Input.dispatchKeyEvent", { type: "keyUp", modifiers, key: known.key, ...(known.code ? { code: known.code } : {}) })
   }
 
+  /** Replaces what the focused field held, as the engine's `fill` and a recipe's `fill` promise. */
+  const replaceText = async (text: string) => {
+    await cdp("Input.dispatchKeyEvent", {
+      type: "rawKeyDown",
+      key: "a",
+      code: "KeyA",
+      windowsVirtualKeyCode: 65,
+      modifiers: selectAll,
+      commands: ["selectAll"],
+    })
+    await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", modifiers: selectAll })
+    if (text) return void (await cdp("Input.insertText", { text }))
+    return key("Delete")
+  }
+
+  const clickAt = async (point: { x: number; y: number }, button = "left", count = 1) => {
+    await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...point })
+    await cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button, clickCount: count })
+    await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button, clickCount: count })
+  }
+
+  /**
+   * The elements a CSS selector names, read from the document through the debugger (CL-4): a web
+   * recipe names elements by selector, and nothing here runs script in the page to find them.
+   */
+  const select = async (selector: string) => {
+    const document = await cdp<{ root: { nodeId: number } }>("DOM.getDocument", { depth: 0 })
+    const found = await cdp<{ nodeIds: number[] }>("DOM.querySelectorAll", { nodeId: document.root.nodeId, selector })
+    return found.nodeIds.filter((id) => id > 0)
+  }
+
+  const boxOf = (nodeId: number) =>
+    cdp<{ quads: number[][] }>("DOM.getContentQuads", { nodeId })
+      .then((found) => found.quads[0])
+      .catch(() => undefined)
+
+  /** The first element the selector names, once there is one (and, unless `attached`, one with a box). */
+  const waitForSelector = async (selector: string, timeoutMs: number, state: "attached" | "visible" = "visible") => {
+    const deadline = Date.now() + timeoutMs
+    while (true) {
+      // A document replaced mid-query (a navigation) is asked again, not a failure.
+      const node = (await select(selector).catch(() => []))[0]
+      if (node !== undefined && (state === "attached" || (await boxOf(node)))) return node
+      if (Date.now() >= deadline)
+        throw new BrowserError("action_failed", 408, `Nothing ${state === "visible" ? "visible " : ""}matched ${selector} within ${timeoutMs} ms`)
+      await Bun.sleep(SELECTOR_POLL_MS)
+    }
+  }
+
+  /** A recipe step on the page, by selector: what a verify task's visual check does (CL-4). */
+  const bySelector = async (action: Exclude<BrowserAction, { kind: "navigate" }>): Promise<string | undefined> => {
+    const timeoutMs = action.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS
+    if (action.kind === "waitFor") return void (await waitForSelector(action.selector, timeoutMs, action.state))
+    if (action.kind === "read") {
+      const node = await waitForSelector(action.selector, timeoutMs, "attached")
+      const html = await cdp<{ outerHTML: string }>("DOM.getOuterHTML", { nodeId: node })
+      return textOf(html.outerHTML)
+    }
+    if (action.kind === "click") {
+      const node = await waitForSelector(action.selector, timeoutMs)
+      await cdp("DOM.scrollIntoViewIfNeeded", { nodeId: node }).catch(() => undefined)
+      const quad = await boxOf(node)
+      if (!quad) throw new BrowserError("action_failed", 422, `${action.selector} has nothing visible to click`)
+      return void (await clickAt(centre(quad)))
+    }
+    if (action.kind === "type") {
+      const node = await waitForSelector(action.selector, timeoutMs)
+      await cdp("DOM.focus", { nodeId: node })
+      return void (await replaceText(action.text))
+    }
+    throw new BrowserError("action_failed", 422, `The preview does not run the recipe step ${action.kind}`)
+  }
+
   const inPage = async (action: TabAction) => {
     if (action.kind === "navigate") return void (await show(action.url))
     if (action.kind === "back" || action.kind === "forward" || action.kind === "reload")
       return void (host.state = readState(await call(action.kind)))
-    if (action.kind === "click") {
-      const point = await pointOf(action.ref)
-      const button = action.button ?? "left"
-      await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...point })
-      await cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button, clickCount: action.count ?? 1 })
-      await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button, clickCount: action.count ?? 1 })
-      return
-    }
+    if (action.kind === "click") return clickAt(await pointOf(action.ref), action.button, action.count)
     if (action.kind === "type") {
       const node = refOf(action.ref)
       if (!EDITABLE_ROLES.has(node.role))
@@ -229,18 +297,7 @@ export function createPreview(input: {
       await cdp("DOM.focus", { backendNodeId: node.backendNodeId }).catch(() => {
         throw new BrowserError("stale_ref", 409, `${action.ref} is no longer on the page. Call browser.snapshot again.`)
       })
-      // Replaces what the field held, as the engine's `fill` promises.
-      await cdp("Input.dispatchKeyEvent", {
-        type: "rawKeyDown",
-        key: "a",
-        code: "KeyA",
-        windowsVirtualKeyCode: 65,
-        modifiers: selectAll,
-        commands: ["selectAll"],
-      })
-      await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", modifiers: selectAll })
-      if (action.text) return void (await cdp("Input.insertText", { text: action.text }))
-      return key("Delete")
+      return replaceText(action.text)
     }
     if (action.kind === "key") return key(action.key)
     const metrics = await cdp<{ cssLayoutViewport?: { clientWidth: number; clientHeight: number } }>(
@@ -301,7 +358,8 @@ export function createPreview(input: {
   }
 
   const driver: BrowserDriver & { tabs: BrowserTabs } = {
-    capabilities: { actions: new Set(["navigate"]) },
+    // By selector, for a verify task's visual check (CL-4); never `submit` or `upload`.
+    capabilities: { actions: new Set(["navigate", "waitFor", "click", "type", "read"]) },
     async open(request) {
       if (!host.socket) throw unavailable()
       const current = host.state ?? (await state())
@@ -338,11 +396,18 @@ export function createPreview(input: {
       }
     },
     async act(id, action) {
-      requireSession(id)
-      if (action.kind !== "navigate")
-        throw new BrowserError("action_failed", 422, `The preview does not run the recipe step ${action.kind}`)
-      const shown = await show(action.url)
-      return { url: shown.url, title: shown.title }
+      const session = requireSession(id)
+      if (action.kind === "navigate") {
+        const shown = await show(action.url)
+        return { url: shown.url, title: shown.title }
+      }
+      const value = await bySelector(action)
+      const current = await state()
+      return {
+        url: redact(session, current.url),
+        title: redact(session, current.title),
+        ...(action.kind === "read" ? { value: value === undefined ? null : redact(session, value) } : {}),
+      }
     },
     async snapshot(id) {
       const session = requireSession(id)
@@ -383,11 +448,32 @@ export function createPreview(input: {
 
   return {
     driver,
+    /** The harness's own folder its pictures are written to (TI-11 serves them from there). */
+    dataDir,
     /** Whether a desktop app hosts the preview right now. */
     connected: () => host.socket !== undefined,
     /** The page the preview shows, as main last reported it. */
     current: () => (host.socket ? host.state : undefined),
     show,
+    /**
+     * Where the elements the selectors name are, in the page's CSS pixels, and how wide the page's
+     * viewport is in them, so a capture's own pixels can be told apart (CL-4: a visual check's masks).
+     */
+    async regions(selectors: string[]) {
+      const metrics = await cdp<{ cssLayoutViewport?: { clientWidth: number; clientHeight: number } }>("Page.getLayoutMetrics")
+      const nodes = (await Promise.all(selectors.map((selector) => select(selector).catch(() => [])))).flat()
+      const quads = await Promise.all(nodes.map(boxOf))
+      return {
+        width: metrics.cssLayoutViewport?.clientWidth ?? 0,
+        height: metrics.cssLayoutViewport?.clientHeight ?? 0,
+        boxes: quads.flatMap((quad) => {
+          if (!quad) return []
+          const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!]
+          const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!]
+          return [{ x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) }]
+        }),
+      }
+    },
     /** A picture the person marked up in the app, kept as a screenshot artifact of the session it is for. */
     annotation: (bytes: Uint8Array, meta: { title: string; sessionID?: string }) => file(bytes, meta),
     /** The desktop's main process, connected: the one host, replacing any earlier one. */
@@ -577,6 +663,34 @@ type PreviewSession = {
 }
 
 const MAX_SNAPSHOT = 60_000
+
+/** How often a selector is looked for again while a step waits for it. */
+const SELECTOR_POLL_MS = 100
+
+const centre = (quad: number[]) => ({
+  x: (quad[0]! + quad[2]! + quad[4]! + quad[6]!) / 4,
+  y: (quad[1]! + quad[3]! + quad[5]! + quad[7]!) / 4,
+})
+
+/**
+ * An element's text, from its markup: tags and what scripts and styles hold dropped, the common
+ * entities read, white space collapsed. Close to what a browser's `innerText` says, without running
+ * anything in the page to ask it.
+ */
+export function textOf(html: string) {
+  return html
+    .replace(/<(script|style|template)\b[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (_, entity: string) => {
+      const lower = entity.toLowerCase()
+      if (lower.startsWith("#x")) return String.fromCodePoint(Number.parseInt(lower.slice(2), 16))
+      if (lower.startsWith("#")) return String.fromCodePoint(Number(lower.slice(1)))
+      return { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }[lower] ?? ""
+    })
+    .replace(/\s+/g, " ")
+    .trim()
+}
 
 const MODIFIERS: Record<string, number> = { Alt: 1, Control: 2, Meta: 4, Shift: 8 }
 

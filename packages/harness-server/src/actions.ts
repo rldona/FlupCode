@@ -284,7 +284,7 @@ function readExtract(
 
 type StepResult = { ok: true; step: ActionStep } | { ok: false; code: string; message: string }
 
-function readSteps(
+export function readSteps(
   value: unknown,
   inputs: Record<string, ActionInputKind>,
   credential: string | undefined,

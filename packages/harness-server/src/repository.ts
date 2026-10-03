@@ -89,6 +89,8 @@ import type {
   WorkflowVersion,
   TaskRoute,
   TaskVerdict,
+  VisualCheck,
+  VisualResult,
 } from "./types"
 import { VERDICTS } from "./types"
 import { runVerdict } from "./verdict"
@@ -626,6 +628,9 @@ type TaskRow = {
   require_verdict?: string | null
   /** PI-04 (migration 17). */
   route_json?: string | null
+  /** CL-4 (migration 20). */
+  visual_json?: string | null
+  visual_result_json?: string | null
 }
 
 const decodeTask = (row: TaskRow): Task => ({
@@ -665,6 +670,8 @@ const decodeTask = (row: TaskRow): Task => ({
   ...(row.require_verdict === "verified" ? { require: "verified" as const } : {}),
   ...decodeVerdict(row),
   ...decodeRoute(row.route_json),
+  ...(row.visual_json ? { visual: JSON.parse(row.visual_json) as VisualCheck } : {}),
+  ...(row.visual_result_json ? { visualResult: JSON.parse(row.visual_result_json) as VisualResult } : {}),
 })
 
 /** Which model a task was sent to and why (PI-04), or nothing when it was never routed or is unreadable. */
@@ -1689,6 +1696,17 @@ export class SqliteRoutineRepository implements RoutineRepository {
         rewrites: true,
         up: () => this.addColumn("tasks", "route_json", "TEXT"),
       },
+      {
+        // A verify task's visual check (CL-4): what it declares, copied from the workflow when the run
+        // starts so a retry looks at the same thing, and what it found. Tasks from before have neither.
+        version: 20,
+        name: "task-visual",
+        rewrites: true,
+        up: () => {
+          this.addColumn("tasks", "visual_json", "TEXT")
+          this.addColumn("tasks", "visual_result_json", "TEXT")
+        },
+      },
     ]
   }
 
@@ -2368,7 +2386,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
       ...input,
       mime: input.mime ?? "text/markdown",
       createdAt: now,
-      logicalID: latest?.logicalID ?? id,
+      logicalID: latest?.logicalID ?? input.logicalID ?? id,
       version: (latest?.version ?? 0) + 1,
       ...(content !== undefined ? { content } : {}),
       ...(truncated ? { bytes: full.length, truncated: true } : {}),
@@ -2434,13 +2452,22 @@ export class SqliteRoutineRepository implements RoutineRepository {
   }
 
   /** The newest version of the document a folder and path name, if one is kept. */
-  private latestVersion(input: Pick<ArtifactInput, "kind" | "directory" | "path">) {
+  private latestVersion(input: Pick<ArtifactInput, "kind" | "directory" | "path" | "logicalID">) {
+    if (input.logicalID) return this.newestVersion(input.logicalID)
     if (!input.directory || !input.path) return undefined
     const row = this.db
       .query(
         "SELECT * FROM artifacts WHERE directory = ?1 AND path = ?2 AND kind = ?3 ORDER BY version DESC, created_at DESC LIMIT 1",
       )
       .get(input.directory, input.path, input.kind) as ArtifactRow | null
+    return row ? decodeArtifact(row) : undefined
+  }
+
+  /** The newest version of a document by its name (RP-03), if any version of it is still kept. */
+  newestVersion(logicalID: string) {
+    const row = this.db
+      .query("SELECT * FROM artifacts WHERE logical_id = ?1 ORDER BY version DESC, created_at DESC LIMIT 1")
+      .get(logicalID) as ArtifactRow | null
     return row ? decodeArtifact(row) : undefined
   }
 
@@ -2964,8 +2991,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db
           .query(
             `INSERT INTO tasks
-               (id, run_id, position, name, prompt, kind, command, action_json, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, require_verdict, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'queued')`,
+               (id, run_id, position, name, prompt, kind, command, action_json, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, require_verdict, visual_json, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, 'queued')`,
           )
           .run(
             task.id,
@@ -2986,6 +3013,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.when ? JSON.stringify(task.when) : null,
             task.foreach ?? null,
             task.require ?? null,
+            task.visual ? JSON.stringify(task.visual) : null,
           )
       }
     })()
@@ -3026,12 +3054,13 @@ export class SqliteRoutineRepository implements RoutineRepository {
   finishTask(
     taskID: string,
     status: Exclude<TaskStatus, "queued" | "running">,
-    result: { error?: string; output?: string; tokens?: number; cost?: number } = {},
+    result: { error?: string; output?: string; tokens?: number; cost?: number; visual?: VisualResult } = {},
     now = Date.now(),
   ) {
     this.db
       .query(
-        `UPDATE tasks SET status = ?1, finished_at = ?2, error = ?3, output = ?4, tokens = ?5, cost = ?6
+        `UPDATE tasks SET status = ?1, finished_at = ?2, error = ?3, output = ?4, tokens = ?5, cost = ?6,
+           visual_result_json = COALESCE(?8, visual_result_json)
          WHERE id = ?7`,
       )
       .run(
@@ -3042,6 +3071,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
         result.tokens ?? null,
         result.cost ?? null,
         taskID,
+        result.visual ? JSON.stringify(result.visual) : null,
       )
     this.publishTask(taskID)
   }

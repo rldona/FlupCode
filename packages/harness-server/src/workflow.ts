@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import type { TaskCondition, TaskInput, Unattended } from "./types"
+import type { TaskCondition, TaskInput, Unattended, VisualCheck } from "./types"
+import { readVisualCheck } from "./visual-verify"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { PLAN_INSTRUCTION } from "./plan"
 import { fillCommand } from "./external"
@@ -53,6 +54,8 @@ export type WorkflowTask = {
   foreach?: string
   /** `require: verified` — run only when the tasks this one depends on were verified (RP-06). */
   require?: "verified"
+  /** On a verify task: look at the project's page in the desktop's preview and compare it (CL-4). */
+  visual?: VisualCheck
 }
 
 export type Workflow = {
@@ -134,6 +137,8 @@ export function explainWorkflow(
   if (tasks.length !== rawTasks.length)
     return { ok: false, problem: "One task has no id, or an agent task has no prompt" }
   if (tasks.length === 0) return { ok: false, problem: "A workflow needs at least one task under `tasks:`" }
+  const visual = visualProblem(rawTasks)
+  if (visual) return { ok: false, problem: visual }
   const graph = graphProblem(tasks)
   if (graph) return { ok: false, problem: graph }
   const limits = value.limits && typeof value.limits === "object" ? (value.limits as Record<string, unknown>) : undefined
@@ -206,6 +211,8 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
   const dependsOn = Array.isArray(task.dependsOn)
     ? task.dependsOn.filter((entry): entry is string => typeof entry === "string" && !!entry.trim()).map((entry) => entry.trim())
     : undefined
+  // A block that does not read is refused with its reason before this (`visualProblem`).
+  const visual = kind === "verify" && task.visual !== undefined && task.visual !== false ? readVisualCheck(task.visual) : undefined
   return {
     id,
     kind,
@@ -219,7 +226,20 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
     ...(conditionFrom(task.when) ? { when: conditionFrom(task.when) } : {}),
     ...(typeof task.foreach === "string" && task.foreach.trim() ? { foreach: task.foreach.trim() } : {}),
     ...(task.require === "verified" ? { require: "verified" as const } : {}),
+    ...(visual?.ok ? { visual: visual.check } : {}),
   }
+}
+
+/** Why a task's `visual` block cannot run (CL-4), said with the task, so the editor shows where. */
+function visualProblem(rawTasks: unknown[]) {
+  for (const raw of rawTasks) {
+    const task = raw as Record<string, unknown>
+    if (task.visual === undefined || task.visual === false) continue
+    if (task.kind !== "verify") return `${String(task.id)}: only a verify task can have \`visual\``
+    const read = readVisualCheck(task.visual)
+    if (!read.ok) return `${String(task.id)}: ${read.problem}`
+  }
+  return undefined
 }
 
 /** `when: { task: verify, is: failed }` or a list of outcomes, so recovery is written, not coded. */
@@ -321,6 +341,7 @@ export function tasksFor(workflow: Workflow, inputs: Record<string, string>, unt
     ...(task.when ? { when: task.when } : {}),
     ...(task.foreach ? { foreach: task.foreach } : {}),
     ...(task.require ? { require: task.require } : {}),
+    ...(task.visual ? { visual: task.visual } : {}),
   }))
 }
 

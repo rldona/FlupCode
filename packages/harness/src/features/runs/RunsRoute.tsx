@@ -3,6 +3,7 @@ import { Show } from "solid-js"
 import { RunsPanel } from "../../components/RunsPanel"
 import { RemoteRuns } from "../../components/RemoteRuns"
 import { useApp } from "../../app-context"
+import { createHarnessClient } from "../../client"
 
 /**
  * The runs screen: what the server is running and what it ran (H-12). A phone controlling a computer
@@ -62,6 +63,7 @@ function DeskRuns() {
       touched={app.runs.touched() ?? {}}
       tools={app.runs.taskTools() ?? {}}
       artifacts={app.runs.runArtifacts() ?? {}}
+      rawArtifact={(id) => createHarnessClient(app.connection.harnessServerUrl()).artifacts.raw(id)}
       usage={app.runs.runUsage() ?? {}}
       models={app.catalog.modelList()}
       onRetry={app.runs.retryTask}

@@ -18,8 +18,22 @@ const TREE = {
   ],
 }
 
+/**
+ * The page's elements by selector, for a verify task's visual check (CL-4): what `DOM.querySelectorAll`
+ * finds, where `DOM.getContentQuads` puts it in CSS pixels (absent: in the document, with no box), and
+ * its markup.
+ */
+export type FakeElement = { nodeId: number; quad?: number[]; html: string }
+
 export function fakeDesktop(start = "http://localhost:5173/") {
-  const page = { url: start, title: "Dev app", back: [] as string[] }
+  const page = {
+    url: start,
+    title: "Dev app",
+    back: [] as string[],
+    /** What each capture shows, in turn; the last one stays. */
+    frames: [] as Buffer[],
+    elements: new Map<string, FakeElement>([["#app", { nodeId: 2, quad: [0, 0, 1000, 0, 1000, 600, 0, 600], html: '<div id="app"><h1>Dev  app</h1></div>' }]]),
+  }
   const allowed = new Set<string>()
   const commands: Array<{ method: string; params: Record<string, unknown> }> = []
   const target = { preview: undefined as ReturnType<typeof createPreview> | undefined }
@@ -58,10 +72,23 @@ export function fakeDesktop(start = "http://localhost:5173/") {
       page.url = page.back.pop() ?? page.url
       return { result: state() }
     }
-    if (method === "capture") return { result: { png: PNG.toString("base64") } }
+    if (method === "capture") {
+      const frame = page.frames.length > 1 ? page.frames.shift()! : (page.frames[0] ?? PNG)
+      return { result: { png: frame.toString("base64") } }
+    }
     if (method === "cdp") {
       const cdp = String(params.method)
       if (cdp === "Accessibility.getFullAXTree") return { result: TREE }
+      const inner = (params.params ?? {}) as Record<string, unknown>
+      const element = [...page.elements.values()].find((entry) => entry.nodeId === inner.nodeId)
+      if (cdp === "DOM.getDocument") return { result: { root: { nodeId: 1 } } }
+      if (cdp === "DOM.querySelectorAll") {
+        const found = page.elements.get(String(inner.selector))
+        return { result: { nodeIds: found ? [found.nodeId] : [] } }
+      }
+      if (cdp === "DOM.getOuterHTML") return { result: { outerHTML: element?.html ?? "" } }
+      if (cdp === "DOM.getContentQuads" && inner.nodeId !== undefined)
+        return element?.quad ? { result: { quads: [element.quad] } } : { error: { code: "action_failed", message: "Could not compute content quads." } }
       if (cdp === "DOM.getContentQuads") return { result: { quads: [[10, 20, 30, 20, 30, 40, 10, 40]] } }
       if (cdp === "Page.getLayoutMetrics") return { result: { cssLayoutViewport: { clientWidth: 1000, clientHeight: 600 } } }
       return { result: {} }

@@ -16,6 +16,7 @@ import { ResumeConfirm } from "./ResumeConfirm"
 import { BrowserApprovalDock, PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
 import { Modal } from "./Modal"
+import { VisualCompare } from "./VisualCompare"
 
 /** What a run held for a request waits on (RP-05): its tasks' engine requests, and what they preview from. */
 export type RunRequests = {
@@ -51,6 +52,8 @@ type RunsPanelProps = {
   tools?: Record<string, TaskTools>
   /** What the runs left behind, by run id (H-14). */
   artifacts?: Record<string, Artifact[]>
+  /** An artifact's bytes as a blob URL: the before and after of a look at the page (CL-4). */
+  rawArtifact?: (id: string) => Promise<string>
   /** What each run spent, from the usage ledger (UL-06), by run id. A run not in it shows a dash. */
   usage?: Record<string, UsageRunReport>
   /** What a retry can run on, if the reader wants a different model (H-12). */
@@ -552,6 +555,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     tasks={run.tasks ?? []}
                     touched={(run.tasks ?? []).flatMap((task) => props.touched[task.id] ?? [])}
                     artifacts={props.artifacts?.[run.id] ?? []}
+                    rawArtifact={props.rawArtifact}
                     onOpenChanges={props.onOpenChanges}
                   />
                 </article>
@@ -571,6 +575,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                   touched={props.touched[picked().task.id]}
                   tools={props.tools?.[picked().task.id]}
                   artifacts={(props.artifacts?.[picked().run.id] ?? []).filter((artifact) => artifact.taskID === picked().task.id)}
+                  rawArtifact={props.rawArtifact}
                   cost={taskUsage(props.usage?.[picked().run.id], picked().task)}
                   models={props.models}
                   serverAvailable={props.serverAvailable}
@@ -605,8 +610,15 @@ const RunFooter: Component<{
   tasks: Task[]
   touched: TouchedFiles[]
   artifacts: Artifact[]
+  rawArtifact?: (id: string) => Promise<string>
   onOpenChanges?: (directory?: string) => void
 }> = (props) => {
+  // What the run's looks at the page found (CL-4), the newest attempt of each check: a retried one's
+  // captures are its retry's "before".
+  const shots = createMemo(() => {
+    const retried = new Set(props.tasks.flatMap((task) => (task.retryOf ? [task.retryOf] : [])))
+    return props.tasks.filter((task) => !retried.has(task.id)).flatMap((task) => task.visualResult?.shots ?? [])
+  })
   // A file two tasks changed is one file the run changed; the last change says what happened to it.
   const files = createMemo(() => [
     ...new Map(props.touched.flatMap((point) => point.files).map((file) => [file.path, file])).values(),
@@ -627,7 +639,7 @@ const RunFooter: Component<{
     })),
   )
   return (
-    <Show when={props.touched.length > 0 || props.artifacts.length > 0}>
+    <Show when={props.touched.length > 0 || props.artifacts.length > 0 || shots().length > 0}>
       <footer class="fc-run-foot">
         <Show when={props.touched.length > 0}>
           <Show when={props.onOpenChanges}>
@@ -653,6 +665,16 @@ const RunFooter: Component<{
               </ul>
             </details>
           </Show>
+        </Show>
+        {/* Beside the files it changed, what the page looked like before and after (CL-4). Open
+            when something changed: that is what a person has to look at. */}
+        <Show when={props.rawArtifact && shots().length > 0}>
+          <details class="fc-run-files fc-run-visual" open={shots().some((shot) => shot.outcome === "changed")}>
+            <summary>
+              {t("Before / after")} <span class="fc-run-count">{shots().length}</span>
+            </summary>
+            <VisualCompare shots={shots()} rawArtifact={props.rawArtifact!} />
+          </details>
         </Show>
         <Show when={kinds().length > 0}>
           <span class="fc-run-artifacts">

@@ -1175,6 +1175,15 @@ const ES: Record<string, string> = {
   "{n} min limit for one tool call": "límite de {n} min por llamada",
   "Changed no files": "No cambió ningún archivo",
   "{n} files": "{n} archivos",
+  // A verify task's look at the page (CL-4)
+  "Before / after": "Antes / después",
+  Before: "Antes",
+  After: "Después",
+  "It did not hold still": "No se quedó quieta",
+  "Not available": "No disponible",
+  "First capture: nothing to compare with yet": "Primera captura: aún no hay con qué compararla",
+  "Same as before ({share} differs)": "Igual que antes (difiere un {share})",
+  "Changed: {share} of the page": "Cambió: un {share} de la página",
 
   // Cost (H-16), on the usage ledger (UL-06)
   Cost: "Coste",
