@@ -41,6 +41,7 @@ import { completion } from "./decisions/completion"
 import { skillRelevance } from "./decisions/skill-relevance"
 import { contextItem } from "./decisions/context-item"
 import { failure } from "./decisions/failure"
+import { skillReflection } from "./decisions/skill-reflection"
 import type { PredictiveModel, Question } from "./predictive/model"
 import { deterministicBaseline } from "./providers/deterministic"
 import type { DeterministicBaseline } from "./providers/deterministic"
@@ -140,7 +141,7 @@ const QUESTIONS: Record<DecisionKind, string> = {
   skillRelevance: skillRelevance.question,
   contextItem: contextItem.question,
   failure: failure.question,
-  skillReflection: "Does this episode carry a reusable lesson, and what change does it call for?",
+  skillReflection: skillReflection.question,
 }
 
 /** Why the value-of-information gate (AH-C05) did not consult the assigned model, as `explain` says it. */
@@ -161,7 +162,7 @@ const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
   skillRelevance: skillRelevance.probabilities,
   contextItem: contextItem.probabilities,
   failure: failure.probabilities,
-  skillReflection: "gates",
+  skillReflection: skillReflection.probabilities,
 }
 
 /**

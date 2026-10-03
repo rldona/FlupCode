@@ -20,6 +20,7 @@ import { completion } from "../decisions/completion"
 import { skillRelevance } from "../decisions/skill-relevance"
 import { contextItem } from "../decisions/context-item"
 import { failure } from "../decisions/failure"
+import { skillReflection } from "../decisions/skill-reflection"
 
 /** One handler per kind; the mapped type obliges every kind to be implemented. */
 export type DeterministicHandler = {
@@ -39,8 +40,7 @@ export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
   skillRelevance: skillRelevance.baseline,
   contextItem: contextItem.baseline,
   failure: failure.baseline,
-  // Inert on purpose: without a classifier nothing is reusable, so an idle project learns nothing.
-  skillReflection: () => ({ answer: { reusable: false, intent: "add" }, rule: "no-reflection" }),
+  skillReflection: skillReflection.baseline,
 }
 
 /** The deterministic answer and the rule that produced it, for the service to store as the baseline. */
