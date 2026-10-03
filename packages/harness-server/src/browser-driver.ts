@@ -182,3 +182,4 @@ export type BrowserErrorCode =
   | "out_of_scope"
   /** FlupCode Bridge: no paired browser is connected (BU-04). */
   | "browser_unavailable"
+  | "preview_unavailable"

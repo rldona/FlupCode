@@ -19,6 +19,7 @@ import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM } from "../..
 import { messageID } from "../../ids"
 import type { Delivery } from "../../pending-prompts"
 import { sendPrompt } from "./send"
+import { resolveChips, withChips, type ContextChip } from "../../context-chip"
 import type { Attachment, CommandOption, Workflow, StashedPrompt, ContextPack } from "../../types"
 import { UNAVAILABLE_FEATURES } from "../../features"
 import { BUILTIN_COMMANDS, builtinCommand, runBuiltin, type CommandContext } from "../../commands"
@@ -53,6 +54,9 @@ export function createComposer(app: AppStores) {
     next: { providerID: string; id: string }
   }>()
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  // What the reader pointed at elsewhere in the app, such as a preview annotation (BU-06): resolved into
+  // the message only when it goes, so it can be removed until then.
+  const [chips, setChips] = createSignal<ContextChip[]>([])
   // Filled from the harness server by the sessions store (H-18): a stash kept in the browser was
   // neither durable nor visible on the phone.
   const [stashes, setStashes] = createSignal<StashedPrompt[]>([])
@@ -531,6 +535,7 @@ export function createComposer(app: AppStores) {
 
   // Chats have no commands or shell: everything typed is the message.
   const sendChat = (text: string, files: Attachment[], keepDraft = false) => {
+    const pointed = chips()
     const directory = app.connection.chatsDirectory()
     if (!directory) {
       app.sessions.setError(t("Chats are not available: the engine did not report its folders"))
@@ -552,8 +557,8 @@ export function createComposer(app: AppStores) {
         sessionID,
         directory,
         text,
-        body: expandPastes(text),
-        files,
+        body: withChips(expandPastes(text), pointed),
+        files: [...files, ...resolveChips(pointed).files],
         model,
         instructions: app.workspace.instructionsFor(CHAT_SYSTEM),
         onReady: () => app.sessions.forgetRun(sessionID),
@@ -562,6 +567,7 @@ export function createComposer(app: AppStores) {
       if (!keepDraft) {
         setPrompt("")
         setAttachments([])
+        setChips([])
       }
       return sessionID
     })
@@ -581,6 +587,7 @@ export function createComposer(app: AppStores) {
     const id = messageID()
     // Cowork overrides the app's agent and adds its system prompt; Code sends neither.
     const promptAgent = options?.agent ?? agent()
+    const pointed = chips()
     void app.sessions.run(async (current) => {
       const model = selectedModel()
       const location = app.sessions.targetDirectory()
@@ -608,8 +615,8 @@ export function createComposer(app: AppStores) {
         // palette has no row here and the remembered folder is the only one there is.
         directory: listedDirectory ?? app.sessions.sessionDirectories.get(sessionID),
         text,
-        body: expandPastes(text),
-        files,
+        body: withChips(expandPastes(text), pointed),
+        files: [...files, ...resolveChips(pointed).files],
         model,
         agent: promptAgent,
         instructions: app.workspace.instructionsFor(options?.system),
@@ -622,6 +629,7 @@ export function createComposer(app: AppStores) {
           if (keepDraft) return
           setPrompt("")
           setAttachments([])
+          setChips([])
         },
         // A first turn that never reached the engine (an engine that does not know the agent, a
         // refused model) would otherwise leave an empty session in the list. Drop the one this
@@ -723,7 +731,7 @@ export function createComposer(app: AppStores) {
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
-    if (!text && files.length === 0) return
+    if (!text && files.length === 0 && chips().length === 0) return
     recordPrompt(text)
 
     if (text.startsWith("/")) {
@@ -824,6 +832,9 @@ export function createComposer(app: AppStores) {
     prompt,
     readAttachments,
     removeAttachment,
+    chips,
+    addChip: (chip: ContextChip) => setChips((list) => [...list, chip]),
+    removeChip: (id: string) => setChips((list) => list.filter((chip) => chip.id !== id)),
     removeStash,
     restoreStash,
     retryTurn,

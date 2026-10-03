@@ -335,6 +335,17 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
   }
 }
 
+/** The question the preview asks before it opens a site off this machine (BU-06), as the policy put it. */
+export type PreviewApproval = {
+  origin: string
+  site: string
+  tier: "read" | "navigate" | "interact" | "sensitive"
+  action?: string
+  options: Array<{ value: string; label: string }>
+}
+
+export type PreviewNavigation = { opened: true } | { approval: PreviewApproval }
+
 /** What the live view watches (WA-6): the status a session's browser run is in. */
 export type AgentBrowserSession = {
   id: string
@@ -597,6 +608,39 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           artifactId: response.headers.get("x-flupcode-artifact") ?? undefined,
         }
       },
+    },
+    // The desktop's preview (BU-06): opening a site off this machine, the person's answer, a marked-up
+    // picture kept as an artifact, and handing the preview to a session's agent.
+    preview: {
+      /** Opens a page; a site the policy has not allowed comes back as the question to ask. */
+      navigate: async (url: string, sessionID?: string): Promise<PreviewNavigation> => {
+        const response = await harnessAuthorizedRequest(baseUrl, "/harness/preview/navigate", {
+          method: "POST",
+          body: JSON.stringify({ url, ...(sessionID ? { sessionID } : {}) }),
+        })
+        const body = (await response.json().catch(() => undefined)) as
+          | { error?: string; code?: string; approval?: PreviewApproval }
+          | undefined
+        if (response.status === 409 && body?.approval) return { approval: body.approval }
+        if (!response.ok) throw new HarnessError(response.status, body)
+        return { opened: true }
+      },
+      answer: (url: string, answer: string, sessionID?: string) =>
+        harnessAuthorizedJson<unknown>(baseUrl, "/harness/preview/answer", {
+          method: "POST",
+          body: JSON.stringify({ url, answer, ...(sessionID ? { sessionID } : {}) }),
+        }),
+      annotate: (input: { image: string; title: string; sessionID?: string }) =>
+        harnessAuthorizedJson<{ artifactID: string }>(baseUrl, "/harness/preview/annotation", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      agent: (sessionID: string) =>
+        agentBrowserRequest<{ attached: boolean }>(baseUrl, sessionID, "/harness/preview/agent"),
+      giveAgent: (sessionID: string) =>
+        agentBrowserRequest<{ attached: boolean }>(baseUrl, sessionID, "/harness/preview/agent", { method: "POST" }),
+      takeBack: (sessionID: string) =>
+        agentBrowserRequest<{ attached: boolean }>(baseUrl, sessionID, "/harness/preview/agent", { method: "DELETE" }),
     },
     // The browser policy's standing grants (BU-01): listed and revoked from the settings.
     /** FlupCode Bridge's pairing (BU-04): one click pairs the browser waiting with a code. */

@@ -28,6 +28,11 @@ export const HARNESS_SERVER_URL = process.env.FLUPCODE_HARNESS_SERVER_URL ?? "ht
 const ENGINE_PORT = Number(process.env.FLUPCODE_ENGINE_PORT ?? 4098)
 const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`
 
+/** The ports this app's own servers listen on, which the preview never lists as a project's (BU-06). */
+export function ownPorts() {
+  return [SERVER_URL, HARNESS_SERVER_URL, ENGINE_URL].flatMap((url) => (URL.canParse(url) ? [Number(new URL(url).port)] : []))
+}
+
 /**
  * The engine and the harness this app started, each kept alive by a supervisor (HE-03): restarted
  * when it stops, its output in `<userData>/logs`, its pid in `<userData>` so the next launch can

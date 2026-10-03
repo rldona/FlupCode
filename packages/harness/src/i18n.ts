@@ -694,6 +694,34 @@ const ES: Record<string, string> = {
   Release: "Soltar",
   "No browser session": "Sin sesión de navegador",
   "Give the agent a browser": "Darle un navegador al agente",
+  // The preview (BU-06)
+  Preview: "Vista previa",
+  "Preview — not your browser": "Vista previa — no es tu navegador",
+  "Open {site} in the preview?": "¿Abrir {site} en la vista previa?",
+  "The preview opens pages on this machine by itself; any other site asks first. The agent can read what the preview shows.":
+    "La vista previa abre sola las páginas de este equipo; cualquier otro sitio pregunta antes. El agente puede leer lo que muestra la vista previa.",
+  "The preview only opens web pages": "La vista previa solo abre páginas web",
+  "Could not take a picture of the page": "No se pudo capturar la página",
+  "Preview annotation: {page}": "Anotación de la vista previa: {page}",
+  "The preview is only in the desktop app": "La vista previa solo está en la app de escritorio",
+  Address: "Dirección",
+  Annotate: "Anotar",
+  "Running servers": "Servidores en marcha",
+  "Take the preview back": "Recuperar la vista previa",
+  "Give the agent the preview": "Darle la vista previa al agente",
+  "Running on this machine": "En marcha en este equipo",
+  "Running from this project": "En marcha desde este proyecto",
+  "No web server started from this project. Start your dev server and it appears here.":
+    "Ningún servidor web se ha arrancado desde este proyecto. Arranca tu servidor de desarrollo y aparecerá aquí.",
+  "Other servers on this machine ({n})": "Otros servidores de este equipo ({n})",
+  "No web server is running. Start your dev server and it appears here.":
+    "No hay ningún servidor web en marcha. Arranca tu servidor de desarrollo y aparecerá aquí.",
+  "Pages on this machine open here; any other site asks first.":
+    "Las páginas de este equipo se abren aquí; cualquier otro sitio pregunta antes.",
+  "Drag over the page to mark what you mean.": "Arrastra sobre la página para marcar lo que quieres decir.",
+  "The page in the preview": "La página en la vista previa",
+  "What should change here?": "¿Qué debería cambiar aquí?",
+  "Add to the message": "Añadir al mensaje",
   "The agent browses in its own browser, not yours, and asks before acting on each site.":
     "El agente navega en su propio navegador, no en el tuyo, y pregunta antes de actuar en cada sitio.",
   // The person's own browser through FlupCode Bridge (BU-04)

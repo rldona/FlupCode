@@ -22,6 +22,8 @@ import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
+import { handlePreviewRequest } from "./browser-preview-routes"
+import type { Preview } from "./browser-preview"
 import type { BrowserAttach } from "./browser-attach"
 import type { BrowserBridge } from "./browser-bridge"
 import type { RecipeDriver } from "./browser"
@@ -479,6 +481,8 @@ const openToAnyCaller = (request: Request, path: string[]) =>
 
 export type HarnessHandlerOptions = {
   browser?: RecipeDriver
+  /** The desktop app's preview (BU-06) and the policy its navigations ask. */
+  preview?: { host: Preview; policy: BrowserPolicy; attach?: BrowserAttach }
   /** The agent's own browser (BU-05): a session handed a browser, from the live view. */
   browserAttach?: BrowserAttach
   /**
@@ -615,6 +619,9 @@ export const createHarnessHandler = (
     if (path[1] === "browser" && options.browser) {
       if (!uiCaller(request))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      // A session has one browser at a time: handing it another takes the preview back first (BU-06).
+      const session = request.headers.get("x-flupcode-session")?.trim()
+      if (path[2] === "attach" && request.method === "POST" && session) await options.preview?.attach?.detach(session)
       return handleBrowserRequest(
         request,
         path.slice(2),
@@ -637,6 +644,17 @@ export const createHarnessHandler = (
       if (path[2] === "paired" && path[3] && path.length === 4 && request.method === "DELETE")
         return bridge.forget(path[3]) ? json({ data: { forgotten: true } }) : error("No such browser", 404)
       return error("Not found", 404)
+    }
+    // The desktop's preview (BU-06): what the person opens there, marks up and hands the agent. The
+    // UI's bearer, like the browser it is a sibling of.
+    if (path[1] === "preview" && options.preview) {
+      if (!uiCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handlePreviewRequest(request, path.slice(2), {
+        preview: options.preview.host,
+        policy: options.preview.policy,
+        ...(options.preview.attach ? { attach: options.preview.attach } : {}),
+        others: [options.browserAttach, options.bridgeAttach].filter((attach) => attach !== undefined),
+      })
     }
     // The runner drives the browser on the user's machine, so it sits behind the same bearer as
     // `/harness/browser/*` (WA-2). Without a runner the path is an ordinary 404.
@@ -1026,6 +1044,7 @@ export const createHarnessHandler = (
           ...CAPABILITIES,
           ...(options.browser ? (["browser"] as const) : []),
           ...(options.bridge ? (["bridge"] as const) : []),
+          ...(options.preview ? (["preview"] as const) : []),
           ...(options.actions ? (["web-actions"] as const) : []),
           // Its grants are revoked with the browser's bearer, so it is announced only when that exists.
           ...(options.browserPolicy && options.token ? (["browser-policy"] as const) : []),

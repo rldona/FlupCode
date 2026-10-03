@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { Engine } from "./engine"
+import type { PreviewCapture } from "./browser-preview"
 import { parseModelKey } from "./policy"
 import { announce, runStandings, standingBudgets, type BudgetStanding } from "./budget"
 import { TaskRunner, resumePoint } from "./runner"
@@ -31,6 +32,8 @@ type SchedulerOptions = {
   context?: ContextManager
   /** The auditor model a finished agent task is judged by (RP-06). Absent judges by the rule alone. */
   auditor?: Auditor
+  /** A verify task's picture of the desktop's preview (BU-06). Absent captures nothing. */
+  previewCapture?: PreviewCapture
 }
 
 const unwrap = async <T>(call: Promise<Result<T>>) => {
@@ -82,6 +85,7 @@ export class RoutineScheduler {
   readonly episodes?: EpisodeCoordinator
   readonly context?: ContextManager
   readonly auditor?: Auditor
+  readonly previewCapture?: PreviewCapture
   private readonly owner = crypto.randomUUID()
   private readonly stopping = new Set<string>()
   /**
@@ -103,6 +107,7 @@ export class RoutineScheduler {
     this.episodes = options.episodes
     this.context = options.context
     this.auditor = options.auditor
+    this.previewCapture = options.previewCapture
   }
 
   start() {
@@ -274,7 +279,7 @@ export class RoutineScheduler {
   private async drive(runID: string, directory?: string) {
     const run = this.repository.getRun(runID)
     if (!run) return
-    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor)
+    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture)
     try {
       const outcome = await runner.execute(run, {
         directory,
@@ -670,7 +675,7 @@ export class RoutineScheduler {
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
-      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor)
+      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context, this.auditor, this.previewCapture)
       const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),

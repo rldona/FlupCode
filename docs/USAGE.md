@@ -321,6 +321,22 @@ failing test, a lint rule — becomes a comment on that line of the diff in **Ch
 command that exited non-zero. The retry, if the check has a budget, is handed those lines instead of
 the whole log.
 
+### A picture of the page
+
+In the desktop app a `verify` task can also keep a picture of your app. Name the page in
+`.flupcode/project.yaml`:
+
+```yaml
+verify:
+  test: bun test
+preview: http://localhost:5173/
+```
+
+After the commands run, the page opens in the **Preview** and is kept as a screenshot artifact of the
+run and the task; the evidence says so ("Preview: captured …"). It is evidence, not a check: it never
+changes the verdict. Only a page on this machine is captured, and nothing is when the desktop app is
+not open, which the evidence says too.
+
 ### The verdict on a task
 
 A task that ended is not a task that did what it was asked. Every agent task carries a **verdict**,
@@ -337,6 +353,25 @@ said. A run's verdict is its worst task's. With no model assigned the verdict co
 set of rules; assigning one to the `completion` decision (`adaptive.models.completion`, with that
 model's consent for the project and the `completion` kind) lets it judge too, and it can only make a verdict worse, never verified. A verdict
 does not stop the run unless a later task says `require: verified`.
+
+## Preview
+
+The desktop app shows your dev server next to the session: the window icon in the top bar opens the
+**Preview — not your browser** panel. It is a page of its own, with its own cookies, not your
+browser and not the agent's browser.
+
+- **Empty state.** It lists the web servers running on this machine, those started from the
+  session's folder first; the rest are under *Other servers on this machine*. Start your dev server
+  and it appears within a few seconds. Nothing outside this machine is looked at.
+- **Where it goes.** Pages on this machine (`localhost`, `127.0.0.1`) open by themselves. Any other
+  site asks first, with the same approval as the agent's browser (once, this session, always, deny);
+  a link or a redirect off this machine stops and asks too. Sites that are always blocked stay
+  blocked.
+- **Annotate.** Takes a picture of the page; drag boxes over what you mean, add a note, and **Add to
+  the message** puts it in the composer as a chip. The picture is kept as an artifact and is sent with
+  the message, with the note and the page's address.
+- **Give the agent the preview.** The agent's browser tools then work in this page, each action under
+  the browser policy like in its own browser. **Take the preview back** ends it.
 
 ## Agents
 

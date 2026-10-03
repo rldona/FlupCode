@@ -5486,6 +5486,240 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+/* The preview (BU-06). The page itself is not in the document: the desktop draws it over
+   `.fc-preview-viewport`, so that box only has to be where the page goes and empty underneath. */
+.fc-panel-preview {
+  flex: 2;
+}
+
+.fc-preview {
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-2);
+}
+
+.fc-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-1);
+  min-width: 0;
+}
+
+.fc-preview-address {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--fc-font-mono);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fc-space-1);
+}
+
+.fc-preview-notice {
+  margin: 0;
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+}
+
+.fc-preview-viewport {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  overflow: auto;
+}
+
+.fc-preview-hidden {
+  display: none;
+}
+
+.fc-preview-empty {
+  flex: 1;
+  min-width: 0;
+  align-items: stretch;
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-4) var(--fc-space-3);
+  text-align: left;
+}
+
+.fc-preview-servers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-preview-server {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--fc-space-2);
+  width: 100%;
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fc-preview-server:hover,
+.fc-preview-server:focus-visible {
+  border-color: var(--fc-accent);
+}
+
+.fc-preview-server-port {
+  font-family: var(--fc-font-mono);
+  font-size: var(--fc-text-md);
+  font-weight: 600;
+}
+
+.fc-preview-server-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-preview-server-process {
+  color: var(--fc-text-muted);
+}
+
+.fc-preview-others summary {
+  padding: var(--fc-space-1) 0;
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+  cursor: pointer;
+}
+
+.fc-preview-annotate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  min-height: 0;
+  overflow: auto;
+}
+
+.fc-preview-annotate p {
+  margin: 0;
+}
+
+.fc-preview-annotate-canvas {
+  position: relative;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.fc-preview-annotate-canvas img {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+/* The marks are drawn on the site's page, not on the app, so they keep one colour in both themes. */
+.fc-preview-mark {
+  position: absolute;
+  border: 2px solid #e11d48;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.fc-preview-mark-number {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: #e11d48;
+  color: #fff;
+  font-size: var(--fc-text-xs);
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.fc-preview-note {
+  resize: vertical;
+}
+
+.fc-preview-annotate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fc-space-1);
+}
+
+/* A chip in the composer (BU-06): something the reader pointed at, removable until it is sent. */
+.fc-dock-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-1);
+  padding: var(--fc-space-2) var(--fc-space-3) 0;
+}
+
+.fc-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fc-space-1);
+  max-width: 100%;
+  padding: 2px 4px 2px 2px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text);
+}
+
+.fc-context-chip-image {
+  width: 28px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.fc-context-chip-kind {
+  font-weight: 600;
+  color: var(--fc-text-muted);
+}
+
+.fc-context-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--fc-font-mono);
+}
+
+.fc-context-chip-remove {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fc-text-muted);
+  cursor: pointer;
+}
+
+.fc-context-chip-remove:hover {
+  color: var(--fc-text);
+}
+
 .fc-files {
   min-height: 0;
 }

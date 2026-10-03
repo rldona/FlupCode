@@ -34,6 +34,34 @@ export type RemoteStatus = "idle" | "connecting" | "connected" | "reconnecting" 
 
 export type RemoteErrorCode = "insecure" | "offline" | "revoked" | "expired" | "failed"
 
+/** The page the preview shows, as the desktop reports it. */
+export type PreviewPage = { url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+
+/** A web server listening on this machine, for the preview's empty state. */
+export type DevServer = {
+  port: number
+  url: string
+  pid?: number
+  process?: string
+  cwd?: string
+  title?: string
+  inProject: boolean
+}
+
+export type PreviewBridge = {
+  show: (bounds: { x: number; y: number; width: number; height: number }) => Promise<boolean>
+  hide: () => Promise<void>
+  state: () => Promise<PreviewPage | undefined>
+  /** The address bar's text, read as an address: `allow` opens it, `ask` is for the server to decide. */
+  open: (text: string) => Promise<{ verdict: "allow" | "ask" | "refuse"; url: string }>
+  history: (move: "back" | "forward" | "reload" | "stop" | "close") => Promise<void>
+  /** The page as a PNG data URL, for annotating. */
+  capture: () => Promise<string | undefined>
+  servers: (directory?: string) => Promise<DevServer[]>
+  onChange: (listener: (state: PreviewPage) => void) => () => void
+  onBlocked: (listener: (url: string) => void) => () => void
+}
+
 declare global {
   interface Window {
     flupcode?: {
@@ -54,6 +82,8 @@ declare global {
       openPath?: (path: string, app?: string) => Promise<void>
       /** Open an http(s) URL in the system browser. Desktop only; the web build uses `window.open`. */
       openExternal?: (url: string) => Promise<boolean>
+      /** The preview (BU-06): a page of the project's dev server that main draws over the panel. Desktop only. */
+      preview?: PreviewBridge
       /** The engine and the harness server the desktop app started, as its supervisor sees them (HE-03). */
       children?: {
         state: () => Promise<ChildState[]>

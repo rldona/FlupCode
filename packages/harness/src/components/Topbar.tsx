@@ -38,6 +38,8 @@ type TopbarProps = {
    * is not operative in the browser build.
    */
   showAgentBrowser: boolean
+  /** The preview toggle (BU-06): only where the desktop app hosts one. */
+  showPreview?: boolean
   onTogglePanel: (kind: string) => void
   /** The workspace panels open right now, so their buttons can show it. */
   openPanels: string[]
@@ -183,6 +185,19 @@ export const Topbar: Component<TopbarProps> = (props) => {
                 />
                 <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
               </svg>
+            </button>
+          </Show>
+          <Show when={props.showPreview}>
+            <button
+              class="fc-nav-arrow"
+              classList={{ "fc-nav-arrow-active": props.openPanels.includes("preview") }}
+              type="button"
+              title={t("Preview")}
+              aria-label={t("Preview")}
+              aria-pressed={props.openPanels.includes("preview")}
+              onClick={() => props.onTogglePanel("preview")}
+            >
+              <TopIcon d="M3 5h18v14H3zM3 9h18M6 7h.01M9 7h.01" />
             </button>
           </Show>
           <button

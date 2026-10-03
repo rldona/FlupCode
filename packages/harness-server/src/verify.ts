@@ -109,6 +109,32 @@ export async function configuredSteps(directory: string): Promise<VerifyPlan | u
 }
 
 /**
+ * The page a verify task captures from the desktop's preview (BU-06): `preview` in
+ * `.flupcode/project.yaml`, an address of the project's dev server.
+ *
+ * ```yaml
+ * verify:
+ *   test: bun test
+ * preview: http://localhost:5173/
+ * ```
+ *
+ * Nothing when the file or the key is not there: a project that names no page has none captured.
+ */
+export async function previewTarget(directory: string) {
+  const text = await readText(join(directory, ".flupcode", "project.yaml"))
+  if (text === undefined) return undefined
+  const parsed = (() => {
+    try {
+      return Bun.YAML.parse(text) as { preview?: unknown } | null
+    } catch {
+      return undefined
+    }
+  })()
+  const preview = parsed?.preview
+  return typeof preview === "string" && preview.trim() ? preview.trim() : undefined
+}
+
+/**
  * What the project looks like it is verified with: the scripts it already has.
  *
  * Only the four the audit names, and only the ones that exist — inventing `bun run lint` for a
