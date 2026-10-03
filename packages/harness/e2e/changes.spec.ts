@@ -177,7 +177,9 @@ async function openSession(
     if (/^\/harness\/checkpoints\/[^/]+\/plan$/.test(url.pathname)) {
       seen.planned.push(url.pathname.split("/")[3]!)
       return route.fulfill({
-        json: { data: { write: ["src/work.ts", "src/other.ts"], remove: ["src/oops.ts"] } },
+        json: {
+          data: { files: { write: ["src/work.ts", "src/other.ts"], remove: ["src/oops.ts"] }, conversation: { state: "none" } },
+        },
       })
     }
     if (/^\/harness\/checkpoints\/[^/]+\/restore$/.test(url.pathname)) {
@@ -185,7 +187,7 @@ async function openSession(
       return route.fulfill({
         json: {
           data: {
-            plan: { write: ["src/work.ts", "src/other.ts"], remove: ["src/oops.ts"] },
+            plan: { files: { write: ["src/work.ts", "src/other.ts"], remove: ["src/oops.ts"] }, conversation: { state: "none" } },
             safety: { id: "cp_safe", directory: "/work/demo", sha: "b".repeat(40), title: "Before restoring", createdAt: 3 },
           },
         },

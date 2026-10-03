@@ -373,7 +373,7 @@ describe("icons (UX-06)", () => {
         .filter((match) => ONLY_GLYPHS.test(match[2]!))
         .map((match) => `${file.name}:${at(file.text, match.index)} ${match[0]}`)
         // An arrow joining names in a sentence ("Runs: plan → build") is punctuation in the text.
-        .filter((offender) => !/^components\/ResumeConfirm\.tsx:\d+ " → "$/.test(offender))
+        .filter((offender) => !/^components\/(ResumeConfirm|RunCheckpoints)\.tsx:\d+ " → "$/.test(offender))
       return [...text, ...strings]
     })
     expect(offenders).toEqual([])
