@@ -14,6 +14,7 @@
 
 import { globalAdaptiveBlock } from "../config-files"
 import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
+import { contextItem } from "./decisions/context-item"
 import type { ContextItemKind, DecisionKind, DecisionPolicy } from "./decision"
 import { resolveEpisodeBoundaryConfig } from "./episode"
 import type { EpisodeBoundaryConfig } from "./episode"
@@ -531,8 +532,7 @@ function resolveDecisionPolicies(
     skillRelevance: policyFrom(DEFAULT_DECISION_POLICY, decisions.skillRelevance),
     contextItem: {
       ...policyFrom(DEFAULT_DECISION_POLICY, decisions.contextItem),
-      keepThreshold: context.keepThreshold,
-      dropThreshold: context.dropThreshold,
+      ...contextItem.policy?.({ context, guardrails }),
     },
     // The failure thresholds are the guardrails slice, so the detector and its decision policy agree.
     failure: {

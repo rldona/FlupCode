@@ -18,7 +18,7 @@
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
 import { completion } from "../decisions/completion"
 import { skillRelevance } from "../decisions/skill-relevance"
-import { deterministicContextItem } from "../scoring"
+import { contextItem } from "../decisions/context-item"
 
 /** One handler per kind; the mapped type obliges every kind to be implemented. */
 export type DeterministicHandler = {
@@ -36,18 +36,7 @@ export type DeterministicBaseline<Q extends DecisionKind = DecisionKind> = {
 export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
   completion: completion.baseline,
   skillRelevance: skillRelevance.baseline,
-  // The scorer replaced Phase 2's keep-all: the single implementation lives in `scoring.ts`. The
-  // request's clock and the resolved thresholds on its policy are forwarded, so a manager-computed
-  // plan and this baseline score on the same clock and the same numbers.
-  contextItem: (request) => ({
-    answer: deterministicContextItem(
-      request.state,
-      request.now,
-      request.policy.keepThreshold,
-      request.policy.dropThreshold,
-    ),
-    rule: "context-score",
-  }),
+  contextItem: contextItem.baseline,
   // A repeated identical call or error is an intervention; anything below the policy threshold is a
   // plain continue. Calls are checked first, mirroring the run that ends the observation ring
   // (FH-060/061, ADR-0023 §6).

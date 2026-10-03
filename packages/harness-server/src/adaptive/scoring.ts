@@ -12,8 +12,9 @@
  * recover.
  */
 
-import type { ContextItem, ContextItemAnswer, ContextItemKind, ContextItemState, ItemDisposition } from "./decision"
-import { DROPPABLE_CONTEXT_KINDS, PROTECTED_CONTEXT_KINDS } from "./decision"
+import type { ContextItem, ContextItemKind } from "./context-items"
+import { DROPPABLE_CONTEXT_KINDS, PROTECTED_CONTEXT_KINDS } from "./context-items"
+import type { ContextItemAnswer, ContextItemState, ItemDisposition } from "./decisions/context-item"
 
 /** The score is the weights applied to each signal; recalibration changes the numbers, not the code. */
 export const CONTEXT_SCORE_WEIGHTS = {
