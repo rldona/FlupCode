@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "bun install",
+  "buildCommand": "bun run build",
+  "outputDirectory": "dist",
+  "ignoreCommand": "if git cat-file -e \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}\" 2>/dev/null; then git diff --quiet \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\" HEAD -- . ../../docs; else exit 1; fi",
+  "git": { "deploymentEnabled": { "**": false, "main": true } },
+  "cleanUrls": true,
+  "redirects": [{ "source": "/", "destination": "/wiki/", "permanent": false }],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,8 @@ What FlupCode adds to the engine ships as plugins (`packages/remote/src/engine-p
 - Packages: `harness` (web app), `harness-desktop` (Electron), `harness-server` (loopback server),
   `remote` (engine install, plugins, proxy, remote control), `relay`, `flupcode-cli`,
   `engine-contract` (tests against the real binary), `bridge-extension` (FlupCode Bridge, the MV3
-  extension for the user's own browser), `landing`.
+  extension for the user's own browser), `landing`, `wiki` (VitePress site at flupcode.com/wiki,
+  which renders the guides listed in `packages/wiki/pages.ts` from `docs/`).
 - The engine version is one pin: `OPENCODE_V2_VERSION` in `packages/remote/src/opencode-v2.ts` and
   `@opencode/client` in the `package.json` files. Move it with `bun script/opencode-pin.ts bump`
   (see `docs/UPSTREAM.md`); CI checks they agree.
@@ -37,7 +38,7 @@ Examples: `fix(harness): keep the scroll position`, `docs: update contributing g
 
 - Never trigger Vercel preview deployments: they consume paid quota. Work through GitHub only.
 - Production reaches Vercel later, from `main`, through the normal merge flow. Do not run the `vercel` CLI to deploy a preview.
-- Both `packages/harness/vercel.json` and `packages/landing/vercel.json` disable deployments for every branch except `main` (`git.deploymentEnabled`).
+- `packages/harness/vercel.json`, `packages/landing/vercel.json` and `packages/wiki/vercel.json` disable deployments for every branch except `main` (`git.deploymentEnabled`).
 
 ## Branding
 

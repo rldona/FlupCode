@@ -1,0 +1,20 @@
+/* The landing's palette (packages/landing/styles.css), so the wiki reads as the same site. */
+:root {
+  --vp-c-brand-1: #3f6fe0;
+  --vp-c-brand-2: #5b8cff;
+  --vp-c-brand-3: #5b8cff;
+  --vp-c-brand-soft: rgba(91, 140, 255, 0.16);
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+}
+
+.dark {
+  --vp-c-brand-1: #8fb0ff;
+  --vp-c-bg: #05060b;
+  --vp-c-bg-alt: #0a0c14;
+  --vp-c-bg-elv: #0f121b;
+  --vp-c-bg-soft: #0f121b;
+  --vp-c-divider: #1f2436;
+  --vp-c-gutter: #05060b;
+  --vp-c-text-1: #eef0f7;
+  --vp-c-text-2: #8e94ab;
+}
