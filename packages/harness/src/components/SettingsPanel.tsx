@@ -66,7 +66,7 @@ type SettingsPanelProps = {
   /** The engine's `permission` policy, as it is on disk (H-25). */
   permissionPolicy: unknown
   permissionServerAvailable: boolean
-  onSavePermissionPolicy: (policy: Record<string, unknown>) => void
+  onSavePermissionPolicy: (policy: Record<string, unknown>) => Promise<boolean>
   /** The editable commands (H-25): the files behind the engine's slash commands. */
   commandFiles: CommandFile[]
   /** Agent names for a command's `agent` field. */
