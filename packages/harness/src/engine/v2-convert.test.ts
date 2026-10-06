@@ -7,7 +7,16 @@ import type {
   SessionInfo as V2Session,
   SessionMessageInfo as V2Message,
 } from "@opencode/client"
-import { toFormAnswer, toMessages, toModel, toProviderDirectory, toQuestion, toSession } from "./v2-convert"
+import {
+  toFormAnswer,
+  toMcpConfigs,
+  toMcpServer,
+  toMessages,
+  toModel,
+  toProviderDirectory,
+  toQuestion,
+  toSession,
+} from "./v2-convert"
 
 const session = {
   id: "ses_1",
@@ -242,7 +251,10 @@ test("a browser approval the harness asked carries its site, tier and answers to
   expect(toFormAnswer(approval, [["Always allow to click and type on example.com"]])).toEqual({ choice: "always" })
   // Any other form, or one whose tier is not one of the four, stays a plain question.
   expect(toQuestion(form).browser).toBeUndefined()
-  expect(toQuestion({ ...approval, metadata: { flupcode: "browser-approval", tier: "everything" } } as unknown as V2Form).browser).toBeUndefined()
+  expect(
+    toQuestion({ ...approval, metadata: { flupcode: "browser-approval", tier: "everything" } } as unknown as V2Form)
+      .browser,
+  ).toBeUndefined()
 })
 
 test("an approval for the reader's own browser says so (BU-02)", () => {
@@ -309,4 +321,42 @@ test("the provider directory is every integration, with config providers told ap
     ["off", "config", [], []],
   ])
   expect(directory.connected).toEqual(["openai", "mine"])
+})
+
+test("an MCP server is written in 2.x's shape: disabled for enabled, one timeout for both", () => {
+  expect(
+    toMcpServer({ type: "remote", url: "https://mcp.test", enabled: false, timeout: 9000, codemode: false }),
+  ).toEqual({
+    type: "remote",
+    url: "https://mcp.test",
+    disabled: true,
+    timeout: { catalog: 9000, execution: 9000 },
+    codemode: false,
+  })
+  expect(toMcpServer({ type: "local", command: ["docs"] })).toEqual({ type: "local", command: ["docs"] })
+})
+
+test("a file's MCP servers read the same from either shape, the 2.x one winning whole", () => {
+  expect(
+    toMcpConfigs({
+      old: { type: "local", command: ["old"], enabled: false, timeout: 3000 },
+      both: { type: "remote", url: "https://old.test", enabled: false },
+      servers: {
+        both: { type: "remote", url: "https://new.test", codemode: false },
+        timed: { type: "local", command: ["timed"], disabled: true, timeout: { catalog: 1000, execution: 7000 } },
+      },
+    }),
+  ).toEqual({
+    old: { type: "local", command: ["old"], enabled: false, timeout: 3000 },
+    both: { type: "remote", url: "https://new.test", codemode: false },
+    timed: { type: "local", command: ["timed"], enabled: false, timeout: 7000 },
+  })
+  expect(toMcpConfigs(undefined)).toEqual({})
+})
+
+// The engine drops `codemode` from a server written the 1.x way, so the panel must not show it off.
+test("a server written the 1.x way reads under Code Mode whatever it says", () => {
+  expect(toMcpConfigs({ docs: { type: "remote", url: "https://mcp.test", codemode: false } })).toEqual({
+    docs: { type: "remote", url: "https://mcp.test" },
+  })
 })

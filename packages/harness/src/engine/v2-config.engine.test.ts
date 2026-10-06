@@ -84,6 +84,40 @@ describe.skipIf(!run)("config on the OpenCode 2 adapter", () => {
     await status("saved", (value) => value === undefined)
   })
 
+  // The engine converts a server written the 1.x way (`mcp.<name>`) and loses `codemode` on the way,
+  // so an agent that denies `execute` never saw a server whose Code Mode the panel had turned off.
+  test("turning Code Mode off reaches the engine, and moves a server written the 1.x way", async () => {
+    const file = join(engine.project, "opencode.json")
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...JSON.parse(readFileSync(file, "utf8")),
+        mcp: { legacy: { type: "local", command: mcpStdioCommand(), enabled: true, codemode: false } },
+      }),
+    )
+    await domains.reloadConfig({ directory: engine.project })
+    expect(await engineMcp(file)).toEqual({ legacy: { type: "local", command: mcpStdioCommand(), disabled: false } })
+    const saved = (await domains.mcp.config({ directory: engine.project })).data.legacy
+    expect(saved).toEqual({ type: "local", command: mcpStdioCommand(), enabled: true })
+
+    await domains.mcp.add({
+      server: "legacy",
+      config: { ...saved!, codemode: false },
+      scope: "project",
+      directory: engine.project,
+    })
+    expect(JSON.parse(readFileSync(file, "utf8")).mcp).toEqual({
+      servers: { legacy: { type: "local", command: mcpStdioCommand(), disabled: false, codemode: false } },
+    })
+    expect(await engineMcp(file)).toEqual({
+      legacy: { type: "local", command: mcpStdioCommand(), disabled: false, codemode: false },
+    })
+    expect((await domains.mcp.config({ directory: engine.project })).data.legacy).toMatchObject({ codemode: false })
+
+    await domains.mcp.remove({ server: "legacy", directory: engine.project })
+    expect((await domains.mcp.config({ directory: engine.project })).data).not.toHaveProperty("legacy")
+  })
+
   test("without a store the config reads empty and saving says why", async () => {
     const bare = createV2Domains(engine.url)
     expect(await bare.config()).toEqual({})
@@ -114,6 +148,16 @@ function fileStore(configDir: string): EngineConfigStore {
       return { path: file, changed: true }
     },
   }
+}
+
+/** The MCP servers the engine itself read from a config file, in its own shape. */
+async function engineMcp(file: string) {
+  const response = await fetch(
+    `${engine.url}/api/config?${new URLSearchParams({ "location[directory]": engine.project })}`,
+    { headers: { authorization: engine.authorization } },
+  )
+  const sources = (await response.json()) as { path?: string; info?: { mcp?: { servers?: unknown } } }[]
+  return sources.find((source) => source.path === file)?.info?.mcp?.servers
 }
 
 async function status(name: string, match: (status: string | undefined) => boolean) {

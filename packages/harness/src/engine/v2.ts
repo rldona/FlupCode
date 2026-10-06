@@ -8,6 +8,8 @@ import { EngineError, unsupported } from "./error"
 import {
   toFormAnswer,
   toIntegration,
+  toMcpConfigs,
+  toMcpServer,
   toMessages,
   toModel,
   toPermission,
@@ -696,13 +698,41 @@ export function createV2Domains(
   const mcp: EngineClient["mcp"] = {
     list: async (input) => ({ data: (await call(client.mcp.list(where(input?.directory)))).data }),
     config: async (input) => ({
-      data: ((await merged(input?.directory)).mcp ?? {}) as Awaited<ReturnType<EngineClient["mcp"]["config"]>>["data"],
+      data: deepMerge(
+        toMcpConfigs((await configFile("global")).mcp),
+        toMcpConfigs((await configFile("project", input?.directory)).mcp),
+      ) as Awaited<ReturnType<EngineClient["mcp"]["config"]>>["data"],
     }),
-    add: async (input) => save(input.scope ?? "global", { mcp: { [input.server]: input.config } }, input.directory),
+    /**
+     * A server is written under `mcp.servers`, in 2.x's own shape: the engine drops `codemode` from
+     * one written the 1.x way (`mcp.<name>`), so Code Mode could not be turned off there. One still
+     * written that way in this file moves over whole, with what the form does not send (`oauth`).
+     */
+    add: async (input) => {
+      const scope = input.scope ?? "global"
+      const written = (await configFile(scope, input.directory)).mcp
+      const moved = isRecord(written) && !(isRecord(written.servers) && input.server in written.servers)
+      await save(
+        scope,
+        {
+          mcp: {
+            [input.server]: null,
+            servers: {
+              [input.server]: toMcpServer({
+                ...(moved ? toMcpConfigs(written)[input.server] : {}),
+                ...input.config,
+              }),
+            },
+          },
+        },
+        input.directory,
+      )
+    },
     // A server's scope is not readable from the list, so removal clears it from both files, as on 1.x.
     remove: async (input) => {
-      await save("project", { mcp: { [input.server]: null } }, input.directory)
-      await save("global", { mcp: { [input.server]: null } })
+      const gone = { mcp: { [input.server]: null, servers: { [input.server]: null } } }
+      await save("project", gone, input.directory)
+      await save("global", gone)
     },
     connect: async (input) => {
       await call(client.mcp.connect({ server: input.server, ...where(input.directory) }))
