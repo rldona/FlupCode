@@ -432,19 +432,25 @@ export function createCatalog(app: AppStores) {
     },
   )
   // The engine's permission policy (H-25), edited in Settings. Runtime grants ("Allow always") are
-  // a different thing and are read from the engine on their own.
+  // a different thing and are read from the engine on their own. Settings are the user's, so the
+  // policy is the global file's: the engine's own folder is `/` under the desktop app, where a
+  // folder's config cannot be written, and the policy went back to what it was.
   const [permissionPolicy, { refetch: refetchPermissionPolicy }] = createResource(
     () => (app.router.settingsOpen() && app.connection.ready() ? app.connection.serverUrl() : undefined),
-    async (url) => ((await createClient(url).config()) as { permission?: unknown }).permission,
+    async (url) => ((await createClient(url).globalConfig()) as { permission?: unknown }).permission,
   )
   const savePermissionPolicy = (policy: Record<string, unknown>) =>
-    void createClient(app.connection.serverUrl())
-      .updateConfig({ permission: policy })
+    createClient(app.connection.serverUrl())
+      .updateGlobalConfig({ permission: policy })
       .then(() => {
         void refetchPermissionPolicy()
         toast(t("Permissions saved"))
+        return true
       })
-      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+      .catch((cause) => {
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+        return false
+      })
   const toolsKey = () =>
     (app.router.contextOpen() || app.router.agentsSectionVisible()) && app.connection.ready()
       ? app.connection.serverUrl()

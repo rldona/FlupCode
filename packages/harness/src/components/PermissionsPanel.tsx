@@ -99,7 +99,8 @@ type PermissionsPanelProps = {
   /** Permissions granted with "Allow always", which are runtime and not part of the policy. */
   savedPermissions: Array<{ id: string; action: string; resource: string }>
   onRevokePermission: (id: string) => void
-  onSave: (policy: Record<string, unknown>) => void
+  /** Resolves to whether the policy was written. */
+  onSave: (policy: Record<string, unknown>) => Promise<boolean>
   /** The engine is the only one who can write this; without it, the form is read-only. */
   serverAvailable: boolean
 }
@@ -127,10 +128,7 @@ export const PermissionsPanel: Component<PermissionsPanelProps> = (props) => {
     setDraftRules(next)
   }
 
-  const save = () => {
-    props.onSave(mergePolicy(current(), rules(), other()))
-    setSaved(true)
-  }
+  const save = () => void props.onSave(mergePolicy(current(), rules(), other())).then(setSaved)
 
   // `external_directory` only ever restricts: the engine asks at minimum, so `allow` is not offered.
   const actionsFor = (key: string): PermissionAction[] =>

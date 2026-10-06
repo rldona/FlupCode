@@ -155,6 +155,56 @@ test("a permission granted once and remembered forever can be taken back", async
   await expect.poll(() => recorded.revoked).toEqual(["sav_1"])
 })
 
+// Under the desktop app the engine's own folder is `/`, where a folder's config cannot be written:
+// the policy is the user's, so it is read from and saved to the global file.
+test("the permission policy is saved to the global config, and only says so once written", async ({ page }) => {
+  const patches: Array<Record<string, unknown>> = []
+  const refused = { next: true }
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    if (url.pathname !== "/harness/engine-config") return route.fulfill({ json: { data: [] } })
+    if (route.request().method() !== "PATCH")
+      return route.fulfill({
+        json: {
+          data: {
+            path: "/home/me/.config/opencode/opencode.json",
+            config: url.searchParams.get("scope") === "global" ? { permission: { bash: "ask" } } : {},
+          },
+        },
+      })
+    if (refused.next) {
+      refused.next = false
+      return route.fulfill({ status: 500, json: { error: "The config file could not be written" } })
+    }
+    patches.push(route.request().postDataJSON() as Record<string, unknown>)
+    return route.fulfill({ json: { data: { path: "/home/me/.config/opencode/opencode.json", changed: true } } })
+  })
+  await openBlockedSession(page)
+  // The engine is asked to re-read its config after every save.
+  await page.route("http://127.0.0.1:9/api/location/reload", (route) => route.fulfill({ status: 204 }))
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText(/^(Settings|Configuración)$/).click()
+  await page.getByRole("tab", { name: /Permissions|Permisos/ }).click()
+
+  const editor = page.locator(".fc-permissions-editor")
+  await expect(editor.locator("label").filter({ hasText: /^bash/ }).locator("select")).toHaveValue("ask")
+  await editor.locator("label").filter({ hasText: /^edit/ }).locator("select").selectOption("deny")
+  const save = editor.getByRole("button", { name: /^(Save|Guardar)$/ })
+  await save.click()
+  // A write that failed does not read as saved.
+  await expect(page.getByText("The config file could not be written")).toBeVisible()
+  await expect(save).toBeVisible()
+
+  await save.click()
+  await expect.poll(() => patches).toEqual([{ scope: "global", patch: { permission: { bash: "ask", edit: "deny" } } }])
+  await expect(editor.getByRole("button", { name: /^(Saved|Guardado)$/ })).toBeVisible()
+})
+
 // 2.x asks the `question` tool's questions as a form, one field per question.
 const questionForm = {
   id: "frm_q",
