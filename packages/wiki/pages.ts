@@ -27,7 +27,7 @@ export const groups = [
   },
   {
     text: "Adaptive",
-    pages: [{ slug: "adaptive", text: "Adaptive Harness", doc: "ADAPTIVE.md" }],
+    pages: [{ slug: "adaptive", text: "Set up Adaptive", doc: "ADAPTIVE-GUIDE.md" }],
   },
 ]
 

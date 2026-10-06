@@ -23,6 +23,6 @@ features:
     details: Let the agent use your browser through an MCP preset, with an approval for each first action on a site.
     link: /browser
   - title: Adaptive
-    details: What the Adaptive Harness measures, what it changes in a session, and how to turn each part on.
+    details: Turn it on, pick what it may do, and set up a predictive model, with its key and what it may be sent.
     link: /adaptive
 ---
