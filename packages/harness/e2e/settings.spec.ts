@@ -202,6 +202,49 @@ test("a pattern rule is edited in place, and survives the save", async ({ page }
     })
 })
 
+// Disconnecting keeps the sign-in, so the way back to the provider's sign-in page is its own button.
+test("an MCP server the engine holds a sign-in for can be signed out", async ({ page }) => {
+  const engine: string[] = []
+  await openApp(page)
+  await page.route("http://127.0.0.1:9/api/mcp?**", (route) =>
+    route.fulfill({
+      json: {
+        location,
+        data: [
+          { name: "docs", status: { status: "connected" }, integrationID: "int_docs" },
+          { name: "local", status: { status: "connected" } },
+        ],
+      },
+    }),
+  )
+  const integration = { id: "int_docs", methods: [], connections: [{ type: "credential", id: "cred_1" }] }
+  await page.route("http://127.0.0.1:9/api/integration**", (route) =>
+    route.fulfill({
+      json: {
+        location,
+        data: new URL(route.request().url()).pathname.endsWith("/int_docs") ? integration : [integration],
+      },
+    }),
+  )
+  await page.route(/127\.0\.0\.1:9\/api\/(credential|experimental\/mcp)\//, (route) => {
+    engine.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`)
+    return route.fulfill({ status: 204 })
+  })
+  // The routes above were added after the app loaded: it reads the servers again from them.
+  await page.reload()
+  const dialog = await openSettings(page)
+  await dialog.getByRole("tab", { name: "MCP servers" }).click()
+
+  const rows = dialog.locator(".fc-mcp-row")
+  // Only the server with a sign-in offers it.
+  await expect(rows.filter({ hasText: "local" }).getByRole("button", { name: "Sign out" })).toHaveCount(0)
+  await rows.filter({ hasText: "docs" }).getByRole("button", { name: "Sign out" }).click()
+  // The sign-in goes, then the server reconnects so it stops using the token it still had.
+  await expect
+    .poll(() => engine)
+    .toEqual(["DELETE /api/credential/cred_1", "POST /api/experimental/mcp/docs/disconnect", "POST /api/experimental/mcp/docs/connect"])
+})
+
 // H-34: a server that failed says why, what it exposes is shown, and so is who may use it.
 test("an MCP server shows its failure, its resources and the agents that allow it", async ({ page }) => {
   const patches: unknown[] = []

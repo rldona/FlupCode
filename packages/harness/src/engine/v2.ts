@@ -696,7 +696,24 @@ export function createV2Domains(
    * into the config files (V2-24), then reloading the location, which connects or drops it.
    */
   const mcp: EngineClient["mcp"] = {
-    list: async (input) => ({ data: (await call(client.mcp.list(where(input?.directory)))).data }),
+    list: async (input) => {
+      const [servers, integrations] = await Promise.all([
+        call(client.mcp.list(where(input?.directory))),
+        // The servers are still listed when their sign-ins cannot be read.
+        call(client.integration.list()).then(
+          (result) => result.data,
+          () => [],
+        ),
+      ])
+      return {
+        data: servers.data.map((server) => ({
+          ...server,
+          signedIn: (integrations.find((item) => item.id === server.integrationID)?.connections ?? []).some(
+            (connection) => connection.type === "credential",
+          ),
+        })),
+      }
+    },
     config: async (input) => ({
       data: deepMerge(
         toMcpConfigs((await configFile("global")).mcp),

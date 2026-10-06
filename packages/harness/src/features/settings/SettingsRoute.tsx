@@ -62,6 +62,7 @@ export default function SettingsRoute() {
       onConnectMcp={app.catalog.connectMcp}
       onDisconnectMcp={app.catalog.disconnectMcp}
       onOAuthMcp={app.catalog.oauthMcp}
+      onSignOutMcp={app.catalog.signOutMcp}
       onTheme={app.settings.updateTheme}
       onColorTheme={app.settings.updateColorTheme}
       onLocale={setLocale}

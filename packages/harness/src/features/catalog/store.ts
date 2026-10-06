@@ -521,6 +521,20 @@ export function createCatalog(app: AppStores) {
     }, t("MCP server disconnected"))
 
   /**
+   * Signing out removes the sign-in the engine kept. The server is then reconnected, because the open
+   * connection goes on working with the token it already has: it comes back waiting for a sign-in.
+   */
+  const signOutMcp = (server: string) =>
+    app.sessions.run(async (current) => {
+      await current.mcp.authRemove({ server, directory: mcpDirectory() })
+      await current.mcp.disconnect({ server, directory: mcpDirectory() })
+      await current.mcp.connect({ server, directory: mcpDirectory() }).catch(() => undefined)
+      void refetchMcp()
+      void refetchMcpResources()
+      return undefined
+    }, t("Signed out of the MCP server"))
+
+  /**
    * OAuth for a server that needs it (SE-2): the engine opens the authorization URL in the
    * reader's own browser — the only place carrying their session — and `authenticate` waits
    * for the engine's callback before the list is read again. No in-app window on top: it
@@ -699,6 +713,7 @@ export function createCatalog(app: AppStores) {
     models,
     oAuthStatus,
     oauthMcp,
+    signOutMcp,
     patchAdaptive,
     permissionPolicy,
     providerDirectory,

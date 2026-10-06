@@ -888,6 +888,7 @@ const ES: Record<string, string> = {
   "MCP server removed": "Servidor MCP eliminado",
   "MCP server connected": "Servidor MCP conectado",
   "MCP server disconnected": "Servidor MCP desconectado",
+  "Signed out of the MCP server": "Sesión cerrada en el servidor MCP",
   "Routine created": "Rutina creada",
   "Routine saved": "Rutina guardada",
   'Routine "{name}" executed': 'Rutina "{name}" ejecutada',

@@ -85,6 +85,7 @@ type SettingsPanelProps = {
   onConnectMcp: (name: string) => void
   onDisconnectMcp: (name: string) => void
   onOAuthMcp: (name: string) => void
+  onSignOutMcp: (name: string) => void
   onTheme: (value: string) => void
   onColorTheme: (value: string) => void
   onLocale: (value: Locale) => void
@@ -596,6 +597,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 onConnect={props.onConnectMcp}
                 onDisconnect={props.onDisconnectMcp}
                 onOAuth={props.onOAuthMcp}
+                onSignOut={props.onSignOutMcp}
               />
             </section>
           </Show>

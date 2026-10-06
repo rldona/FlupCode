@@ -24,6 +24,8 @@ type McpEditorProps = {
   onDisconnect: (name: string) => void
   /** Starts the engine's OAuth flow for a server that needs it (SE-2). */
   onOAuth: (name: string) => void
+  /** Removes the sign-in the engine keeps for a server, so the next connect asks for it again. */
+  onSignOut: (name: string) => void
 }
 
 const statusLabel = (server: McpServer) => {
@@ -215,6 +217,17 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                       onClick={() => props.onOAuth(server.name)}
                     >
                       {t("Connect with OAuth")}
+                    </button>
+                  </Show>
+                  {/* Disconnect keeps the sign-in, so connecting again never asks for it. */}
+                  <Show when={server.signedIn}>
+                    <button
+                      class="fc-button"
+                      type="button"
+                      disabled={props.busy}
+                      onClick={() => props.onSignOut(server.name)}
+                    >
+                      {t("Sign out")}
                     </button>
                   </Show>
                   <button

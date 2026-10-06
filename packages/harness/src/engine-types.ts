@@ -34,7 +34,10 @@ export type {
 export type McpServer = {
   name: string
   /** The engine's status object: a `status` and, when it failed, the reason (H-34). */
-  status: { status?: string; error?: string } | unknown}
+  status: { status?: string; error?: string } | unknown
+  /** Whether the engine holds a sign-in for it: a credential it can be signed out of. */
+  signedIn?: boolean
+}
 
 /** A resource an MCP server exposes (H-34), as the engine reports it. */
 export type McpResource = {
