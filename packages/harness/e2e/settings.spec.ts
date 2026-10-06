@@ -70,8 +70,11 @@ async function openApp(page: Page) {
             path: "/home/opencode.json",
             config:
               url.searchParams.get("scope") === "global"
-                ? { mcp: { docs: { type: "remote", url: "https://docs.example" } } }
-                : { permission: { edit: "allow", bash: { "rm -rf *": "deny" } } },
+                ? {
+                    mcp: { docs: { type: "remote", url: "https://docs.example" } },
+                    permission: { edit: "allow", bash: { "rm -rf *": "deny" } },
+                  }
+                : {},
           },
         },
       })
@@ -194,8 +197,7 @@ test("a pattern rule is edited in place, and survives the save", async ({ page }
   await expect
     .poll(() => calls.patches.find((call) => call.path === "/harness/engine-config")?.body)
     .toMatchObject({
-      scope: "project",
-      directory: "/work/demo",
+      scope: "global",
       patch: { permission: { edit: "deny", bash: { "rm -rf *": "ask" } } },
     })
 })
