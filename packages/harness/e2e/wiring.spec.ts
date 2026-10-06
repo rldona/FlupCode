@@ -114,7 +114,10 @@ test("adding an MCP server reaches the engine and its configuration", async ({ p
   // global configuration through the harness server and the engine reloads to connect it.
   await expect
     .poll(() => calls.find((call) => call.path === "/harness/engine-config")?.body)
-    .toMatchObject({ scope: "global", patch: { mcp: { linear: { type: "remote", url: "https://mcp.linear.app" } } } })
+    .toMatchObject({
+      scope: "global",
+      patch: { mcp: { servers: { linear: { type: "remote", url: "https://mcp.linear.app" } } } },
+    })
   await expect.poll(() => calls.some((call) => call.path === "/api/location/reload")).toBe(true)
 })
 

@@ -19,6 +19,7 @@ import type {
   SessionInfo,
   SessionMessageInfo,
 } from "../engine-types"
+import type { McpConfig } from "../types"
 
 /**
  * OpenCode 2's session and message shapes, turned into the ones the app renders today (V2-20).
@@ -376,4 +377,59 @@ export function toProviderDirectory(input: {
     default: {} as Record<string, string>,
     connected: input.providers.filter((provider) => provider.activation !== "disabled").map((provider) => provider.id),
   }
+}
+
+/**
+ * The MCP servers a config file declares, in the shape the panel edits (1.x's: `enabled`, a `timeout`
+ * in milliseconds), whichever way the file writes them.
+ *
+ * 2.x reads a file's `mcp` block both ways: `mcp.servers.<name>` in its own shape, and `mcp.<name>` as
+ * 1.x wrote it, which it converts. A server written both ways is the `mcp.servers` one, whole. The
+ * conversion carries no `codemode`, so a 1.x entry is under Code Mode whatever it says, and reads so.
+ */
+export function toMcpConfigs(mcp: unknown) {
+  if (!isRecord(mcp)) return {}
+  return Object.fromEntries([
+    ...Object.entries(mcp)
+      .filter((entry): entry is [string, McpConfig] => isMcpServer(entry[1]))
+      .map(([name, server]) => [
+        name,
+        Object.fromEntries(Object.entries(server).filter(([key]) => key !== "codemode")) as McpConfig,
+      ]),
+    ...Object.entries(isRecord(mcp.servers) ? mcp.servers : {})
+      .filter((entry): entry is [string, Record<string, unknown>] => isMcpServer(entry[1]))
+      .map(([name, server]) => {
+        // 2.x times the catalog and a call apart; the panel has one number, the call's.
+        const timeout = isRecord(server.timeout) ? (server.timeout.execution ?? server.timeout.catalog) : undefined
+        return [
+          name,
+          {
+            ...Object.fromEntries(Object.entries(server).filter(([key]) => key !== "disabled" && key !== "timeout")),
+            ...(typeof server.disabled === "boolean" ? { enabled: !server.disabled } : {}),
+            ...(typeof timeout === "number" ? { timeout } : {}),
+          } as McpConfig,
+        ]
+      }),
+  ]) as Record<string, McpConfig>
+}
+
+/**
+ * An MCP server as 2.x reads it under `mcp.servers`: `disabled` where the panel has `enabled`, and one
+ * timeout for both the catalog and a call. 2.x ignores `enabled` there, and a timeout left as a number
+ * makes it drop the file's whole `mcp` block.
+ */
+export function toMcpServer(config: McpConfig): Record<string, unknown> {
+  return {
+    ...Object.fromEntries(Object.entries(config).filter(([key]) => key !== "enabled" && key !== "timeout")),
+    ...(config.enabled === undefined ? {} : { disabled: !config.enabled }),
+    ...(config.timeout === undefined ? {} : { timeout: { catalog: config.timeout, execution: config.timeout } }),
+  }
+}
+
+function isMcpServer(value: unknown) {
+  return isRecord(value) && (value.type === "local" || value.type === "remote")
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

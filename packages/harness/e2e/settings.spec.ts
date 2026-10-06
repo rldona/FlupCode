@@ -166,11 +166,13 @@ test("an MCP server can be given an environment and headers, not just a command"
       scope: "global",
       patch: {
         mcp: {
-          local1: {
-            type: "local",
-            command: ["npx", "-y", "server"],
-            environment: { API_KEY: "abc", DEBUG: "true" },
-            codemode: false,
+          servers: {
+            local1: {
+              type: "local",
+              command: ["npx", "-y", "server"],
+              environment: { API_KEY: "abc", DEBUG: "true" },
+              codemode: false,
+            },
           },
         },
       },
@@ -318,7 +320,10 @@ test("an MCP server shows its failure, its resources and the agents that allow i
     .poll(() => patches[0])
     .toMatchObject({
       scope: "global",
-      patch: { mcp: { docs: { type: "remote", url: "https://docs.example", codemode: false } } },
+      // Under `mcp.servers`: the engine drops `codemode` from a server written the 1.x way.
+      patch: {
+        mcp: { docs: null, servers: { docs: { type: "remote", url: "https://docs.example", codemode: false } } },
+      },
     })
 })
 
