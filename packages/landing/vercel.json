@@ -8,7 +8,7 @@
   "git": { "deploymentEnabled": { "**": false, "main": true } },
   "rewrites": [
     { "source": "/wiki", "destination": "https://flupcode-wiki.vercel.app/wiki/" },
-    { "source": "/wiki/:path*", "destination": "https://flupcode-wiki.vercel.app/wiki/:path*" }
+    { "source": "/wiki/(.*)", "destination": "https://flupcode-wiki.vercel.app/wiki/$1" }
   ],
   "headers": [
     {
