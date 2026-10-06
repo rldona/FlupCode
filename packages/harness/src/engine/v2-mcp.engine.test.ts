@@ -97,11 +97,14 @@ describe.skipIf(!run)("MCP on the OpenCode 2 adapter", () => {
     expect(opened).toContain(started.authorizationUrl)
     expect(remote.authorized()).toBe(1)
     await status("remote", (value) => value === "connected")
+    // The list says which servers hold a sign-in, which is what the panel's "Sign out" is drawn from.
+    expect(await signedIn()).toEqual({ contract: false, remote: true })
 
     await domains.mcp.authRemove({ server: "remote", directory: engine.project })
     await domains.mcp.disconnect({ server: "remote", directory: engine.project })
     await domains.mcp.connect({ server: "remote", directory: engine.project }).catch(() => undefined)
     await status("remote", (value) => value === "needs_auth")
+    expect(await signedIn()).toEqual({ contract: false, remote: false })
   })
 
   test("without a config store, saving a server says why (see v2-config.engine.test.ts)", async () => {
@@ -133,6 +136,12 @@ async function echoThroughCodeMode() {
     if (!output.includes("not yet") || Date.now() > deadline) return tool
     await Bun.sleep(200)
   }
+}
+
+/** Which of the servers the engine holds a sign-in for, by name. */
+async function signedIn() {
+  const servers = (await domains.mcp.list({ directory: engine.project })).data
+  return Object.fromEntries(servers.map((server) => [server.name, server.signedIn]))
 }
 
 /** The server once its status passes `match`, or the last one seen after 30s. */
