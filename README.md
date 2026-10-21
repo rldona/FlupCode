@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://flupcode.com"><img src="assets/flupcode-tentative-logo.png" alt="FlupCode" width="180" /></a>
+  <a href="https://flupcode.com"><img src="docs/assets/cover.png" alt="FlupCode: the web and desktop harness for OpenCode" width="860" /></a>
 </p>
 
 <p align="center">
@@ -20,10 +20,6 @@
   <a href="https://github.com/rldona/FlupCode/issues"><img alt="issues" src="https://img.shields.io/github/issues/rldona/FlupCode" /></a>
   <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen" />
   <img alt="built on OpenCode 2" src="https://img.shields.io/badge/built%20on-OpenCode%202-blueviolet" />
-</p>
-
-<p align="center">
-  <img src="docs/assets/flupcode-cover-new.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
 </p>
 
 ---
