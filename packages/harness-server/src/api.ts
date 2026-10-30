@@ -1,5 +1,5 @@
 import { normalizeRoutineRetry, normalizeRoutineSchedule } from "./validation"
-import { createSessionTaskStore } from "./session-tasks"
+import { sessionTasksFrom } from "./session-tasks"
 import { scheduleProblem } from "./schedule"
 import { ARTIFACT_KINDS } from "./types"
 import { artifactQuote, resolveRefs } from "./packs"
@@ -606,9 +606,6 @@ export const createHarnessHandler = (
     path[3] === "raw" &&
     path.length === 4 &&
     repository.getArtifact(path[2] ?? "")?.kind === "screenshot"
-  // The task list a session's plugin writes (ADR-0026 has no todo tool of its own): replaced as a
-  // whole, read back by the app's details panel.
-  const sessionTasks = createSessionTaskStore()
   const handle = async (request: Request) => {
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
@@ -750,14 +747,15 @@ export const createHarnessHandler = (
       if (!pluginCaller(request)) return json({ error: "Forbidden", code: "invalid_token" }, 403)
       const write = (await readJSON(request)) as { sessionID?: unknown; todos?: unknown }
       const sessionID = typeof write?.sessionID === "string" ? write.sessionID : ""
-      const list = sessionID ? sessionTasks.write(sessionID, write?.todos) : undefined
+      const list = sessionID ? sessionTasksFrom(write?.todos) : undefined
       if (!list) return error("A session and its list of tasks are required", 400)
+      repository.setSessionTasks(sessionID, list)
       // The panel watching this session reads it again: the list moves while the turn goes.
       repository.append({ type: "tasks.updated", sessionID })
       return json({ data: list })
     }
     if (path[1] === "tasks" && path.length === 3 && request.method === "GET")
-      return json({ data: sessionTasks.read(path[2] ?? "") })
+      return json({ data: repository.getSessionTasks(path[2] ?? "") ?? [] })
     // A document the agent just kept with `artifact_write` (RP-03): the engine's plugin reports which
     // file, which session and which message, and the server reads the file and works out the run and
     // task from the session's attribution (UL-04) — never from the caller (P7). Only the plugins

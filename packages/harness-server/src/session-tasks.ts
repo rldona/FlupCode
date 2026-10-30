@@ -1,33 +1,13 @@
 /**
  * The task list of a session, as its plugin tool writes it.
  *
- * OpenCode 2 has no todo tool of its own (ADR-0026), so FlupCode's plugin is the writer: it replaces
- * the whole list for a session, last write wins, and the app reads it back for the details panel.
- * The store is in memory because it mirrors the turn that wrote it: the transcript keeps the history,
- * and a fresh harness re-reads it from there.
+ * OpenCode 2 has no todo tool of its own (ADR-0026), so FlupCode's plugin is the writer and the
+ * harness keeps the list: this is what turns a written body into the rows the repository stores.
  */
 export type SessionTask = { content: string; status: string }
 
 const MAX_TASKS = 200
 const MAX_CONTENT = 500
-
-export function createSessionTaskStore() {
-  const bySession = new Map<string, SessionTask[]>()
-
-  return {
-    write(sessionID: string, tasks: unknown) {
-      const list = sessionTasksFrom(tasks)
-      if (list) bySession.set(sessionID, list)
-      return list
-    },
-    read(sessionID: string) {
-      return bySession.get(sessionID) ?? []
-    },
-    forget(sessionID: string) {
-      bySession.delete(sessionID)
-    },
-  }
-}
 
 /**
  * A written list, or undefined when the body is not one. Items without content are dropped: a model
@@ -48,5 +28,3 @@ export function sessionTasksFrom(value: unknown): SessionTask[] | undefined {
     .slice(0, MAX_TASKS)
   return list
 }
-
-export type SessionTaskStore = ReturnType<typeof createSessionTaskStore>
