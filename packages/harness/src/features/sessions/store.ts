@@ -732,7 +732,25 @@ export function createSessions(app: AppStores) {
     return subagents()?.filter((session) => !cleared.includes(session.id))
   }
 
-  const tasks = () => sessionTasks(activeMessages())
+  // The tasks the session's plugin wrote, kept by the harness (ADR-0026). The transcript still holds
+  // a list from an imported 1.x session or an older build, so it stands in until the harness has one.
+  const [harnessTasks] = createResource(
+    () => {
+      const sessionID = selected()
+      return app.connection.ready() && sessionID ? { url: app.connection.harnessServerUrl(), sessionID } : undefined
+    },
+    async (source) => ({
+      sessionID: source.sessionID,
+      data: await createHarnessClient(source.url)
+        .sessionTasks(source.sessionID)
+        .catch(() => []),
+    }),
+  )
+  const tasks = () => {
+    const result = harnessTasks()
+    if (result && result.sessionID === selected() && result.data.length > 0) return result.data
+    return sessionTasks(activeMessages())
+  }
 
   // The memories the engine retrieved for the open session. One of the two things the details panel
   // has to show, so it is read here and handed to the panel rather than fetched inside it.
