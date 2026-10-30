@@ -65,14 +65,6 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         }}
       />
       <div class="fc-rightaside-body">
-        <SubagentList
-          sessions={props.subagents}
-          onOpen={props.onOpenSubagent}
-          onClear={props.onClearSubagents}
-          running={props.runningSubagents}
-          blocked={props.blockedSubagents}
-        />
-
         <Show when={props.tasks.length > 0}>
           <section class="fc-aside-section">
             <h3 class="fc-aside-title">
@@ -91,6 +83,14 @@ export const RightAside: Component<RightAsideProps> = (props) => {
             </ul>
           </section>
         </Show>
+
+        <SubagentList
+          sessions={props.subagents}
+          onOpen={props.onOpenSubagent}
+          onClear={props.onClearSubagents}
+          running={props.runningSubagents}
+          blocked={props.blockedSubagents}
+        />
 
         <MemoryInspector items={props.memories} />
       </div>
