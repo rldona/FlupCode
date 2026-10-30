@@ -161,8 +161,14 @@ const evidence: Record<string, () => Promise<void> | void> = {
   },
   // The tool 2.x lost (ADR-0026): FlupCode's plugin puts it back. Its tool is driven by the unit
   // tests in packages/remote, so here the evidence is that it is installed from its own folder.
-  "flupcode-tasks.js": () => {
-    expect(existsSync(join(data(), "engine-plugins", "flupcode-tasks", "index.js"))).toBe(true)
+  "flupcode-tasks.js": async () => {
+    // 2.x names the loaded plugin by the folder it came from; the tool it adds is driven by the unit
+    // tests in packages/remote, so the evidence here is that the engine loaded this one.
+    const plugins = (await call("GET", "/api/plugin")) as {
+      data: Array<{ source?: { path?: string }; state?: { status?: string } }>
+    }
+    const mine = plugins.data.find((plugin) => plugin.source?.path?.endsWith("/flupcode-tasks/index.js"))
+    expect(mine?.state?.status).toBe("active")
   },
   "flupcode-artifact-write.js": async () => {
     expect(readFileSync(join(engine.project, ".flupcode", "artifacts", "report.md"), "utf8")).toBe("# Report")
