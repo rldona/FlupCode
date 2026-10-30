@@ -752,6 +752,8 @@ export const createHarnessHandler = (
       const sessionID = typeof write?.sessionID === "string" ? write.sessionID : ""
       const list = sessionID ? sessionTasks.write(sessionID, write?.todos) : undefined
       if (!list) return error("A session and its list of tasks are required", 400)
+      // The panel watching this session reads it again: the list moves while the turn goes.
+      repository.append({ type: "tasks.updated", sessionID })
       return json({ data: list })
     }
     if (path[1] === "tasks" && path.length === 3 && request.method === "GET")

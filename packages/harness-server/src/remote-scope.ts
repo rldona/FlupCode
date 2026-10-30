@@ -30,6 +30,6 @@ export function remoteScopeAllows(method: string, path: string[]) {
 }
 
 /** The server events a phone follows: its runs, their tasks and what they left (HE-02). */
-const REMOTE_EVENTS = new Set(["run.started", "run.changed", "run.removed", "task.changed", "artifact.created", "artifact.changed"])
+const REMOTE_EVENTS = new Set(["run.started", "run.changed", "run.removed", "task.changed", "tasks.updated", "artifact.created", "artifact.changed"])
 
 export const remoteEvent = (event: { type: string }) => REMOTE_EVENTS.has(event.type)

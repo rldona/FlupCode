@@ -733,7 +733,9 @@ export function createSessions(app: AppStores) {
 
   // The tasks the session's plugin wrote, kept by the harness (ADR-0026): 2.x has no todo tool, so
   // FlupCode's plugin is the only writer and this is the one list the panel shows.
-  const [harnessTasks] = createResource(
+  // The plugin writes the list as the turn goes and the harness says so, so the panel reads it again
+  // when it moves instead of waiting on a beat.
+  const [harnessTasks, taskActions] = createResource(
     () => {
       const sessionID = selected()
       return app.connection.ready() && sessionID ? { url: app.connection.harnessServerUrl(), sessionID } : undefined
@@ -745,6 +747,7 @@ export function createSessions(app: AppStores) {
         .catch(() => []),
     }),
   )
+  const refetchTasks = () => void taskActions.refetch()
   const tasks = () => {
     const result = harnessTasks()
     if (!result || result.sessionID !== selected()) return []
@@ -1423,6 +1426,7 @@ export function createSessions(app: AppStores) {
     messages,
     messagesLoading,
     memoriesUsed,
+    refetchTasks,
     tasks,
     homeStats,
     homeUsage,
