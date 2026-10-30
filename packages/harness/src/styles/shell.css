@@ -242,15 +242,15 @@ select:focus-visible,
   padding: 0 var(--fc-space-3);
   border: none;
   border-radius: var(--fc-radius-sm);
-  background: transparent;
+  /* It reads as the one control that is always ready: a resting shade, one step lighter on hover. */
+  background: color-mix(in srgb, var(--fc-text) 8%, transparent);
   font-weight: 500;
   text-align: left;
   transition: background var(--fc-motion-fast);
 }
 
-/* Like the navigation below it: no border, a shade only on hover. */
 .fc-new:hover {
-  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+  background: color-mix(in srgb, var(--fc-text) 14%, transparent);
 }
 
 /* Same 16px icon column and gap as the navigation items, so icons and labels line up. */
@@ -1982,9 +1982,13 @@ button.fc-status {
   opacity: 0.9;
 }
 
+/* The reader's prompt sits on the right, in a bubble, like the other harnesses do it: the answer
+   keeps the full column and the prompt marks where the turn began without a rule down the margin. */
 .fc-message-user {
-  padding-left: 12px;
-  border-left: 2px solid var(--fc-accent);
+  align-self: flex-end;
+  align-items: flex-end;
+  max-width: 80%;
+  text-align: start;
 }
 
 .fc-message-role {
@@ -2248,8 +2252,8 @@ button.fc-status {
 
 .fc-message-user .fc-message-text {
   padding: 12px 14px;
-  border-radius: var(--fc-radius-md);
-  background: color-mix(in srgb, var(--fc-border) 35%, transparent);
+  border-radius: var(--fc-radius-lg);
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
 }
 
 /* A prompt shown before the engine projects its message. While the current turn still runs it is
