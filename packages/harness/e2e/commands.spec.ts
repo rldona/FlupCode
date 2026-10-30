@@ -37,7 +37,10 @@ async function openApp(page: Page, options: { selected?: string } = {}) {
   await page.route("http://127.0.0.1:9/**", (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (request.method() !== "GET") writes.push(`${request.method()} ${url.pathname}`)
+    // A built-in must not reach the engine as a write. The details panel's memory read is a POST the
+    // client makes for the open session, not something the command asked for.
+    if (request.method() !== "GET" && !url.pathname.startsWith("/api/rpc/flupcode.memory/"))
+      writes.push(`${request.method()} ${url.pathname}`)
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
