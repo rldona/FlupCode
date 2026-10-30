@@ -214,6 +214,30 @@ describe("OpenCode 2 plugins", () => {
     expect(await readFile(path.join(project, ".flupcode", "artifacts", "report.html"), "utf8")).toBe("<p>hi</p>")
   })
 
+  test("tasks adds a todo tool, called by name, that keeps the list per session", async () => {
+    const tasks = await plugin("flupcode-tasks.js")
+    const recorded = context()
+    await tasks.setup(recorded.ctx)
+    const added: Array<{
+      name: string
+      options: unknown
+      execute: (input: unknown, context?: unknown) => Promise<unknown>
+    }> = []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => [tool.name, tool.options])).toEqual([["todo", { codemode: false }]])
+    expect(
+      await added[0]!.execute(
+        {
+          todos: [
+            { content: "Read the router", status: "completed" },
+            { content: "Draw the panel", status: "in_progress" },
+          ],
+        },
+        { sessionID: "ses_1" },
+      ),
+    ).toEqual({ content: "Kept 2 tasks for this session (1 still open)." })
+  })
+
   test("episode-events records a failed tool by its name and a failed run, not an interruption", async () => {
     const events = await plugin("flupcode-episode-events.js")
     const recorded = context("/work/demo", [

@@ -3500,6 +3500,97 @@ export default {
 `,
 }
 
+/** tasks: the session's todo list, which 2.x has no tool for (ADR-0026). */
+export const SESSION_TASKS_PLUGIN_V2 = {
+  file: "flupcode-tasks.js",
+  source: `// Installed by FlupCode for OpenCode 2. Gives the model a todo tool again (2.x has none, ADR-0026)
+// and keeps the list where the details panel reads it: the harness, per session, replaced whole.
+// Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+const WRITE_TIMEOUT_MS = 5000
+
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+// The plugins' own bearer (TI-10), read at each write: on a first start the harness may write it
+// after the engine has loaded its plugins.
+async function readToken() {
+  const fromEnv = process.env.FLUPCODE_PLUGIN_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "plugin-token"), "utf8").catch(() => undefined)
+  const token = text === undefined ? "" : text.trim()
+  return token === "" ? undefined : token
+}
+
+// A harness that is not there costs the answer nothing: the transcript still carries the list.
+async function report(write) {
+  const base = harnessBaseURL()
+  const token = base === undefined ? undefined : await readToken()
+  if (!base || !token) return
+  await fetch(base + "/harness/tasks", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify(write),
+    signal: AbortSignal.timeout(WRITE_TIMEOUT_MS),
+  }).catch(() => {})
+}
+
+export default {
+  id: "flupcode-tasks",
+  setup: async (ctx) => {
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: "todo",
+        description:
+          "Replace the task list the reader watches in the details panel. Send the whole list every time, with each task's state as it moves: pending, in_progress or completed.",
+        input: {
+          type: "object",
+          properties: {
+            todos: {
+              type: "array",
+              description: "The whole list, in the order the reader should read it.",
+              items: {
+                type: "object",
+                properties: {
+                  content: { type: "string", description: "What the task is, in one line." },
+                  status: { type: "string", enum: ["pending", "in_progress", "completed"] },
+                },
+                required: ["content", "status"],
+              },
+            },
+          },
+          required: ["todos"],
+        },
+        options: { codemode: false },
+        execute: async (input, context) => {
+          const todos = input && Array.isArray(input.todos) ? input.todos : []
+          await report({ sessionID: context && context.sessionID, todos })
+          const open = todos.filter((task) => task && task.status !== "completed").length
+          return { content: "Kept " + todos.length + " tasks for this session (" + open + " still open)." }
+        },
+      })
+    })
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -3518,5 +3609,6 @@ export const PLUGINS_V2 = [
   MEMORY_PLUGIN_V2,
   AGENTS_PLUGIN_V2,
   BROWSER_MCP_PLUGIN_V2,
+  SESSION_TASKS_PLUGIN_V2,
   QUOTA_PLUGIN_V2,
 ]

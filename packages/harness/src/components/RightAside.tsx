@@ -17,6 +17,8 @@ type RightAsideProps = {
   blockedSubagents: string[]
   /** The memories this session worked with. */
   memories: MemoryInfo[]
+  /** The task list the session wrote, above everything else in the panel. */
+  tasks: Array<{ content: string; status: string }>
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
@@ -62,6 +64,24 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         }}
       />
       <div class="fc-rightaside-body">
+        <Show when={props.tasks.length > 0}>
+          <section class="fc-aside-section">
+            <h3 class="fc-aside-title">
+              {t("Tasks")}
+              <span class="fc-aside-count">{props.tasks.length}</span>
+            </h3>
+            <ul class="fc-aside-tasks">
+              <For each={props.tasks}>
+                {(task) => (
+                  <li class="fc-aside-task" data-status={task.status}>
+                    {task.content}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </section>
+        </Show>
+
         <SubagentList
           sessions={props.subagents}
           onOpen={props.onOpenSubagent}

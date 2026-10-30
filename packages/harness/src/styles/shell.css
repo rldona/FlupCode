@@ -13083,3 +13083,47 @@ button.fc-status {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+/* The session's task list in the details panel, above everything else: a dot per state, the done
+   ones quieted, so a run in flight reads at a glance. */
+.fc-aside-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-aside-task {
+  position: relative;
+  padding-left: 15px;
+  font-size: var(--fc-text-base);
+  line-height: 1.4;
+}
+
+.fc-aside-task::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--fc-text-muted);
+  border-radius: var(--fc-radius-pill);
+}
+
+.fc-aside-task[data-status="in_progress"]::before {
+  border-color: var(--fc-accent);
+  background: var(--fc-accent);
+}
+
+.fc-aside-task[data-status="completed"] {
+  color: var(--fc-text-muted);
+  text-decoration: line-through;
+}
+
+.fc-aside-task[data-status="completed"]::before {
+  border-color: var(--fc-success);
+  background: var(--fc-success);
+}

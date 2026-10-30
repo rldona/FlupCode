@@ -1170,6 +1170,15 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      * cockpit's `adaptiveSurfaces(capabilities)` does — so an older server is never asked for a route
      * it does not have.
      */
+    /**
+     * The task list a session's plugin wrote (ADR-0026 has no todo tool in 2.x). Replaced whole by
+     * the plugin, one list per session, and read back here for the details panel.
+     */
+    sessionTasks: (sessionID: string) =>
+      harnessAuthorizedJson<Array<{ content: string; status: string }>>(
+        baseUrl,
+        `/harness/tasks/${encodeURIComponent(sessionID)}`,
+      ),
     adaptive: {
       config: {
         get: () => harnessAuthorizedJson<AdaptiveConfigView>(baseUrl, "/harness/adaptive/config"),

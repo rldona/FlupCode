@@ -731,6 +731,26 @@ export function createSessions(app: AppStores) {
     return subagents()?.filter((session) => !cleared.includes(session.id))
   }
 
+  // The tasks the session's plugin wrote, kept by the harness (ADR-0026): 2.x has no todo tool, so
+  // FlupCode's plugin is the only writer and this is the one list the panel shows.
+  const [harnessTasks] = createResource(
+    () => {
+      const sessionID = selected()
+      return app.connection.ready() && sessionID ? { url: app.connection.harnessServerUrl(), sessionID } : undefined
+    },
+    async (source) => ({
+      sessionID: source.sessionID,
+      data: await createHarnessClient(source.url)
+        .sessionTasks(source.sessionID)
+        .catch(() => []),
+    }),
+  )
+  const tasks = () => {
+    const result = harnessTasks()
+    if (!result || result.sessionID !== selected()) return []
+    return result.data
+  }
+
   // The memories the engine retrieved for the open session. One of the two things the details panel
   // has to show, so it is read here and handed to the panel rather than fetched inside it.
   const [memories] = createResource(
@@ -1403,6 +1423,7 @@ export function createSessions(app: AppStores) {
     messages,
     messagesLoading,
     memoriesUsed,
+    tasks,
     homeStats,
     homeUsage,
     mobileComposing,
