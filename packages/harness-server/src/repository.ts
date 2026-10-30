@@ -253,6 +253,11 @@ CREATE TABLE IF NOT EXISTS session_prefs (
   tags_json TEXT,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS session_tasks (
+  session_id TEXT PRIMARY KEY,
+  tasks_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS stashed_prompts (
   id TEXT PRIMARY KEY,
   text TEXT NOT NULL,
@@ -2771,6 +2776,30 @@ export class SqliteRoutineRepository implements RoutineRepository {
   }
 
   // ---- what a reader keeps about a session (H-18) ---------------------------------------------
+
+  /**
+   * The task list a session's plugin wrote (ADR-0026). One row per session, replaced whole, so a
+   * harness restart does not lose the list a reader is watching.
+   */
+  getSessionTasks(sessionID: string) {
+    const row = this.db.query("SELECT tasks_json FROM session_tasks WHERE session_id = ?1").get(sessionID) as
+      | { tasks_json?: string }
+      | null
+    if (!row?.tasks_json) return undefined
+    const parsed = JSON.parse(row.tasks_json) as Array<{ content?: unknown; status?: unknown }>
+    return parsed.flatMap((item) =>
+      typeof item?.content === "string" ? [{ content: item.content, status: String(item.status ?? "pending") }] : [],
+    )
+  }
+
+  setSessionTasks(sessionID: string, tasks: Array<{ content: string; status: string }>, at = Date.now()) {
+    this.db
+      .query(
+        `INSERT INTO session_tasks (session_id, tasks_json, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(session_id) DO UPDATE SET tasks_json = excluded.tasks_json, updated_at = excluded.updated_at`,
+      )
+      .run(sessionID, JSON.stringify(tasks), at)
+  }
 
   listSessionPrefs() {
     // Newest first, with the id as a tie-break: two changes can share a millisecond, and a list

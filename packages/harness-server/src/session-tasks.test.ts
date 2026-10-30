@@ -1,29 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createSessionTaskStore, sessionTasksFrom } from "./session-tasks"
-
-describe("the session task store", () => {
-  test("a write replaces the list, and the last write wins", () => {
-    const store = createSessionTaskStore()
-    store.write("ses_a", [{ content: "Read the router", status: "in_progress" }])
-    store.write("ses_a", [{ content: "Read the router", status: "completed" }])
-    expect(store.read("ses_a")).toEqual([{ content: "Read the router", status: "completed" }])
-  })
-
-  test("sessions do not see each other's tasks", () => {
-    const store = createSessionTaskStore()
-    store.write("ses_a", [{ content: "A", status: "pending" }])
-    expect(store.read("ses_b")).toEqual([])
-    store.forget("ses_a")
-    expect(store.read("ses_a")).toEqual([])
-  })
-
-  test("a body that is not a list writes nothing at all", () => {
-    const store = createSessionTaskStore()
-    store.write("ses_a", [{ content: "Keep", status: "pending" }])
-    expect(store.write("ses_a", { todos: [] })).toBeUndefined()
-    expect(store.read("ses_a")).toEqual([{ content: "Keep", status: "pending" }])
-  })
-})
+import { sessionTasksFrom } from "./session-tasks"
 
 describe("a written list", () => {
   test("drops the items it cannot read and defaults the state", () => {
@@ -35,5 +11,30 @@ describe("a written list", () => {
   test("caps what one session can hold", () => {
     const many = Array.from({ length: 500 }, (_, index) => ({ content: `t${index}`, status: "pending" }))
     expect(sessionTasksFrom(many)?.length).toBe(200)
+  })
+})
+
+describe("the stored list", () => {
+  test("survives a restart of the repository, and one session does not see another's", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const { SqliteRoutineRepository } = await import("./repository")
+    const folder = mkdtempSync(join(tmpdir(), "flupcode-tasks-"))
+    const file = join(folder, "tasks.db")
+    try {
+      const first = new SqliteRoutineRepository(file)
+      first.setSessionTasks("ses_a", [{ content: "Read the router", status: "completed" }])
+      first.close()
+      const again = new SqliteRoutineRepository(file)
+      expect(again.getSessionTasks("ses_a")).toEqual([{ content: "Read the router", status: "completed" }])
+      expect(again.getSessionTasks("ses_b")).toBeUndefined()
+      // A second write replaces the row: the list the reader watches is always the last one.
+      again.setSessionTasks("ses_a", [{ content: "Draw the panel", status: "in_progress" }])
+      expect(again.getSessionTasks("ses_a")).toEqual([{ content: "Draw the panel", status: "in_progress" }])
+      again.close()
+    } finally {
+      rmSync(folder, { recursive: true, force: true })
+    }
   })
 })
