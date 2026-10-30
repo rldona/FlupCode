@@ -3,7 +3,6 @@ import { MemoryInspector } from "./MemoryInspector"
 import { SubagentList } from "./SubagentList"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
 import type { MemoryInfo, SessionInfo } from "../engine-types"
-import type { SessionTask } from "../session-tasks"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 
@@ -18,8 +17,8 @@ type RightAsideProps = {
   blockedSubagents: string[]
   /** The memories this session worked with. */
   memories: MemoryInfo[]
-  /** The task list the session wrote, above the memories in the panel. */
-  tasks: SessionTask[]
+  /** The task list the session wrote, above everything else in the panel. */
+  tasks: Array<{ content: string; status: string }>
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
