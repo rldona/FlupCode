@@ -74,9 +74,8 @@ export const RightAside: Component<RightAsideProps> = (props) => {
             <ul class="fc-aside-tasks">
               <For each={props.tasks}>
                 {(task) => (
-                  <li class="fc-aside-task" classList={{ "fc-aside-task-done": task.status === "completed" }}>
-                    <span class="fc-aside-task-status" data-status={task.status} />
-                    <span class="fc-aside-task-text">{task.content}</span>
+                  <li class="fc-aside-task" data-status={task.status}>
+                    {task.content}
                   </li>
                 )}
               </For>

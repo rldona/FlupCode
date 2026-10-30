@@ -18,7 +18,6 @@ import { isSuggestionSession } from "../../reply-suggestion"
 import { sessionChatClass, type AppView, type ChatClass } from "../../chat"
 import { messageID } from "../../ids"
 import { sessionTitle } from "../../session-title"
-import { sessionTasks } from "../../session-tasks"
 import { pendingPrompts } from "../../pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "../../pending-questions"
 import { runOutcome, type RunOutcome } from "../../run-outcome"
@@ -732,8 +731,8 @@ export function createSessions(app: AppStores) {
     return subagents()?.filter((session) => !cleared.includes(session.id))
   }
 
-  // The tasks the session's plugin wrote, kept by the harness (ADR-0026). The transcript still holds
-  // a list from an imported 1.x session or an older build, so it stands in until the harness has one.
+  // The tasks the session's plugin wrote, kept by the harness (ADR-0026): 2.x has no todo tool, so
+  // FlupCode's plugin is the only writer and this is the one list the panel shows.
   const [harnessTasks] = createResource(
     () => {
       const sessionID = selected()
@@ -748,8 +747,8 @@ export function createSessions(app: AppStores) {
   )
   const tasks = () => {
     const result = harnessTasks()
-    if (result && result.sessionID === selected() && result.data.length > 0) return result.data
-    return sessionTasks(activeMessages())
+    if (!result || result.sessionID !== selected()) return []
+    return result.data
   }
 
   // The memories the engine retrieved for the open session. One of the two things the details panel
