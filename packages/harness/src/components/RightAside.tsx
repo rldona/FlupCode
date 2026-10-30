@@ -3,6 +3,7 @@ import { MemoryInspector } from "./MemoryInspector"
 import { SubagentList } from "./SubagentList"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
 import type { MemoryInfo, SessionInfo } from "../engine-types"
+import type { SessionTask } from "../session-tasks"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 
@@ -17,6 +18,8 @@ type RightAsideProps = {
   blockedSubagents: string[]
   /** The memories this session worked with. */
   memories: MemoryInfo[]
+  /** The task list the session wrote, above the memories in the panel. */
+  tasks: SessionTask[]
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
@@ -69,6 +72,25 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           running={props.runningSubagents}
           blocked={props.blockedSubagents}
         />
+
+        <Show when={props.tasks.length > 0}>
+          <section class="fc-aside-section">
+            <h3 class="fc-aside-title">
+              {t("Tasks")}
+              <span class="fc-aside-count">{props.tasks.length}</span>
+            </h3>
+            <ul class="fc-aside-tasks">
+              <For each={props.tasks}>
+                {(task) => (
+                  <li class="fc-aside-task" classList={{ "fc-aside-task-done": task.status === "completed" }}>
+                    <span class="fc-aside-task-status" data-status={task.status} />
+                    <span class="fc-aside-task-text">{task.content}</span>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </section>
+        </Show>
 
         <MemoryInspector items={props.memories} />
       </div>

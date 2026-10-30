@@ -158,6 +158,7 @@ export const App: Component = () => {
                   runningSubagents={Object.keys(app.sessions.runState()).filter((id) => app.sessions.runState()[id])}
                   blockedSubagents={app.sessions.blockedSessions()}
                   memories={app.sessions.memoriesUsed()}
+                  tasks={app.sessions.tasks()}
                   width={app.settings.contextWidth()}
                   onResize={app.settings.updateContextWidth}
                   onHide={app.settings.toggleContextPanel}

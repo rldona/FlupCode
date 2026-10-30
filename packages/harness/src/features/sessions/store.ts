@@ -18,6 +18,7 @@ import { isSuggestionSession } from "../../reply-suggestion"
 import { sessionChatClass, type AppView, type ChatClass } from "../../chat"
 import { messageID } from "../../ids"
 import { sessionTitle } from "../../session-title"
+import { sessionTasks } from "../../session-tasks"
 import { pendingPrompts } from "../../pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "../../pending-questions"
 import { runOutcome, type RunOutcome } from "../../run-outcome"
@@ -731,6 +732,8 @@ export function createSessions(app: AppStores) {
     return subagents()?.filter((session) => !cleared.includes(session.id))
   }
 
+  const tasks = () => sessionTasks(activeMessages())
+
   // The memories the engine retrieved for the open session. One of the two things the details panel
   // has to show, so it is read here and handed to the panel rather than fetched inside it.
   const [memories] = createResource(
@@ -1403,6 +1406,7 @@ export function createSessions(app: AppStores) {
     messages,
     messagesLoading,
     memoriesUsed,
+    tasks,
     homeStats,
     homeUsage,
     mobileComposing,

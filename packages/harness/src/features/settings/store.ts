@@ -195,7 +195,7 @@ export function createSettings(app: AppStores) {
    * also what keeps a stored "open" preference from bringing it back on a new chat.
    */
   const contextPanelHasContent = () =>
-    app.sessions.visibleSubagents().length > 0 || app.sessions.memoriesUsed().length > 0
+    app.sessions.visibleSubagents().length > 0 || app.sessions.tasks().length > 0 || app.sessions.memoriesUsed().length > 0
   const contextPanelAvailable = () => !!app.sessions.selectedSession() && contextPanelHasContent()
   const contextPanelShown = () => contextPanelAvailable() && !contextHidden()
 
