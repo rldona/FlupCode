@@ -2448,6 +2448,16 @@ button.fc-status {
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
 }
 
+/* The picked option keeps a background of its own, not just the tick: the shaded row is what the
+   reader scans, and it has to read as picked while the pointer is somewhere else. */
+.fc-mode-item-active {
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+}
+
+.fc-mode-item-active:hover {
+  background: color-mix(in srgb, var(--fc-border) 70%, transparent);
+}
+
 .fc-mode-item-label {
   display: flex;
   align-items: center;
@@ -7417,6 +7427,20 @@ button.fc-status {
 
 .fc-dock-item:hover {
   background: color-mix(in srgb, var(--fc-border) 55%, transparent);
+}
+
+/* Same as the mode menu: the chosen agent or model keeps its row shaded, tick or not. */
+.fc-dock-item-active {
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+}
+
+.fc-dock-item-active:hover {
+  background: color-mix(in srgb, var(--fc-border) 70%, transparent);
+}
+
+/* The folder menu marks its own choice with the tick alone, so the row is shaded where it is. */
+.fc-folder-item:has(.fc-mode-check) {
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
 }
 
 .fc-dock-item-icon {
