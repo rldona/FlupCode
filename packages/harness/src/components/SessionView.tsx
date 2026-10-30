@@ -1249,7 +1249,12 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     // scrolling area, so they stay still while it scrolls or bounces.
     <div
       class="fc-transcript-frame"
-      classList={{ "fc-chat-narrow": chatNarrow() && chapters().length > 1 }}
+      classList={{
+        "fc-chat-narrow": chatNarrow() && chapters().length > 1,
+        // A run grows the column every frame and the transcript follows it: with the lazy rows still
+        // skipping layout, each growth re-measures the ones above, which is the flash of text.
+        "fc-streaming": props.busy,
+      }}
       ref={observeFrame}
     >
       <section

@@ -174,6 +174,9 @@ export function createComposer(app: AppStores) {
     onCleanup(() => clearTimeout(timer))
   })
   const currentSuggestion = () => {
+    // A suggestion is for the turn after this one: while it still runs there is nothing to offer,
+    // and one that landed in a pause between steps waits until the run is over.
+    if (app.sessions.generating()) return undefined
     const value = suggestion()
     return value && value.sessionID === app.sessions.selected() && !prompt() ? value.text : undefined
   }
