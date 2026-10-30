@@ -189,12 +189,21 @@ export function createSettings(app: AppStores) {
     // The reader has taken over: from here the panel is theirs, not the work's to close later.
     openedForWork = false
   }
-  const contextPanelShown = () => !!app.sessions.selectedSession() && !contextHidden()
+  /**
+   * What the panel has to show: this session's tasks and agents, or the memories it worked with.
+   * Without one of them the panel is an empty column taking room from the conversation, so this is
+   * also what keeps a stored "open" preference from bringing it back on a new chat.
+   */
+  const contextPanelHasContent = () =>
+    app.sessions.visibleSubagents().length > 0 || app.sessions.memoriesUsed().length > 0
+  const contextPanelAvailable = () => !!app.sessions.selectedSession() && contextPanelHasContent()
+  const contextPanelShown = () => contextPanelAvailable() && !contextHidden()
 
   /**
-   * The panel is for watching work, so it comes and goes with it: open while there is a task left
-   * to do or one of this session's children is being worked on or waiting on a permission, closed
-   * when there is nothing to watch.
+   * The panel is for watching work, so it comes and goes with it: open while one of this session's
+   * children is being worked on or waiting on a permission, closed when there is nothing to watch.
+   * It only shows at all while there is something in it (an agent or a memory), so a session that
+   * has neither keeps the closed panel its stored preference may remember.
    *
    * It offers itself once per stretch. A reader who closes it is not fought until the work stops
    * and starts again, and a stretch the reader opened through is left open when it ends.
@@ -318,6 +327,7 @@ export function createSettings(app: AppStores) {
     colorTheme,
     completeOnboarding,
     contextHidden,
+    contextPanelAvailable,
     contextPanelShown,
     contextWidth,
     desktopWindow,

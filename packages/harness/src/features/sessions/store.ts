@@ -21,7 +21,7 @@ import { sessionTitle } from "../../session-title"
 import { pendingPrompts } from "../../pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "../../pending-questions"
 import { runOutcome, type RunOutcome } from "../../run-outcome"
-import type { SessionInfo } from "../../engine-types"
+import type { MemoryInfo, SessionInfo } from "../../engine-types"
 import type { ProjectItem, Run, SessionPrefs } from "../../types"
 import { t } from "../../i18n"
 import { clearToast, toast } from "../../toast"
@@ -719,6 +719,24 @@ export function createSessions(app: AppStores) {
     return subagents()?.filter((session) => !cleared.includes(session.id))
   }
 
+  // The memories the engine retrieved for the open session. One of the two things the details panel
+  // has to show, so it is read here and handed to the panel rather than fetched inside it.
+  const [memories] = createResource(
+    () => {
+      const sessionID = selected()
+      return app.connection.ready() && sessionID ? { url: app.connection.serverUrl(), sessionID } : undefined
+    },
+    async (source) => {
+      const response = await createClient(source.url).memory.used({ sessionID: source.sessionID })
+      return { sessionID: source.sessionID, data: response.data ?? [] }
+    },
+  )
+  const memoriesUsed = () => {
+    const result = memories()
+    if (!result || result.sessionID !== selected()) return []
+    return result.data
+  }
+
   // Prompts shown before the engine projects their message, reconciled by id once it does. The ones
   // sent while a turn was already running offer "Send now".
   const pendingForSession = () =>
@@ -1372,6 +1390,7 @@ export function createSessions(app: AppStores) {
     liveUsage,
     messages,
     messagesLoading,
+    memoriesUsed,
     homeStats,
     homeUsage,
     mobileComposing,

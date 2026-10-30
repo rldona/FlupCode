@@ -82,7 +82,7 @@ export function TopStrip() {
         codeChrome={app.sessions.codeChrome() && !app.router.toolScreen()}
         sidebarCollapsed={app.settings.collapsed()}
         contextPanel={
-          app.sessions.selectedSession() && app.sessions.codeChrome() && !app.router.toolScreen()
+          app.sessions.codeChrome() && !app.router.toolScreen() && app.settings.contextPanelAvailable()
             ? { open: !app.settings.contextHidden(), onToggle: app.settings.toggleContextPanel }
             : undefined
         }
