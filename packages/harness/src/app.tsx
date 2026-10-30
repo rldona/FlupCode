@@ -157,11 +157,10 @@ export const App: Component = () => {
                   onOpenSubagent={app.sessions.selectSession}
                   runningSubagents={Object.keys(app.sessions.runState()).filter((id) => app.sessions.runState()[id])}
                   blockedSubagents={app.sessions.blockedSessions()}
+                  memories={app.sessions.memoriesUsed()}
                   width={app.settings.contextWidth()}
                   onResize={app.settings.updateContextWidth}
                   onHide={app.settings.toggleContextPanel}
-                  serverUrl={app.connection.serverUrl()}
-                  sessionID={app.sessions.selected()}
                 />
               </PanelBoundary>
             </Show>

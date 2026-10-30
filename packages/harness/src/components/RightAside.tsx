@@ -2,7 +2,7 @@ import { For, Show, type Component } from "solid-js"
 import { MemoryInspector } from "./MemoryInspector"
 import { SubagentList } from "./SubagentList"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
-import type { SessionInfo } from "../engine-types"
+import type { MemoryInfo, SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 
@@ -15,12 +15,12 @@ type RightAsideProps = {
   /** Which of those the engine is working on, and which are waiting on a permission. */
   runningSubagents: string[]
   blockedSubagents: string[]
+  /** The memories this session worked with. */
+  memories: MemoryInfo[]
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
   onHide: () => void
-  serverUrl: string
-  sessionID?: string
 }
 
 /** Same width as the left sidebar, so both panels read as a pair. */
@@ -70,7 +70,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           blocked={props.blockedSubagents}
         />
 
-        <MemoryInspector serverUrl={props.serverUrl} sessionID={props.sessionID} />
+        <MemoryInspector items={props.memories} />
       </div>
     </aside>
   )
