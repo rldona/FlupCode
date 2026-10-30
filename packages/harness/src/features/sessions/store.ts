@@ -96,6 +96,10 @@ export function createSessions(app: AppStores) {
   const rememberDirectory = (sessionID: string | undefined, directory: string | undefined) => {
     if (sessionID && directory) sessionDirectories.set(sessionID, directory)
   }
+  // A 2.x run is one execution, from `session.execution.started` to the event that ends it, and the
+  // engine reports the session idle between its steps. Only a turn with no execution open — a legacy
+  // Code or Chat turn — ends on an idle, so the stop button must not blink on every step boundary.
+  const openExecutions = new Set<string>()
   const setRunning = (sessionID: string, running: boolean) => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.delete(sessionID)
@@ -147,7 +151,10 @@ export function createSessions(app: AppStores) {
         // status line because the engine was briefly unreachable, which is the very thing this poll
         // exists to prevent, so keep the run and ask again.
         if (active === undefined && status === undefined) return watchRun(sessionID, 2000, knownDirectory)
-        if (active?.has(sessionID) !== true && status?.has(sessionID) !== true) return setRunning(sessionID, false)
+        if (active?.has(sessionID) !== true && status?.has(sessionID) !== true) {
+          openExecutions.delete(sessionID)
+          return setRunning(sessionID, false)
+        }
         setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
         watchRun(sessionID, 2000, knownDirectory)
       }, delay),
@@ -170,11 +177,15 @@ export function createSessions(app: AppStores) {
     if (type === "session.execution.started" || outcome)
       setRunOutcomes(({ [sessionID]: _previous, ...rest }) => (outcome ? { ...rest, [sessionID]: outcome } : rest))
     if (type === "session.execution.started") {
+      openExecutions.add(sessionID)
       setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
       return watchRun(sessionID, 2000)
     }
     // 2.x says when a whole execution is over, every step and queued prompt included.
-    if (type.startsWith("session.execution.")) return setRunning(sessionID, false)
+    if (type.startsWith("session.execution.")) {
+      openExecutions.delete(sessionID)
+      return setRunning(sessionID, false)
+    }
     // `session.status` reports busy, retry and idle, which already spans every step.
     const status = data?.status?.type
     if (status === "busy" || status === "retry") {
@@ -196,7 +207,8 @@ export function createSessions(app: AppStores) {
         return Object.fromEntries(Object.entries(state).filter(([key]) => key !== sessionID))
       return state
     })
-    if (type === "session.idle" || status === "idle") setRunning(sessionID, false)
+    // An idle between the steps of an open execution says nothing about the run.
+    if ((type === "session.idle" || status === "idle") && !openExecutions.has(sessionID)) setRunning(sessionID, false)
   }
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
