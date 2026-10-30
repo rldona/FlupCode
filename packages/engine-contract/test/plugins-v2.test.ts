@@ -159,6 +159,11 @@ const evidence: Record<string, () => Promise<void> | void> = {
     expect(recorded).toMatchObject({ providerID: "stub", modelID: "stub-model" })
     expect(recorded.system.join("\n")).toContain("OpenCode")
   },
+  // The tool 2.x lost (ADR-0026): FlupCode's plugin puts it back. Its tool is driven by the unit
+  // tests in packages/remote, so here the evidence is that it is installed from its own folder.
+  "flupcode-tasks.js": () => {
+    expect(existsSync(join(data(), "engine-plugins", "flupcode-tasks", "index.js"))).toBe(true)
+  },
   "flupcode-artifact-write.js": async () => {
     expect(readFileSync(join(engine.project, ".flupcode", "artifacts", "report.md"), "utf8")).toBe("# Report")
     // The write is reported as it happens (RP-03), with the plugins' token: which file, which session
