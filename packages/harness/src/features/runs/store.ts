@@ -387,6 +387,11 @@ export function createRuns(app: AppStores) {
         app.composer.setStashes((list) => [prompt, ...list])
       return
     }
+    // The plugin writes a session's tasks while the turn goes: the panel reads them again at once.
+    if (event.type === "tasks.updated") {
+      app.sessions.refetchTasks()
+      return
+    }
     if (event.type === "artifact.created" || event.type === "artifact.changed") {
       app.workspace.artifactsChanged()
       return

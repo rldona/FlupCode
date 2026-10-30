@@ -696,6 +696,8 @@ export type ServerEvent =
   | { type: "run.changed"; run: Run }
   | { type: "run.removed"; runID: string }
   | { type: "task.changed"; task: Task }
+  /** The task list a session's plugin wrote (ADR-0026): the details panel reads it again. */
+  | { type: "tasks.updated"; sessionID: string }
   | { type: "routine.changed"; routine: Routine }
   | { type: "routine.removed"; routineID: string }
   /** A routine's run started or ended, so when it fires next and how it has been failing changed (RP-07). */

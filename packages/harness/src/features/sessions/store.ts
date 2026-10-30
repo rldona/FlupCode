@@ -733,22 +733,12 @@ export function createSessions(app: AppStores) {
 
   // The tasks the session's plugin wrote, kept by the harness (ADR-0026): 2.x has no todo tool, so
   // FlupCode's plugin is the only writer and this is the one list the panel shows.
-  // While a run goes on its tasks move, and the plugin writes them behind this store's back, so the
-  // list is asked for again on a beat. Only while the session generates: a quiet session costs one
-  // read when it opens, and an event channel of its own would be more moving parts than a watched
-  // list is worth.
-  const [tasksBeat, setTasksBeat] = createSignal(0)
-  createEffect(() => {
-    if (!generating()) return
-    const timer = setInterval(() => setTasksBeat((beat) => beat + 1), 2000)
-    onCleanup(() => clearInterval(timer))
-  })
-  const [harnessTasks] = createResource(
+  // The plugin writes the list as the turn goes and the harness says so, so the panel reads it again
+  // when it moves instead of waiting on a beat.
+  const [harnessTasks, taskActions] = createResource(
     () => {
       const sessionID = selected()
-      return app.connection.ready() && sessionID
-        ? { url: app.connection.harnessServerUrl(), sessionID, beat: tasksBeat() }
-        : undefined
+      return app.connection.ready() && sessionID ? { url: app.connection.harnessServerUrl(), sessionID } : undefined
     },
     async (source) => ({
       sessionID: source.sessionID,
@@ -757,6 +747,7 @@ export function createSessions(app: AppStores) {
         .catch(() => []),
     }),
   )
+  const refetchTasks = () => void taskActions.refetch()
   const tasks = () => {
     const result = harnessTasks()
     if (!result || result.sessionID !== selected()) return []
@@ -1435,6 +1426,7 @@ export function createSessions(app: AppStores) {
     messages,
     messagesLoading,
     memoriesUsed,
+    refetchTasks,
     tasks,
     homeStats,
     homeUsage,
