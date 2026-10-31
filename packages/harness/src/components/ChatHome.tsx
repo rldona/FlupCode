@@ -1,11 +1,11 @@
-import { For, type Component } from "solid-js"
+import { For, Show, type Component } from "solid-js"
 import { t } from "../i18n"
 import { CHAT_STARTERS, chatGreeting } from "../chat"
 import logo from "../assets/flupcode-logo.png"
 import { Icon, type IconName } from "./Icon"
 
 /** The empty Chat tab, like Claude's: a greeting over the input, both centred in the window. */
-export const ChatHero: Component<{ displayName: string }> = (props) => {
+export const ChatHero: Component<{ displayName: string; error?: string }> = (props) => {
   const greeting = () => {
     const { key, params } = chatGreeting(props.displayName, new Date().getHours())
     return t(key, params)
@@ -16,6 +16,11 @@ export const ChatHero: Component<{ displayName: string }> = (props) => {
         <img class="fc-chat-greeting-logo" src={logo} alt="" />
         <span>{greeting()}</span>
       </h1>
+      {/* A send that could not go says so here, where the reader tried it: the message is the one
+          thing on this screen, so an error only the code home shows reads as nothing happening. */}
+      <Show when={props.error}>
+        <div class="fc-error">{props.error}</div>
+      </Show>
     </div>
   )
 }

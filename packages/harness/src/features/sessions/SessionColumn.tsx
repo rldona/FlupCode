@@ -82,7 +82,7 @@ export function SessionColumn() {
               />
             )
           ) : app.sessions.chatView() ? (
-            <ChatHero displayName={app.settings.displayName()} />
+            <ChatHero displayName={app.settings.displayName()} error={app.sessions.error()} />
           ) : (
             <HomeCanvas
               displayName={app.settings.displayName()}
