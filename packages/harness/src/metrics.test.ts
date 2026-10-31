@@ -90,9 +90,12 @@ describe("contextFigures", () => {
     expect(contextFigures(session(Date.now(), 0), [step({ input: 50_000 }), empty], model(200_000)).used).toBe(50_000)
   })
 
-  test("falls back to the session totals when no step reported tokens", () => {
+  test("an unmeasured session shows nothing rather than its whole spend", () => {
+    // The session's `tokens` are what it has spent over every step, not the window it sends next:
+    // counting them as context filled the ring red on a session that had barely started, and on one
+    // whose transcript was still the previous session's.
     const messages = [{ type: "user" } as unknown as SessionMessageInfo]
-    expect(contextFigures(session(Date.now(), 100), messages, model(200_000)).used).toBe(100)
+    expect(contextFigures(session(Date.now(), 100), messages, model(200_000)).used).toBe(0)
   })
 
   test("sizes the session the compaction left, not the history it summarized", () => {
