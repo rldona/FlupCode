@@ -115,10 +115,10 @@ export function contextFigures(
       limit,
       estimated: true,
     }
-  return {
-    used: (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0),
-    limit,
-  }
+  // Nothing measured yet: an empty ring. The session's own `tokens` are the whole session's spend,
+  // not the window it sends next, and drawing them filled the ring red for a session that had barely
+  // started (and for the one left behind while another loads).
+  return { used: 0, limit }
 }
 
 /**
