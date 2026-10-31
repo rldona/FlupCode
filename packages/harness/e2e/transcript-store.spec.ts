@@ -58,7 +58,9 @@ test("a running turn is built from its events, not from refetching the history",
       const url = new URL(route.request().url())
       if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
       if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-      if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+      // The turn this test drives is running, so the engine lists it as active: an empty list is a
+      // finished run, and the store's own poll would end the turn mid-test and reconcile the history.
+      if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: { ses_store: true } } })
       if (url.pathname === "/api/session/ses_store/message") {
         historyReads++
         return route.fulfill({ json: { data: history, cursor: {} } })
