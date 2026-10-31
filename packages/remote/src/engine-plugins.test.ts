@@ -6,7 +6,9 @@ import {
   engineConfigDir,
   enginePluginFolders,
   enginePluginsDir,
+  NARRATION_INSTRUCTION,
   installEnginePlugins,
+  narrationFile,
   withEnginePlugins,
 } from "./engine-plugins"
 import { PLUGINS_V2 } from "./engine-plugins-v2"
@@ -52,7 +54,10 @@ describe("withEnginePlugins", () => {
   test("names every plugin folder in the engine's config content", () => {
     const env = withEnginePlugins({ FLUPCODE_CONFIG_DIR: "/fc", PATH: "/bin" })
     expect(env.PATH).toBe("/bin")
-    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!)).toEqual({ plugins: folders })
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!)).toEqual({
+      plugins: folders,
+      instructions: [narrationFile({ FLUPCODE_CONFIG_DIR: "/fc" })],
+    })
     expect(folders).toHaveLength(PLUGINS_V2.length)
   })
 
@@ -63,7 +68,11 @@ describe("withEnginePlugins", () => {
       OPENCODE_CONFIG: "/mine/extra.json",
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: "a/b", plugins: ["their-plugin"] }),
     })
-    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!)).toEqual({ model: "a/b", plugins: ["their-plugin", ...folders] })
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!)).toEqual({
+      model: "a/b",
+      plugins: ["their-plugin", ...folders],
+      instructions: [narrationFile({ FLUPCODE_CONFIG_DIR: "/fc" })],
+    })
     expect(env.OPENCODE_CONFIG_DIR).toBe("/mine")
     expect(env.OPENCODE_CONFIG).toBe("/mine/extra.json")
   })
@@ -74,12 +83,30 @@ describe("withEnginePlugins", () => {
   })
 })
 
+describe("the narration FlupCode asks for", () => {
+  test("is one line, written with the plugins and loaded as instructions", async () => {
+    const { root, env } = await home()
+    await installEnginePlugins(env, root)
+    const file = narrationFile(env, root)
+    const text = await readFile(file, "utf8")
+    expect(text.trim()).toBe(NARRATION_INSTRUCTION)
+    expect(NARRATION_INSTRUCTION.split("\n")).toHaveLength(1)
+    // The reader's own instructions stay first: FlupCode's only asks for a word before the work.
+    const content = JSON.parse(
+      withEnginePlugins({ ...env, OPENCODE_CONFIG_CONTENT: JSON.stringify({ instructions: ["/mine.md"] }) }, root)
+        .OPENCODE_CONFIG_CONTENT!,
+    )
+    expect(content.instructions).toEqual(["/mine.md", file])
+  })
+})
+
 describe("installEnginePlugins", () => {
   test("writes each plugin into its own folder once, and leaves up-to-date ones alone", async () => {
     const { root, env } = await home()
     const first = await installEnginePlugins(env, root)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(PLUGINS_V2.length)
+    // One file per plugin, plus the instructions file that asks for a word before the work.
+    expect(first.paths).toHaveLength(PLUGINS_V2.length + 1)
     for (const [index, folder] of enginePluginFolders(env, root).entries())
       expect(await readFile(path.join(folder, "index.js"), "utf8")).toBe(PLUGINS_V2[index]!.source)
     expect(await readdir(path.join(root, ".config")).then((names) => names.sort())).toEqual(["flupcode"])
