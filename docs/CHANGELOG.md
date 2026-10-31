@@ -5,6 +5,15 @@ the website links to — are on
 [GitHub Releases](https://github.com/rldona/FlupCode/releases); this file keeps the same history in
 the repository, one section per version, oldest last.
 
+## 4.1.3
+
+- Settings → Agents shows how each agent is set up without opening it: a line under its name with the
+  mode, the model with its effort level, and the provider, e.g.
+  `Subagent / Claude Opus 5.5 · High / GitHub Copilot` (#566).
+- Model and provider names stay current: coming back to the window rereads both catalogs, at most once
+  every five minutes, so a renamed model shows without restarting FlupCode (#566).
+- The onboarding screen loads on demand, keeping the startup bundle under its limit (#566).
+
 ## 4.1.2
 
 Two fixes reported from the app, and the test change that stops them from blocking a release again.
