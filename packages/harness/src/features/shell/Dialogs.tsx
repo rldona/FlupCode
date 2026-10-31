@@ -11,7 +11,6 @@ import { TagsDialog } from "../../components/TagsDialog"
 import { ConfirmDialog } from "../../components/ConfirmDialog"
 import { ExternalLinkDialog } from "../../components/ExternalLinkDialog"
 import { McpAuthNotice } from "../../components/McpAuthNotice"
-import { Onboarding } from "../../components/Onboarding"
 import { desktopRemote, remote } from "../../remote"
 import { useApp } from "../../app-context"
 import PaletteRoute from "./PaletteRoute"
@@ -28,6 +27,8 @@ const RemoteRoute = lazy(() => import("../settings/RemoteRoute"))
 const MemoryRoute = lazy(() => import("../workspace/MemoryRoute"))
 const ConfigRoute = lazy(() => import("../catalog/ConfigRoute"))
 const ConfigFilesRoute = lazy(() => import("../catalog/ConfigFilesRoute"))
+// Shown once, on the first run: everyone after that would pay for it at every startup.
+const Onboarding = lazy(() => import("../../components/Onboarding").then((module) => ({ default: module.Onboarding })))
 
 /**
  * The dialogs, drawn over every screen, in the order they stack: a later one opens over an earlier one.
@@ -37,6 +38,8 @@ const ConfigFilesRoute = lazy(() => import("../catalog/ConfigFilesRoute"))
  */
 export function Dialogs() {
   const app = useApp()
+  const onboarding = () =>
+    !app.settings.onboarded() && !remote.activeHost() && !remote.pairing() && remote.status() !== "connecting"
   return (
     <>
       {/* Opened from the keyboard at any moment, so it is ready before it is asked for. */}
@@ -134,29 +137,29 @@ export function Dialogs() {
       <Lazily when={app.router.folderOpen()}>
         <FolderRoute />
       </Lazily>
-      <Onboarding
-        open={
-          !app.settings.onboarded() && !remote.activeHost() && !remote.pairing() && remote.status() !== "connecting"
-        }
-        remoteClient={!desktopRemote()}
-        onRemote={(name) => {
-          app.settings.completeOnboarding(name)
-          app.router.setRemoteOpen(true)
-        }}
-        serverHealthy={app.connection.health()?.healthy}
-        serverBlocked={app.connection.health()?.blocked === true}
-        serverAuthRequired={app.connection.serverAuthRequired()}
-        localNetwork={app.connection.localNetwork()}
-        allowingLocalNetwork={app.connection.allowingLocalNetwork()}
-        onAllowLocalNetwork={() => void app.connection.allowLocalNetwork()}
-        serverInput={app.connection.serverInput()}
-        onServerInput={app.connection.setServerInput}
-        onConnect={() => {
-          app.connection.commitServer()
-          void app.connection.refetchHealth()
-        }}
-        onDone={app.settings.completeOnboarding}
-      />
+      <Lazily when={onboarding()}>
+        <Onboarding
+          open={onboarding()}
+          remoteClient={!desktopRemote()}
+          onRemote={(name) => {
+            app.settings.completeOnboarding(name)
+            app.router.setRemoteOpen(true)
+          }}
+          serverHealthy={app.connection.health()?.healthy}
+          serverBlocked={app.connection.health()?.blocked === true}
+          serverAuthRequired={app.connection.serverAuthRequired()}
+          localNetwork={app.connection.localNetwork()}
+          allowingLocalNetwork={app.connection.allowingLocalNetwork()}
+          onAllowLocalNetwork={() => void app.connection.allowLocalNetwork()}
+          serverInput={app.connection.serverInput()}
+          onServerInput={app.connection.setServerInput}
+          onConnect={() => {
+            app.connection.commitServer()
+            void app.connection.refetchHealth()
+          }}
+          onDone={app.settings.completeOnboarding}
+        />
+      </Lazily>
       <Lazily when={app.router.remoteOpen()}>
         <RemoteRoute />
       </Lazily>
