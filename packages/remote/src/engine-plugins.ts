@@ -33,6 +33,19 @@ export function enginePluginFolders(env: NodeJS.ProcessEnv = process.env, home =
 }
 
 /**
+ * The one thing FlupCode asks of every agent, in its own instructions file rather than in any agent's
+ * system prompt: a turn that opens with a tool call and no word makes the reader wait blind. Short on
+ * purpose, so it does not compete with the agent's own rules.
+ */
+export const NARRATION_INSTRUCTION =
+  "Before the first tool call of a turn, say in one sentence what you are about to do and why; when the work changes direction, say that too. One line each time, no preamble and no restated plan."
+
+/** The file the engine loads as instructions, beside the plugins it loads as code. */
+export function narrationFile(env: NodeJS.ProcessEnv = process.env, home = os.homedir()) {
+  return path.join(enginePluginsDir(env, home), "flupcode-narration.md")
+}
+
+/**
  * The environment that makes an engine FlupCode starts load its plugins: their folders added to the
  * `plugins` of `OPENCODE_CONFIG_CONTENT`, the config layer 2.x merges on top of the reader's own. It
  * is the one way 2.0.18 offers that keeps the reader's global config and plugins loading:
@@ -43,9 +56,15 @@ export function withEnginePlugins(env: NodeJS.ProcessEnv, home = os.homedir()): 
   const content = configContent(env.OPENCODE_CONFIG_CONTENT)
   if (!content) return env
   const plugins = Array.isArray(content.plugins) ? content.plugins : []
+  const instructions = Array.isArray(content.instructions) ? content.instructions : []
   return {
     ...env,
-    OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...content, plugins: [...plugins, ...enginePluginFolders(env, home)] }),
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      ...content,
+      plugins: [...plugins, ...enginePluginFolders(env, home)],
+      // The reader's own instructions stay first: this one only asks for a word before the work.
+      instructions: [...instructions, narrationFile(env, home)],
+    }),
   }
 }
 
@@ -74,6 +93,19 @@ export async function installEnginePlugins(env: NodeJS.ProcessEnv = process.env,
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
     }
+  }
+  // The instructions file is part of what FlupCode asks of the engine, written with the plugins.
+  const narration = narrationFile(env, home)
+  try {
+    const current = await readFile(narration, "utf8").catch(() => undefined)
+    if (current !== NARRATION_INSTRUCTION + "\n") {
+      await mkdir(path.dirname(narration), { recursive: true })
+      await writeFile(narration, NARRATION_INSTRUCTION + "\n")
+      changed = true
+    }
+    paths.push(narration)
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : String(cause)
   }
   const removed = await removeGlobalCopies(env, home)
   return { paths, changed, removed, ...(error ? { error } : {}) }
