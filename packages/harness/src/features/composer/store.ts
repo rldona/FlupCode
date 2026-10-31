@@ -703,17 +703,12 @@ export function createComposer(app: AppStores) {
   }
 
   /**
-   * Sends in Cowork: the same path as Code, but in the project folder, with the conversational
-   * prompt and the reserved agent that keeps the session a chat-class session. See ADR-0013.
+   * Sends in Cowork: the same path as Code, with the conversational prompt and the reserved agent
+   * that keeps the session a chat-class session (ADR-0013). A folder is offered, not required: most
+   * turns are read, search or a command, and the agent asks for one when it actually needs to write.
    */
-  const sendCowork = (text: string, files: Attachment[], keepDraft = false) => {
-    const directory = app.sessions.targetDirectory() ?? app.sessions.selectedSession()?.location?.directory
-    if (!directory) {
-      app.sessions.setError(t("Choose a project folder for Cowork"))
-      return
-    }
+  const sendCowork = (text: string, files: Attachment[], keepDraft = false) =>
     submitPrompt(text, files, keepDraft, { agent: COWORK_AGENT, system: COWORK_SYSTEM })
-  }
 
   /** Sends through the path the open view uses: a chat, a Cowork conversation, or Code. */
   const sendText = (text: string, files: Attachment[], keepDraft = false) => {
