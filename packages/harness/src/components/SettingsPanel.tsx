@@ -572,6 +572,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 tools={props.agentTools}
                 mcp={props.mcpServers}
                 models={props.models}
+                providers={props.providersList}
                 favorites={props.favorites}
                 onToggleFavorite={props.onToggleFavorite}
                 loading={props.agentsLoading}

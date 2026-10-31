@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { OWNED, fieldsFrom, withoutFiles } from "./AgentsPanel"
+import { OWNED, agentSummary, fieldsFrom, withoutFiles } from "./AgentsPanel"
 import type { AgentFile } from "../types"
 
 const form = {
@@ -82,5 +82,24 @@ describe("agents with no file", () => {
 
   test("none when every agent has one", () => {
     expect(withoutFiles([{ id: "reviewer" }] as never, [file("reviewer")])).toEqual([])
+  })
+})
+
+describe("the line under an agent's name", () => {
+  const models = [{ providerID: "github-copilot", id: "claude-opus-5.5", name: "Claude Opus 5.5" }] as never
+  const providers = [{ id: "github-copilot", name: "GitHub Copilot" }]
+
+  test("mode, model with its effort, and provider", () => {
+    expect(
+      agentSummary({ mode: "subagent", model: "github-copilot/claude-opus-5.5", variant: "high" }, models, providers),
+    ).toBe("Subagent / Claude Opus 5.5 · High / GitHub Copilot")
+  })
+
+  test("an agent with no model says it runs on the default", () => {
+    expect(agentSummary({ mode: "primary" }, models, providers)).toBe("Primary / Default model")
+  })
+
+  test("a model the catalog no longer serves is shown by its id", () => {
+    expect(agentSummary({ model: "acme/old-model" }, models, providers)).toBe("Subagent / old-model / acme")
   })
 })

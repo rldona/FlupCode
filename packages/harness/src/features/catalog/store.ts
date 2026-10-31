@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { createResource } from "../../resource"
 import { setAdaptiveModels } from "../../adaptive-copy"
 import { viewProviders } from "../../adaptive-legacy"
@@ -260,6 +260,19 @@ export function createCatalog(app: AppStores) {
     void refetchProviderDirectory()
     void refetchIntegrations()
   })
+  // A provider can rename a model or itself while FlupCode stays open for days. Coming back to the
+  // window rereads both catalogs, at most once every few minutes so switching windows costs nothing.
+  const catalogRefreshGap = 5 * 60_000
+  let catalogReadAt = Date.now()
+  const refreshCatalogOnFocus = () => {
+    if (!app.connection.ready() || Date.now() - catalogReadAt < catalogRefreshGap) return
+    catalogReadAt = Date.now()
+    void refetchProviderDirectory()
+    void refetchModelDirectory()
+    void refetchModels()
+  }
+  window.addEventListener("focus", refreshCatalogOnFocus)
+  onCleanup(() => window.removeEventListener("focus", refreshCatalogOnFocus))
   /** The Console org behind providers, when the engine has one (CO-1). */
   const [consoleActive, { refetch: refetchConsoleActive }] = createResource(
     () => (app.connection.ready() && app.router.providersSectionVisible() ? app.connection.serverUrl() : undefined),
