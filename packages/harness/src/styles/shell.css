@@ -9881,6 +9881,11 @@ button.fc-status {
   text-align: left;
 }
 
+/* Mode / model · effort / provider, read at a glance without opening the agent. */
+.fc-routine-card-content small.fc-agent-summary {
+  color: var(--fc-text);
+}
+
 /* The "New agent" button sits centred against the heading block, not pinned to its top. */
 .fc-agents-header {
   align-items: center;

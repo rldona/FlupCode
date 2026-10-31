@@ -16,6 +16,8 @@ type AgentsPanelProps = {
   tools: string[]
   mcp: McpServer[]
   models: ModelInfo[]
+  /** Provider names, so the list says "GitHub Copilot" rather than `github-copilot`. */
+  providers: { id: string; name: string }[]
   favorites: string[]
   onToggleFavorite: (key: string) => void
   loading: boolean
@@ -116,6 +118,30 @@ export function fieldsFrom(
     ...(Object.keys(permission).length > 0 ? { permission } : {}),
     ...kept,
   }
+}
+
+/**
+ * The line under an agent's name: its mode, its model with the effort level, and the provider —
+ * `Subagent / Claude Opus 5.5 · High / GitHub Copilot` — so the list says how each one is set up
+ * without opening it. A model the catalog no longer serves is shown by its raw id.
+ */
+export function agentSummary(
+  fields: Record<string, unknown>,
+  models: ModelInfo[],
+  providers: { id: string; name: string }[],
+) {
+  const mode = t(text(fields.mode) || "subagent")
+  const parts = [mode.charAt(0).toUpperCase() + mode.slice(1)]
+  const key = text(fields.model).trim()
+  const variant = text(fields.variant).trim()
+  if (!key) return [...parts, t("Default model")].join(" / ")
+  const slash = key.indexOf("/")
+  const providerID = slash > 0 ? key.slice(0, slash) : ""
+  const modelID = slash > 0 ? key.slice(slash + 1) : key
+  const model = models.find((entry) => entry.providerID === providerID && entry.id === modelID)
+  const name = model?.name ?? modelID
+  const provider = providers.find((entry) => entry.id === providerID)?.name ?? providerID
+  return [...parts, variant ? `${name} · ${effortLabel(variant)}` : name, ...(provider ? [provider] : [])].join(" / ")
 }
 
 /** The agents the engine reports that no file here can change, and why. */
@@ -354,10 +380,10 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
                         </span>
                         <span class="fc-routine-card-content">
                           <strong>{file.name}</strong>
+                          <small class="fc-agent-summary">{agentSummary(file.fields, props.models, props.providers)}</small>
                           <small>{text(file.fields.description) || file.prompt.slice(0, 80)}</small>
                         </span>
                         <span class="fc-artifact-kind">{t(file.scope)}</span>
-                        <span class="fc-artifact-kind">{text(file.fields.mode) || "subagent"}</span>
                       </button>
                       <Show when={file.problem}>
                         {(why) => <p class="fc-usage-note fc-agent-problem">{why()}</p>}
