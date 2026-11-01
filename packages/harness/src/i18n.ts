@@ -109,6 +109,8 @@ const ES: Record<string, string> = {
   "Clear all": "Borrar todo",
   "Clear completed subagents": "Borrar subagentes completados",
   "Clear all subagents": "Borrar todos los subagentes",
+  "Clear completed tasks": "Borrar tareas completadas",
+  "Clear all tasks": "Borrar todas las tareas",
   "Ran a command": "Ejecutó un comando",
   "Ran {n} commands": "Ejecutó {n} comandos",
   "Read a file": "Leyó un archivo",
@@ -129,6 +131,9 @@ const ES: Record<string, string> = {
   "{n} running tasks": "{n} tareas en curso",
   error: "error",
   Attachments: "Adjuntos",
+  "Encrypted PDFs cannot be used: unlock them and attach them again.":
+    "Los PDF cifrados no se pueden usar: desbloquéalos y vuelve a adjuntarlos.",
+  "PDF unlocked": "PDF desbloqueado",
   "Open image": "Abrir imagen",
   Image: "Imagen",
   Small: "Pequeño",

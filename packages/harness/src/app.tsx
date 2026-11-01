@@ -159,6 +159,7 @@ export const App: Component = () => {
                   blockedSubagents={app.sessions.blockedSessions()}
                   memories={app.sessions.memoriesUsed()}
                   tasks={app.sessions.tasks()}
+                  onClearTasks={app.sessions.clearTasks}
                   width={app.settings.contextWidth()}
                   onResize={app.settings.updateContextWidth}
                   onHide={app.settings.toggleContextPanel}

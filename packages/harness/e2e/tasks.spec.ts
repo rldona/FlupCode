@@ -26,7 +26,10 @@ const message = {
 const child = { ...session, id: "ses_child", parentID: "ses_tasks", title: "Analizar common-lib" }
 
 /** `blockedChild` leaves the child waiting on a permission, which is work for the panel to watch. */
-async function openSession(page: Page, options: { blockedChild?: boolean; idle?: boolean } = {}) {
+async function openSession(
+  page: Page,
+  options: { blockedChild?: boolean; idle?: boolean; tasks?: Array<{ content: string; status: string }> } = {},
+) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -37,6 +40,7 @@ async function openSession(page: Page, options: { blockedChild?: boolean; idle?:
     const url = new URL(route.request().url())
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
     if (url.pathname === "/harness/events") return new Promise(() => {})
+    if (url.pathname === "/harness/tasks/ses_tasks") return route.fulfill({ json: { data: options.tasks ?? [] } })
     return route.fulfill({ json: { data: [] } })
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
@@ -107,4 +111,26 @@ test("a session with no work leaves the panel closed", async ({ page }) => {
   await openSession(page, { idle: true })
 
   await expect(page.locator(".fc-rightaside")).toHaveCount(0)
+})
+
+test("the session's tasks can be cleared, all at once or only the completed ones", async ({ page }) => {
+  await openSession(page, {
+    tasks: [
+      { content: "Leer extractos", status: "completed" },
+      { content: "Cuadrar saldos", status: "completed" },
+      { content: "Cerrar fase 5", status: "in_progress" },
+    ],
+  })
+
+  await page.getByRole("button", { name: /Toggle details panel|Alternar panel de detalles/ }).click()
+
+  const aside = page.locator(".fc-rightaside")
+  const tasks = aside.locator(".fc-aside-task")
+  await expect(tasks).toHaveText(["Leer extractos", "Cuadrar saldos", "Cerrar fase 5"])
+
+  await aside.getByRole("button", { name: /Clear completed tasks|Borrar tareas completadas/ }).click()
+  await expect(tasks).toHaveText(["Cerrar fase 5"])
+
+  await aside.getByRole("button", { name: /Clear all tasks|Borrar todas las tareas/ }).click()
+  await expect(aside.locator(".fc-aside-section", { hasText: /Tasks|Tareas/ })).toHaveCount(0)
 })

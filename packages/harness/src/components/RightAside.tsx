@@ -19,6 +19,8 @@ type RightAsideProps = {
   memories: MemoryInfo[]
   /** The task list the session wrote, above everything else in the panel. */
   tasks: Array<{ content: string; status: string }>
+  /** Hides tasks by their text; the harness keeps the list either way. */
+  onClearTasks: (contents: string[]) => void
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
@@ -29,6 +31,8 @@ type RightAsideProps = {
 export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: SIDEBAR_WIDTH_DEFAULT }
 
 export const RightAside: Component<RightAsideProps> = (props) => {
+  const completedTasks = () => props.tasks.filter((task) => task.status === "completed")
+
   return (
     <aside class="fc-rightaside" style={{ width: `${props.width}px` }}>
       <div
@@ -68,7 +72,29 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           <section class="fc-aside-section">
             <h3 class="fc-aside-title">
               {t("Tasks")}
-              <span class="fc-aside-count">{props.tasks.length}</span>
+              <span class="fc-aside-title-actions">
+                <Show when={completedTasks().length > 0}>
+                  <button
+                    class="fc-aside-clear"
+                    type="button"
+                    aria-label={t("Clear completed tasks")}
+                    onClick={() => props.onClearTasks(completedTasks().map((task) => task.content))}
+                  >
+                    {t("Clear completed")}
+                  </button>
+                </Show>
+                <button
+                  class="fc-aside-clear"
+                  type="button"
+                  aria-label={t("Clear all tasks")}
+                  onClick={() => props.onClearTasks(props.tasks.map((task) => task.content))}
+                >
+                  {t("Clear all")}
+                </button>
+                <span class="fc-aside-count">
+                  {completedTasks().length}/{props.tasks.length}
+                </span>
+              </span>
             </h3>
             <ul class="fc-aside-tasks">
               <For each={props.tasks}>
