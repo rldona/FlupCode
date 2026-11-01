@@ -5,6 +5,14 @@ the website links to — are on
 [GitHub Releases](https://github.com/rldona/FlupCode/releases); this file keeps the same history in
 the repository, one section per version, oldest last.
 
+## 4.2.0
+
+- Tasks in the details panel can be cleared: **Clear completed** takes the finished ones off the
+  panel and **Clear all** takes the whole list, and both are remembered per session (#568).
+- A bank statement that arrives encrypted with an empty password is unlocked when attached, so it
+  can be read instead of failing the turn; one that asks for a real password is refused with a
+  message and never reaches the session (#568).
+
 ## 4.1.3
 
 - Settings → Agents shows how each agent is set up without opening it: a line under its name with the
