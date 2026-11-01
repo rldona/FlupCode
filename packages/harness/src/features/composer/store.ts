@@ -24,7 +24,7 @@ import type { Attachment, CommandOption, Workflow, StashedPrompt, ContextPack } 
 import { UNAVAILABLE_FEATURES } from "../../features"
 import { BUILTIN_COMMANDS, builtinCommand, runBuiltin, type CommandContext } from "../../commands"
 import { t } from "../../i18n"
-import { isEncryptedPdf, pdfBytes, pdfDataUrl, unlockPdf } from "../../pdf"
+import { isEncryptedPdf, pdfBytes, pdfDataUrl } from "../../pdf"
 import { toast } from "../../toast"
 import { permissionMode } from "../../permission-modes"
 import { closeTab, cycleTab } from "../../tabs"
@@ -435,21 +435,28 @@ export function createComposer(app: AppStores) {
   // The engine refuses an encrypted PDF and then fails every later turn of the session. One with
   // an empty user password is unlocked here, which is what bank statements usually carry; one that
   // asks for a real password never reaches the composer.
-  const usableAttachments = (items: Attachment[]) => {
+  const usableAttachments = async (items: Attachment[]) => {
     const readable = items.filter((item) => item.uri)
+    const encrypted = new Set(readable.filter((item) => isEncryptedPdf(item)))
+    // The security handler is heavy and almost never needed, so it only loads for one of these.
+    const module = encrypted.size > 0 ? await import("../../pdf-unlock") : undefined
     const unlocked: string[] = []
     const refused: string[] = []
-    const usable = readable.flatMap((item) => {
-      if (!isEncryptedPdf(item)) return [item]
+    const usable: Attachment[] = []
+    for (const item of readable) {
+      if (!module || !encrypted.has(item)) {
+        usable.push(item)
+        continue
+      }
       const bytes = pdfBytes(item.uri)
-      const result = bytes ? unlockPdf(bytes) : undefined
+      const result = bytes ? module.unlockPdf(bytes) : undefined
       if (!result?.ok) {
         refused.push(item.name)
-        return []
+        continue
       }
       unlocked.push(item.name)
-      return [{ uri: pdfDataUrl(result.bytes), name: item.name }]
-    })
+      usable.push({ uri: pdfDataUrl(result.bytes), name: item.name })
+    }
     if (unlocked.length > 0) toast(t("PDF unlocked"), "info", { description: unlocked.join(", ") })
     if (refused.length > 0)
       toast(t("Encrypted PDFs cannot be used: unlock them and attach them again."), "error", {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { isEncryptedPdf, unlockPdf } from "./pdf"
+import { isEncryptedPdf } from "./pdf"
+import { unlockPdf } from "./pdf-unlock"
 
 const pdf = (body: string) => `data:application/pdf;base64,${btoa(body)}`
 const bytes = (base64: string) => new Uint8Array(Buffer.from(base64, "base64"))
