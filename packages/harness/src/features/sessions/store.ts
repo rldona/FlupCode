@@ -748,10 +748,26 @@ export function createSessions(app: AppStores) {
     }),
   )
   const refetchTasks = () => void taskActions.refetch()
+  // Tasks the reader removed from the details panel, per session. The harness keeps the list the
+  // plugin wrote, so removal only hides them here; a task the plugin writes later still shows up.
+  const [clearedTasks, setClearedTasks] = createSignal<Record<string, string[]>>(
+    readStorage(STORAGE_KEYS.clearedTasks, {}),
+  )
+  const clearTasks = (contents: string[]) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const next = {
+      ...clearedTasks(),
+      [sessionID]: [...new Set([...(clearedTasks()[sessionID] ?? []), ...contents])],
+    }
+    setClearedTasks(next)
+    writeStorage(STORAGE_KEYS.clearedTasks, next)
+  }
   const tasks = () => {
     const result = harnessTasks()
     if (!result || result.sessionID !== selected()) return []
-    return result.data
+    const cleared = clearedTasks()[selected() ?? ""] ?? []
+    return result.data.filter((task) => !cleared.includes(task.content))
   }
 
   // The memories the engine retrieved for the open session. One of the two things the details panel
@@ -1396,6 +1412,7 @@ export function createSessions(app: AppStores) {
     chatView,
     children,
     clearSubagents,
+    clearTasks,
     closeSessionTab,
     closeSplitPane,
     codeChrome,

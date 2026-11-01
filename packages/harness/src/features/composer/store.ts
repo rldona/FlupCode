@@ -24,6 +24,7 @@ import type { Attachment, CommandOption, Workflow, StashedPrompt, ContextPack } 
 import { UNAVAILABLE_FEATURES } from "../../features"
 import { BUILTIN_COMMANDS, builtinCommand, runBuiltin, type CommandContext } from "../../commands"
 import { t } from "../../i18n"
+import { isEncryptedPdf, pdfBytes, pdfDataUrl } from "../../pdf"
 import { toast } from "../../toast"
 import { permissionMode } from "../../permission-modes"
 import { closeTab, cycleTab } from "../../tabs"
@@ -423,31 +424,51 @@ export function createComposer(app: AppStores) {
     })
   }
 
-  const readAttachments = (files: File[]) =>
-    Promise.all(
-      files.map(
-        (file) =>
-          new Promise<Attachment>((resolve) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
-            reader.onerror = () => resolve({ uri: "", name: file.name })
-            reader.readAsDataURL(file)
-          }),
-      ),
-    ).then((items) => items.filter((item) => item.uri))
+  const toAttachment = (file: File) =>
+    new Promise<Attachment>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
+      reader.onerror = () => resolve({ uri: "", name: file.name })
+      reader.readAsDataURL(file)
+    })
+
+  // The engine refuses an encrypted PDF and then fails every later turn of the session. One with
+  // an empty user password is unlocked here, which is what bank statements usually carry; one that
+  // asks for a real password never reaches the composer.
+  const usableAttachments = async (items: Attachment[]) => {
+    const readable = items.filter((item) => item.uri)
+    const encrypted = new Set(readable.filter((item) => isEncryptedPdf(item)))
+    // The security handler is heavy and almost never needed, so it only loads for one of these.
+    const module = encrypted.size > 0 ? await import("../../pdf-unlock") : undefined
+    const unlocked: string[] = []
+    const refused: string[] = []
+    const usable: Attachment[] = []
+    for (const item of readable) {
+      if (!module || !encrypted.has(item)) {
+        usable.push(item)
+        continue
+      }
+      const bytes = pdfBytes(item.uri)
+      const result = bytes ? module.unlockPdf(bytes) : undefined
+      if (!result?.ok) {
+        refused.push(item.name)
+        continue
+      }
+      unlocked.push(item.name)
+      usable.push({ uri: pdfDataUrl(result.bytes), name: item.name })
+    }
+    if (unlocked.length > 0) toast(t("PDF unlocked"), "info", { description: unlocked.join(", ") })
+    if (refused.length > 0)
+      toast(t("Encrypted PDFs cannot be used: unlock them and attach them again."), "error", {
+        description: refused.join(", "),
+      })
+    return usable
+  }
+
+  const readAttachments = (files: File[]) => Promise.all(files.map(toAttachment)).then(usableAttachments)
 
   const addAttachments = (files: File[]) => {
-    void Promise.all(
-      files.map(
-        (file) =>
-          new Promise<Attachment>((resolve) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
-            reader.onerror = () => resolve({ uri: "", name: file.name })
-            reader.readAsDataURL(file)
-          }),
-      ),
-    ).then((items) => setAttachments((list) => [...list, ...items.filter((item) => item.uri)]))
+    void readAttachments(files).then((items) => setAttachments((list) => [...list, ...items]))
   }
 
   const removeAttachment = (uri: string) => {
@@ -712,6 +733,15 @@ export function createComposer(app: AppStores) {
 
   /** Sends through the path the open view uses: a chat, a Cowork conversation, or Code. */
   const sendText = (text: string, files: Attachment[], keepDraft = false) => {
+    // A retried turn brings its files back from the failed message, so the check has to be here as
+    // well: one encrypted PDF would fail the turn and every turn after it.
+    const rejected = files.filter((file) => isEncryptedPdf(file))
+    if (rejected.length > 0) {
+      toast(t("Encrypted PDFs cannot be used: unlock them and attach them again."), "error", {
+        description: rejected.map((file) => file.name).join(", "),
+      })
+      return
+    }
     if (!app.sessions.chatView()) return submitPrompt(text, files, keepDraft)
     return app.sessions.composerChatClass() === "cowork"
       ? sendCowork(text, files, keepDraft)
