@@ -188,10 +188,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `macos-latest` (macOS 26) and then `macos-15` sat in the hosted-runner queue for the whole
-        # 4.2.1 release without starting. macOS 14 arm64 is a separate pool and builds both
-        # architectures.
-        os: [macos-14, windows-latest, ubuntu-24.04]
+        # `macos-latest` (macOS 26) and then `macos-15` (arm64) sat in the hosted-runner queue for the
+        # whole 4.2.1 release without starting, and `macos-14` is retired. The Intel pool is separate,
+        # and it still builds both architectures: every Mac sidecar is compiled or fetched per `arch`.
+        os: [macos-15-intel, windows-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
