@@ -7,15 +7,24 @@
 // own. Playwright picks the download by the machine it runs on; on macOS it is told the other one.
 // Every macOS 11+ entry of its registry names the same Chrome for Testing archive per CPU.
 import { spawnSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { packagedArchs } from "./archs.mjs"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
+// `bun x playwright` takes the latest release, which can point at a `playwright-core` that is not
+// published yet. The harness runs the catalog's Playwright, so fetch exactly that one.
+const playwright = JSON.parse(readFileSync(path.resolve(here, "../../..", "package.json"), "utf8")).workspaces.catalog.playwright
+
+if (typeof playwright !== "string") {
+  console.error("No Playwright version in the workspace catalog")
+  process.exit(1)
+}
 
 for (const arch of packagedArchs()) {
   const browsers = path.resolve(here, "..", "browsers", arch)
-  const result = spawnSync("bun", ["x", "playwright", "install", "chromium"], {
+  const result = spawnSync("bun", ["x", `playwright@${playwright}`, "install", "chromium"], {
     stdio: "inherit",
     shell: process.platform === "win32",
     env: {
