@@ -101,6 +101,12 @@ function createWindow() {
   const states = loadWindowStates()
   // Its own remembered bounds, or the first window's stepped down so they do not stack exactly.
   const bounds = cascade(states[index] ?? states[0] ?? DEFAULT_BOUNDS, index)
+  // Linux has no bundle icon, so the window needs one of its own: the Dock shows it even from an
+  // AppImage that was never integrated into the desktop.
+  const windowIcon =
+    process.platform === "linux"
+      ? join(app.isPackaged ? process.resourcesPath : app.getAppPath(), app.isPackaged ? "icon.png" : "build/icon.png")
+      : undefined
   const window = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
@@ -117,6 +123,7 @@ function createWindow() {
     // Not on Linux. There, hiding the title bar hides the window controls with it and leaves no
     // overlay to replace them: the window could not be closed except through the window manager.
     ...(OWNS_TITLE_BAR ? { titleBarStyle: "hidden" as const } : {}),
+    ...(windowIcon ? { icon: windowIcon } : {}),
     ...(process.platform === "darwin" ? { trafficLightPosition: { x: 16, y: 20 } } : {}),
     ...(process.platform === "win32"
       ? { titleBarOverlay: { color: "#00000000", symbolColor: "#ffffff", height: 52 } }
