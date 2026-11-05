@@ -133,8 +133,9 @@ plate. The approved geometry (defined in `script/branding.swift` `targets`) is:
 
 | Target | Canvas | Plate | Artwork |
 | --- | --- | --- | --- |
-| `packages/harness-desktop/build/icon.png` (Windows/Linux) | 1024x1024 | full-bleed | `fraction: 0.60` by width (~614x779) |
+| `packages/harness-desktop/build/icon.png` (Windows) | 1024x1024 | full-bleed | `fraction: 0.60` by width (~614x779) |
 | `packages/harness-desktop/build/icon-mac.png` (macOS grid) | 1024x1024 | `scale: 0.805` (824/1024) | `fraction: 0.60` (~494x627) |
+| `packages/harness-desktop/build/icons/{16x16,…,512x512}.png` (Linux hicolor) | 16 to 512 | full-bleed, plate shape read from `build/icon.png` | `fraction: 0.60` by width |
 | `packages/harness/public/apple-touch-icon.png` | 180x180 | full-bleed | `fraction: 0.52` (~93x118) |
 | `packages/harness/public/icon-192.png` | 192x192 | full-bleed | `fraction: 0.52` (~99x126) |
 | `packages/harness/public/icon-512.png` | 512x512 | full-bleed | `fraction: 0.52` (~266x337) |
@@ -147,6 +148,9 @@ plate. The approved geometry (defined in `script/branding.swift` `targets`) is:
 
 Transparent logos (`flupcode-logo.png`) fit the whole artwork inside the canvas. Keep these
 values when the logo changes so every build mounts the same icon.
+
+Linux ships a size set because the hicolor theme does not declare `1024x1024`: a lone 1024 PNG is
+installed, but the theme never finds it.
 
 Caveat: `icon.png` reads its own plate shape, so a padded output feeds back into the next
 run — restore it from git before regenerating if the plate geometry ever drifts.
