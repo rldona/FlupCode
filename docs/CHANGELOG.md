@@ -5,6 +5,13 @@ the website links to — are on
 [GitHub Releases](https://github.com/rldona/FlupCode/releases); this file keeps the same history in
 the repository, one section per version, oldest last.
 
+## 4.2.1
+
+- The app icon now appears on Ubuntu when FlupCode is installed from the `.deb` or `.rpm`: Linux
+  ships the icon sizes the desktop theme looks for (16 to 512) instead of a single 1024 image (#570).
+- An AppImage that was never integrated into the desktop still shows FlupCode's mark in the window
+  and in the dock (#570).
+
 ## 4.2.0
 
 - Tasks in the details panel can be cleared: **Clear completed** takes the finished ones off the
