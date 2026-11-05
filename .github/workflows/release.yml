@@ -188,7 +188,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-24.04]
+        # `macos-latest` is macOS 26 arm64; its hosted-runner pool was empty for half an hour and
+        # cancelled the job twice. macOS 15 arm64 builds both architectures and has capacity.
+        os: [macos-15, windows-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
