@@ -171,12 +171,58 @@ const local: EngineTransport = {
 
 let current = local
 
+/** What calls to this machine's engine go through. */
 export function setEngineTransport(transport: EngineTransport | undefined) {
   current = transport ?? local
 }
 
+let harness = local
+
+/**
+ * What the harness server's calls go through: the tunnel while this window drives another computer,
+ * whose host forwards them to that computer's harness (HE-02). The engine needs no such switch: its
+ * address already names the computer.
+ */
+export function setHarnessTransport(transport: EngineTransport | undefined) {
+  harness = transport ?? local
+}
+
+/**
+ * An engine on another computer has an address of its own that no network resolves,
+ * `https://<host>.remote.flupcode.invalid`, so one window can talk to several engines at once and
+ * every engine call goes to the computer its address names (ADR-0029). Anything else is this
+ * machine's engine.
+ */
+const REMOTE_SUFFIX = ".remote.flupcode.invalid"
+
+export function remoteEngineUrl(label: string) {
+  return `https://${label}${REMOTE_SUFFIX}`
+}
+
+/** The host label of a remote engine address, or nothing for a local one. */
+export function remoteEngineLabel(url: string) {
+  if (!URL.canParse(url)) return undefined
+  const host = new URL(url).hostname
+  return host.endsWith(REMOTE_SUFFIX) ? host.slice(0, -REMOTE_SUFFIX.length) : undefined
+}
+
+let remoteRoute: ((label: string) => EngineTransport | undefined) | undefined
+
+/** Who carries the calls to each remote engine: `remote.ts`, which holds the tunnels. */
+export function setRemoteRoute(route: typeof remoteRoute) {
+  remoteRoute = route
+}
+
+function transportFor(input: Request | string | URL) {
+  const label = remoteEngineLabel(input instanceof Request ? input.url : String(input))
+  if (!label) return current
+  const transport = remoteRoute?.(label)
+  if (!transport) throw new TypeError("That computer is not paired")
+  return transport
+}
+
 export function engineFetch(input: Request | string | URL, init?: RequestInit) {
-  return current.fetch(input, withRequestTimeout(input, init))
+  return Promise.resolve().then(() => transportFor(input).fetch(input, withRequestTimeout(input, init)))
 }
 
 /**
@@ -186,10 +232,12 @@ export function engineFetch(input: Request | string | URL, init?: RequestInit) {
  * Routing is unchanged, so remote control still goes through the tunnel.
  */
 export function anonymousFetch(input: Request | string | URL, init?: RequestInit) {
+  if (harness !== local) return harness.fetch(input, init)
+  // A transport put in place of this machine's engine stands in for the whole machine.
   if (current !== local) return current.fetch(input, init)
   return globalThis.fetch(input, localNetwork(input, init))
 }
 
 export function engineSocket(url: string) {
-  return current.socket(url)
+  return transportFor(url).socket(url)
 }

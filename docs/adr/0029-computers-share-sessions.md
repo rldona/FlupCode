@@ -1,7 +1,7 @@
 # ADR-0029: The user's computers see each other's sessions
 
-- **Status:** Accepted. Step 1 (the desktop app as a remote client) is implemented; steps 2 and 3
-  are planned.
+- **Status:** Accepted. Steps 1 (the desktop app as a remote client) and 2 (every computer's
+  sessions in one sidebar) are implemented; step 3 is planned.
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0010](0010-remote-control-relay.md)
 
@@ -44,12 +44,20 @@ The work lands in three steps:
    engine, and "Disconnect" brings it back to the local one. A desktop cannot scan a QR code, so the
    remote control panel accepts a pasted pairing link. The window's own host keeps running: the Mac
    can drive the PC while a phone drives the Mac.
-2. **Several engines at once.** The engine transport stops being global: each session carries the
-   computer it comes from, and every call goes through that computer's channel. The sidebar lists
-   local and remote sessions together, with a computer icon on remote ones. Each connected computer
-   keeps its own event subscription, so the sidebar stays live. The last list seen from each
-   computer is kept, so an offline computer's sessions stay visible, dimmed, with "Remote control
-   unavailable".
+2. **Every computer's sessions in one sidebar.** An engine on another computer has an address of its
+   own, `https://<host>.remote.flupcode.invalid`, and every engine call goes to the computer its
+   address names (`transport.ts`), so the window can reach several engines at once. The desktop app
+   keeps a background link to each paired computer it is not driving, lists that computer's
+   sessions through it and keeps the list current from that computer's own event stream
+   (`features/sessions/elsewhere.ts`). The sidebar shows them beside its own, with a computer icon;
+   the last list seen from each computer is kept, so an offline computer's sessions stay listed,
+   dimmed, as unavailable.
+   The window still drives **one engine at a time**: opening another computer's session moves the
+   window to that engine (as in step 1), and opening one of this computer's moves it back. The
+   model picker, permissions, questions and the transcript's live stream then all belong to the
+   same engine, with no per-call bookkeeping in the many stores that read it. A session on an
+   engine the window is not driving can only be opened from the sidebar: renaming, deleting or
+   starting a session there would reach the wrong engine.
 3. **Projects across computers.** One folder has a different path on each computer
    (`/Users/…` and `/home/…`). A remote session is grouped under the local project with the same
    `git remote` URL, then the same folder name, and otherwise under a group named after the

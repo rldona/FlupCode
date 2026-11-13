@@ -1063,6 +1063,8 @@ const ES: Record<string, string> = {
   "Could not connect to the computer.": "No se pudo conectar con el ordenador.",
   "Remote: {name}": "Remoto: {name}",
   "{name} · Disconnected": "{name} · Desconectado",
+  "Remote Control: {name}": "Control remoto: {name}",
+  "Remote control unavailable: {name} is offline": "Control remoto no disponible: {name} está desconectado",
   "Pairing with {name}…": "Emparejando con {name}…",
   "Control a computer": "Controlar un ordenador",
   "Or control another computer": "O controla otro ordenador",

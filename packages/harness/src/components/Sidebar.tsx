@@ -102,6 +102,14 @@ type SidebarProps = {
   desktop: boolean
   /** The shortcuts, for the one the profile menu shows beside Settings. */
   keybinds: Keybinds
+  /** The computer a session lives on, when it is not this one: its row shows it (ADR-0029). */
+  sessionComputer?: (id: string) => { name: string; status: "connecting" | "online" | "offline" } | undefined
+  /**
+   * Whether a session lives on an engine the window is not driving. Opening it moves the window
+   * there; renaming, deleting or splitting it from here would reach the wrong engine, so its menu
+   * only opens it.
+   */
+  elsewhere?: (id: string) => boolean
 }
 
 /** The nav's and the menu's icons, by destination. The names and the order come from the registry. */
@@ -251,6 +259,10 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     })
   })
 
+  /** A project only another engine has: a new session in it would start on the wrong computer. */
+  const elsewhereGroup = (group: ProjectGroup) =>
+    !!props.elsewhere && group.sessions.every((session) => props.elsewhere!(session.id))
+
   const isExpanded = (group: ProjectGroup) => {
     const state = props.expandedProjects[group.id]
     if (state !== undefined) return state
@@ -300,6 +312,22 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     event.preventDefault()
     event.stopPropagation()
     const pinned = props.pinnedSessions.includes(session.id)
+    const copyPath = {
+      label: t("Copy path"),
+      icon: "copy" as const,
+      onSelect: () => props.onCopyPath(session.location?.directory ?? ""),
+    }
+    if (props.elsewhere?.(session.id)) {
+      setMenu({
+        x: event.clientX,
+        y: event.clientY,
+        items: [
+          { label: t("Open"), icon: "open", onSelect: () => props.onSelectSession(session.id) },
+          ...(props.view === "code" ? [copyPath] : []),
+        ],
+      })
+      return
+    }
     setMenu({
       x: event.clientX,
       y: event.clientY,
@@ -315,15 +343,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         },
         { label: t("Edit tags…"), icon: "tag", onSelect: () => props.onEditTags(session.id) },
         { label: t("Rename"), icon: "pencil", onSelect: () => props.onRenameSession(session.id) },
-        ...(props.view === "code"
-          ? [
-              {
-                label: t("Copy path"),
-                icon: "copy" as const,
-                onSelect: () => props.onCopyPath(session.location?.directory ?? ""),
-              },
-            ]
-          : []),
+        ...(props.view === "code" ? [copyPath] : []),
         { label: t("Delete"), icon: "close", danger: true, onSelect: () => props.onDeleteSession(session.id) },
       ],
     })
@@ -332,6 +352,14 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   const openProjectMenu = (event: MenuPoint, group: ProjectGroup) => {
     event.preventDefault()
     event.stopPropagation()
+    if (elsewhereGroup(group)) {
+      setMenu({
+        x: event.clientX,
+        y: event.clientY,
+        items: [{ label: t("Copy path"), icon: "copy", onSelect: () => props.onCopyPath(group.directory ?? "") }],
+      })
+      return
+    }
     setMenu({
       x: event.clientX,
       y: event.clientY,
@@ -353,6 +381,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       class="fc-session-row"
       data-session-id={row.session.id}
       classList={{
+        "fc-session-row-unavailable": props.sessionComputer?.(row.session.id)?.status === "offline",
         "fc-session-row-active": props.selectedSession === row.session.id,
         "fc-session-row-split":
           props.selectedSession !== row.session.id && props.splitSessions.includes(row.session.id),
@@ -370,6 +399,21 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         <span class="fc-session-title">{sessionTitle(row.session) || t("New session")}</span>
         <Show when={isCoworkSession(row.session)}>
           <span class="fc-cowork-badge">{t("Cowork")}</span>
+        </Show>
+        <Show when={props.sessionComputer?.(row.session.id)}>
+          {(computer) => (
+            <span
+              class="fc-session-computer"
+              title={
+                computer().status === "offline"
+                  ? t("Remote control unavailable: {name} is offline", { name: computer().name })
+                  : t("Remote Control: {name}", { name: computer().name })
+              }
+              aria-label={t("Remote Control: {name}", { name: computer().name })}
+            >
+              <Icon name="computer" size={14} />
+            </span>
+          )}
         </Show>
       </button>
       <button
@@ -667,15 +711,17 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                             {(tally) => <AttentionMark level={tally().level} count={tally().count} />}
                           </Show>
                         </button>
-                        <button
-                          class="fc-icon-button fc-project-new"
-                          type="button"
-                          title={t("New session")}
-                          aria-label={t("New session")}
-                          onClick={() => props.onNewSession(group.directory)}
-                        >
-                          <Icon name="plus" size={16} weight={2.4} />
-                        </button>
+                        <Show when={!elsewhereGroup(group)}>
+                          <button
+                            class="fc-icon-button fc-project-new"
+                            type="button"
+                            title={t("New session")}
+                            aria-label={t("New session")}
+                            onClick={() => props.onNewSession(group.directory)}
+                          >
+                            <Icon name="plus" size={16} weight={2.4} />
+                          </button>
+                        </Show>
                       </div>
                       <Show when={isExpanded(group)}>
                         <For each={group.sessions}>{(session) => <SessionRow session={session} />}</For>

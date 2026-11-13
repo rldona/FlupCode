@@ -6339,6 +6339,18 @@ button.fc-status {
   text-overflow: ellipsis;
 }
 
+.fc-session-computer {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--fc-text-muted);
+  opacity: 0.8;
+}
+
+.fc-session-row-unavailable .fc-session-title {
+  opacity: 0.5;
+}
+
 .fc-status-remote-client {
   display: inline-flex;
   align-items: center;

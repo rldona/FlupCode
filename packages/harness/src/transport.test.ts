@@ -5,6 +5,11 @@ import {
   askLocalNetwork,
   engineFetch,
   setEngineTransport,
+  setHarnessTransport,
+  setRemoteRoute,
+  remoteEngineLabel,
+  remoteEngineUrl,
+  engineSocket,
   withRequestTimeout,
 } from "./transport"
 
@@ -91,6 +96,7 @@ describe("requests without the engine credentials", () => {
   afterEach(() => {
     ;(globalThis as { window?: unknown }).window = originalWindow
     setEngineTransport(undefined)
+    setHarnessTransport(undefined)
   })
 
   test("the engine call carries them, the harness one does not", async () => {
@@ -113,7 +119,7 @@ describe("requests without the engine credentials", () => {
 
   test("still goes through the remote tunnel when one is active", async () => {
     const sent: Array<{ input: RequestInfo | URL; init?: RequestInit }> = []
-    setEngineTransport({
+    setHarnessTransport({
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
         sent.push({ input, init })
         return new Response("{}", { status: 200 })
@@ -180,5 +186,54 @@ describe("the engine call deadline", () => {
     await engineFetch(new Request("http://127.0.0.1:4096/session/ses_1/prompt", { method: "POST" }))
     await engineFetch(new Request("http://127.0.0.1:4096/api/session/ses_1/wait", { method: "POST" }))
     expect(sent.map((call) => call.init?.signal)).toEqual([undefined, undefined, undefined])
+  })
+})
+
+describe("engines on other computers (ADR-0029)", () => {
+  /** A transport that records the URLs it was asked for, under a name. */
+  const recorder = (name: string, log: string[]) => ({
+    fetch: (async (input: RequestInfo | URL) => {
+      log.push(`${name} ${input instanceof Request ? input.url : String(input)}`)
+      return new Response("{}", { status: 200 })
+    }) as typeof fetch,
+    socket: (url: string) => {
+      log.push(`${name} socket ${url}`)
+      return {} as ReturnType<typeof engineSocket>
+    },
+  })
+
+  afterEach(() => {
+    setRemoteRoute(undefined)
+    setEngineTransport(undefined)
+  })
+
+  test("a remote address names its computer, and only a remote one does", () => {
+    expect(remoteEngineLabel(`${remoteEngineUrl("ubuntu")}/api/session`)).toBe("ubuntu")
+    expect(remoteEngineLabel("http://127.0.0.1:4096/api/session")).toBeUndefined()
+    expect(remoteEngineLabel("not a url")).toBeUndefined()
+  })
+
+  test("each call goes to the computer its address names, the rest to this machine", async () => {
+    const log: string[] = []
+    setEngineTransport(recorder("local", log))
+    setRemoteRoute((label) => (label === "ubuntu" ? recorder("ubuntu", log) : undefined))
+    await engineFetch(`${remoteEngineUrl("ubuntu")}/api/session`)
+    await engineFetch(new Request(`${remoteEngineUrl("ubuntu")}/api/event`))
+    await engineFetch("http://127.0.0.1:4096/api/session")
+    engineSocket("wss://ubuntu.remote.flupcode.invalid/pty/1/connect")
+    expect(log).toEqual([
+      "ubuntu https://ubuntu.remote.flupcode.invalid/api/session",
+      "ubuntu https://ubuntu.remote.flupcode.invalid/api/event",
+      "local http://127.0.0.1:4096/api/session",
+      "ubuntu socket wss://ubuntu.remote.flupcode.invalid/pty/1/connect",
+    ])
+  })
+
+  test("a computer that is not paired is refused, never sent to this machine", async () => {
+    const log: string[] = []
+    setEngineTransport(recorder("local", log))
+    setRemoteRoute(() => undefined)
+    await expect(engineFetch(`${remoteEngineUrl("gone")}/api/session`)).rejects.toThrow("not paired")
+    expect(log).toEqual([])
   })
 })
