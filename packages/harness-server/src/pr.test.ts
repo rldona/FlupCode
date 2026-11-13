@@ -2,7 +2,17 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { branchState, cleanLogLine, countChecks, failuresIn, jobFromUrl, parseRepository, stepOf, toPullRequest } from "./pr"
+import {
+  branchState,
+  cleanLogLine,
+  countChecks,
+  failuresIn,
+  jobFromUrl,
+  parseRepository,
+  repositories,
+  stepOf,
+  toPullRequest,
+} from "./pr"
 
 describe("parseRepository", () => {
   test("reads owner/name out of the URL forms git writes", () => {
@@ -227,5 +237,38 @@ describe("branchState", () => {
     expect(state.available).toBe(false)
     expect(state.problem).toBe("gh is not installed")
     expect(state.pullRequest).toBeUndefined()
+  })
+})
+
+describe("repositories (ADR-0029)", () => {
+  const folders: string[] = []
+  const git = async (args: string[], cwd: string) => {
+    const child = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" })
+    await child.exited
+  }
+  const folder = async (remote?: string) => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-repo-"))
+    folders.push(directory)
+    await git(["init", "-q", "-b", "main"], directory)
+    if (remote) await git(["remote", "add", "origin", remote], directory)
+    return directory
+  }
+
+  afterEach(() => {
+    for (const directory of folders.splice(0)) rmSync(directory, { recursive: true, force: true })
+  })
+
+  test("names each folder's repository from its remote, whatever form the URL takes", async () => {
+    const https = await folder("https://github.com/rldona/FlupCode.git")
+    const ssh = await folder("git@github.com:rldona/FlupCode.git")
+    const none = await folder()
+    const plain = mkdtempSync(join(tmpdir(), "flupcode-plain-"))
+    folders.push(plain)
+    expect(await repositories([https, ssh, none, plain])).toEqual({
+      [https]: "rldona/FlupCode",
+      [ssh]: "rldona/FlupCode",
+      [none]: null,
+      [plain]: null,
+    })
   })
 })

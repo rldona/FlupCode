@@ -1,7 +1,7 @@
 # ADR-0029: The user's computers see each other's sessions
 
-- **Status:** Accepted. Steps 1 (the desktop app as a remote client) and 2 (every computer's
-  sessions in one sidebar) are implemented; step 3 is planned.
+- **Status:** Accepted and implemented: step 1 (the desktop app as a remote client), step 2 (every
+  computer's sessions in one sidebar) and step 3 (one project across computers).
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0010](0010-remote-control-relay.md)
 
@@ -58,10 +58,15 @@ The work lands in three steps:
    same engine, with no per-call bookkeeping in the many stores that read it. A session on an
    engine the window is not driving can only be opened from the sidebar: renaming, deleting or
    starting a session there would reach the wrong engine.
-3. **Projects across computers.** One folder has a different path on each computer
-   (`/Users/…` and `/home/…`). A remote session is grouped under the local project with the same
-   `git remote` URL, then the same folder name, and otherwise under a group named after the
-   computer.
+3. **Projects across computers.** One repository has a different folder on each computer
+   (`/Users/…/opencode-ui-power` and `/home/…/FlupCode`). Each computer's harness names the
+   repository of its folders (`POST /harness/git/repositories`: `owner/name` from git config, no
+   network), the one route of the harness that is not about runs a remote device may call. Another
+   computer's session is listed under the driven engine's folder of the same repository, then one of
+   the same name (unless the two name different repositories), and otherwise under its own path.
+   The engine's `projectID` cannot do this: it is not derived the same way on every checkout, and
+   2.x has no file read to learn the remote through the engine. A computer on an older FlupCode does
+   not answer, so only the folder name matches its projects.
 
 ## Consequences
 

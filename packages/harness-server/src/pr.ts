@@ -109,6 +109,20 @@ async function repositoryFor(directory: string, branch: string) {
   return { remote, repository: parseRepository(url.stdout) }
 }
 
+/**
+ * The repository each folder's current branch belongs to, or null (ADR-0029). Git only, no network:
+ * the desktop app asks every computer for its projects' repositories, so one checkout of a repo can
+ * be listed under the same project on each computer, whatever its folder is called there.
+ */
+export async function repositories(directories: string[]) {
+  const found = await Promise.all(
+    directories.map(
+      async (directory) => [directory, (await repositoryFor(directory, ""))?.repository ?? null] as const,
+    ),
+  )
+  return Object.fromEntries(found)
+}
+
 /** `owner/name` out of either URL form git writes, with the `.git` suffix dropped. */
 export function parseRepository(url: string): string | undefined {
   const cleaned = url.trim().replace(/\.git$/, "")

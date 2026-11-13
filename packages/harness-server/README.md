@@ -60,6 +60,7 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `POST /harness/git/commit` | stage the named paths and commit them; **409** if one is no longer changed |
 | `POST /harness/git/branch` | start a branch here and move onto it; **409** if the name is taken |
 | `GET /harness/git/branch` | which branch `?directory=` is on |
+| `POST /harness/git/repositories` | the repository (`owner/name`) of each of `directories`, from git config only; also reachable over remote control, so the user's computers can match projects (ADR-0029) |
 | `GET /harness/git/pr` | where `?directory=`'s branch stands: pushed or not, its pull request and every check |
 | `POST /harness/git/pr` | push the branch if needed, then open a pull request |
 | `GET /harness/git/pr/log` | what the failing Actions `?job=` printed, tail-limited and stripped of the runner's columns |

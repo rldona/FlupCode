@@ -7,6 +7,10 @@
  * already reaches, so they need nothing here. Anything not listed is refused, whatever it is: config
  * writes, workflows, routines, settings, pairing, browser grants, the plugins' routes. An allow-list,
  * so a route added later is refused over remote control until someone decides it belongs here.
+ *
+ * One more, for the user's other computers (ADR-0029): the repository (`owner/name`) of each folder
+ * FlupCode knows, so a project is listed once whichever computer its sessions live on. It reads git
+ * config and nothing else, and names no file.
  */
 
 const RUN_READS = new Set(["tasks", "activity", "files", "tools"])
@@ -25,8 +29,10 @@ export function remoteScopeAllows(method: string, path: string[]) {
     if (group === "artifacts") return path.length <= 3 || (path.length === 4 && ARTIFACT_READS.has(action))
     return false
   }
+  if (method !== "POST") return false
+  if (group === "git") return path[2] === "repositories" && path.length === 3
   // A gate is a question: let it through, or stop the run. There is no third answer.
-  return method === "POST" && group === "runs" && path.length === 4 && (action === "approve" || action === "stop")
+  return group === "runs" && path.length === 4 && (action === "approve" || action === "stop")
 }
 
 /** The server events a phone follows: its runs, their tasks and what they left (HE-02). */

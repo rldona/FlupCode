@@ -1,11 +1,12 @@
-import { createEffect, createSignal, onCleanup } from "solid-js"
-import { createClient } from "../../client"
+import { createEffect, createSignal, onCleanup, untrack } from "solid-js"
+import { createClient, resolveHarnessServerUrl } from "../../client"
 import { desktopRemote, remote, remoteBaseUrl, type LinkStatus } from "../../remote"
 import { STORAGE_KEYS, readStorage, writeStorage } from "../../storage"
 import { isSuggestionSession } from "../../reply-suggestion"
 import type { SessionInfo } from "../../engine-types"
 import { t } from "../../i18n"
 import { toast } from "../../toast"
+import { engineFetch, harnessBrowserToken } from "../../transport"
 
 /**
  * The sessions of the engines this window is not driving (ADR-0029).
@@ -15,6 +16,11 @@ import { toast } from "../../toast"
  * can be opened wherever it lives. Each of those engines is listed through its own address and kept
  * current by its own event stream. The last list seen from each is kept, so a computer that is off
  * still shows its sessions, as unavailable.
+ *
+ * One repository has a different folder on each computer (`/Users/…/opencode-ui-power` here,
+ * `/home/…/FlupCode` there). Each computer names the repository of its folders (`owner/name`, from
+ * git), and another computer's session is listed under the folder of the driven engine that holds the
+ * same repository, so a project shows once. Without a repository to go by, the folder's name decides.
  */
 
 const LOCAL_ENGINE = "local"
@@ -26,6 +32,9 @@ type Engine = { id: string; url: string }
 /** What each list keeps between launches: enough to draw a row and group it, nothing more. */
 type Cached = Pick<SessionInfo, "id" | "title" | "parentID" | "location" | "time"> & Partial<SessionInfo>
 
+// Here rather than in `STORAGE_KEYS`: only the desktop app keeps it, and this module is loaded there
+// alone; the startup bundle has no room to spare (ADR-0029).
+const REPOSITORIES_KEY = "flupcode.computerRepositories"
 const PAGE = 80
 const MOST = 400
 /** Events that change what a row shows, or whether there is one. */
@@ -78,6 +87,54 @@ export function createElsewhere(input: {
     )
   })
 
+  // The repository of each engine's folders, null where a folder has none, kept between launches:
+  // a checkout rarely changes repository, and a computer that is off still has its sessions placed.
+  const [repos, setRepos] = createSignal<Record<string, Record<string, string | null>>>(
+    readStorage<Record<string, Record<string, string | null>>>(REPOSITORIES_KEY, {}),
+  )
+  // Asked once per launch: a computer on an older FlupCode does not answer, and is not asked again.
+  const asked = new Set<string>()
+  createEffect(() =>
+    [current(), ...engines().map((engine) => engine.id)].forEach((engine) =>
+      createEffect(() => {
+        if (engine !== LOCAL_ENGINE && remote.hostStatus(engine) !== "online") return
+        const known = untrack(repos)[engine] ?? {}
+        const missing = [...new Set((lists()[engine] ?? []).map((session) => session.location?.directory))].filter(
+          (directory): directory is string =>
+            !!directory && !(directory in known) && !asked.has(`${engine}\n${directory}`),
+        )
+        if (missing.length === 0) return
+        missing.forEach((directory) => asked.add(`${engine}\n${directory}`))
+        void repositories(engine, missing).then((found) => {
+          if (!found) return
+          const next = { ...repos(), [engine]: { ...repos()[engine], ...found } }
+          setRepos(next)
+          writeStorage(REPOSITORIES_KEY, next)
+        })
+      }),
+    ),
+  )
+  const repositories = (engine: string, directories: string[]) => {
+    const init = { method: "POST", body: JSON.stringify({ directories }) }
+    const token = harnessBrowserToken()
+    // This machine's harness directly, even while the window drives another computer; another
+    // computer's through its engine address, whose host carries `/harness` to its own harness.
+    const answer =
+      engine === LOCAL_ENGINE
+        ? fetch(`${readStorage(STORAGE_KEYS.harnessServerUrl, resolveHarnessServerUrl())}/harness/git/repositories`, {
+            ...init,
+            headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          })
+        : engineFetch(`${remoteBaseUrl(engine)}/harness/git/repositories`, {
+            ...init,
+            headers: { "content-type": "application/json" },
+          })
+    return answer
+      .then((response) => (response.ok ? response.json() : undefined))
+      .then((body: { data?: Record<string, string | null> } | undefined) => body?.data)
+      .catch(() => undefined)
+  }
+
   const owner = (sessionID: string) => {
     if (!desktopRemote()) return undefined
     return Object.entries(lists()).find(
@@ -89,10 +146,20 @@ export function createElsewhere(input: {
     /** Every other engine's sessions, the reply suggestions' throwaway sessions left out. */
     sessions: (): SessionInfo[] => {
       if (!desktopRemote()) return []
-      const here = new Set((input.currentSessions() ?? []).map((session) => session.id))
+      const driven = input.currentSessions() ?? []
+      const here = new Set(driven.map((session) => session.id))
+      const ours = [...new Set(driven.map((session) => session.location?.directory).filter((path) => !!path))]
       return Object.entries(lists())
         .filter(([engine]) => engine !== current())
-        .flatMap(([, sessions]) => sessions as SessionInfo[])
+        .flatMap(([engine, sessions]) =>
+          (sessions as SessionInfo[]).map((session) => {
+            const directory = session.location?.directory
+            const listed = directory
+              ? listedFolder({ directory, theirs: repos()[engine] ?? {}, ours, mine: repos()[current()] ?? {} })
+              : directory
+            return listed === directory ? session : { ...session, location: { ...session.location, directory: listed } }
+          }),
+        )
         .filter((session) => !here.has(session.id) && !isSuggestionSession(session))
     },
     /** The engine another computer's session lives in, or nothing for the one the window drives. */
@@ -167,4 +234,40 @@ function trim(session: Cached): Cached {
     // Chat or Code: which tab lists it (chat.ts).
     ...(session.agent ? { agent: session.agent } : {}),
   }
+}
+
+/**
+ * Where another engine's folder is listed: the driven engine's folder of the same repository, then
+ * one of the same name, then its own path. Two folders of one name are one project, unless each
+ * names a different repository.
+ */
+export function listedFolder(input: {
+  directory: string
+  /** The repository of each of the other engine's folders. */
+  theirs: Record<string, string | null>
+  /** The driven engine's folders. */
+  ours: string[]
+  /** The repository of each of the driven engine's folders. */
+  mine: Record<string, string | null>
+}) {
+  if (input.ours.includes(input.directory)) return input.directory
+  const repository = input.theirs[input.directory]
+  const name = folderName(input.directory)
+  return (
+    (repository && input.ours.find((candidate) => input.mine[candidate] === repository)) ||
+    input.ours.find(
+      (candidate) =>
+        folderName(candidate) === name &&
+        !(repository && input.mine[candidate] && input.mine[candidate] !== repository),
+    ) ||
+    input.directory
+  )
+}
+
+function folderName(directory: string) {
+  return directory
+    .replace(/[\\/]+$/, "")
+    .split(/[\\/]/)
+    .at(-1)
+    ?.toLowerCase()
 }
