@@ -112,6 +112,15 @@ describe("the remote token's scope (HE-02)", () => {
     repository.close()
   })
 
+  test("names the repositories of the folders it knows, for the user's other computers (ADR-0029)", async () => {
+    const { repository, call } = scoped()
+    const answer = await call("remote-token", "POST", "/harness/git/repositories", { directories: ["/not/a/project"] })
+    expect(answer.status).toBe(200)
+    // A folder FlupCode does not know is left out, not answered.
+    expect((await answer.json()).data).toEqual({})
+    repository.close()
+  })
+
   test("the event stream carries runs and artifacts, not the reader's stash or routines", async () => {
     const { repository, call } = scoped()
     const response = await call("remote-token", "GET", "/harness/events")

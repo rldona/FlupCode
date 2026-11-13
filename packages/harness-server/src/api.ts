@@ -468,7 +468,7 @@ import {
   mergeBranch,
   patchForCommit,
 } from "./git"
-import { branchState, checkLog, createPullRequest } from "./pr"
+import { branchState, checkLog, createPullRequest, repositories } from "./pr"
 import { drop, dropAll, take } from "./checkpoint"
 import { RestoreError, describeCheckpoints, planCheckpoint, restoreCheckpoint } from "./semantic-checkpoint"
 import { filesPerTask } from "./touched"
@@ -2098,6 +2098,17 @@ export const createHarnessHandler = (
         if (cause instanceof GitError) return error(cause.message, cause.status)
         throw cause
       }
+    }
+    // The repository of each folder, so a project can be matched across computers (ADR-0029). Folders
+    // FlupCode does not know answer nothing rather than refusing the whole list.
+    if (path[1] === "git" && path[2] === "repositories" && !path[3] && request.method === "POST") {
+      const body = (await request.json().catch(() => undefined)) as { directories?: unknown } | undefined
+      const asked = Array.isArray(body?.directories)
+        ? body.directories.filter((entry): entry is string => typeof entry === "string").slice(0, 200)
+        : []
+      const known = (await Promise.all(asked.map(async (directory) => ((await roots.within(directory)) ? directory : undefined))))
+        .filter((directory): directory is string => directory !== undefined)
+      return json({ data: await repositories(known) })
     }
     // Where the branch stands on GitHub: pushed or not, and its pull request with every check.
     // One `gh` call behind it, so a client may poll it while the checks are running and stop after.
