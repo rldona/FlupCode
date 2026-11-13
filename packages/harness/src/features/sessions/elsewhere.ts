@@ -52,8 +52,9 @@ export function createElsewhere(input: {
   const [lists, setLists] = createSignal<Record<string, Cached[]>>(
     readStorage<Record<string, Cached[]>>(STORAGE_KEYS.computerSessions, {}),
   )
+  // Untracked: it runs inside effects, and one that read the lists it writes would run forever.
   const store = (engine: string, sessions: Cached[]) => {
-    const next = { ...lists(), [engine]: sessions.slice(0, MOST).map(trim) }
+    const next = { ...untrack(lists), [engine]: sessions.slice(0, MOST).map(trim) }
     setLists(next)
     writeStorage(STORAGE_KEYS.computerSessions, next)
   }
@@ -72,11 +73,17 @@ export function createElsewhere(input: {
     if (sessions && desktopRemote()) store(current(), sessions)
   })
 
+  // A forgotten computer takes its sessions with it.
   createEffect(() => {
-    // A forgotten computer takes its sessions with it.
     const paired = new Set([LOCAL_ENGINE, ...remote.hosts().map((host) => host.hostId)])
-    if (Object.keys(lists()).some((engine) => !paired.has(engine)))
-      setLists(Object.fromEntries(Object.entries(lists()).filter(([engine]) => paired.has(engine))))
+    const kept = untrack(lists)
+    if (Object.keys(kept).some((engine) => !paired.has(engine)))
+      setLists(Object.fromEntries(Object.entries(kept).filter(([engine]) => paired.has(engine))))
+  })
+
+  // One follower per other engine, started again only when the engines or a computer's link change:
+  // never on a new list, which every follower writes.
+  createEffect(() => {
     engines().forEach((engine) =>
       createEffect(() => {
         if (engine.id !== LOCAL_ENGINE && remote.hostStatus(engine.id) !== "online") return
