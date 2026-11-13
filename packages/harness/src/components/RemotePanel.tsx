@@ -85,7 +85,9 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
       {(current) => (
         <>
           <p class="fc-modal-line">
-            {t("Control this computer's sessions from your phone or another computer, on any network. Traffic is end-to-end encrypted.")}
+            {t(
+              "Control this computer's sessions from your phone or another computer, on any network. Traffic is end-to-end encrypted.",
+            )}
           </p>
           <section class="fc-settings-section">
             <div class="fc-settings-row">
@@ -123,7 +125,9 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
                 when={current().pairing}
                 fallback={
                   <div class="fc-settings-row">
-                    <span class="fc-settings-status">{t("Show a QR code to scan with your phone, or a link to paste on another computer.")}</span>
+                    <span class="fc-settings-status">
+                      {t("Show a QR code to scan with your phone, or a link to paste on another computer.")}
+                    </span>
                     <button
                       class="fc-button fc-button-primary"
                       type="button"
@@ -139,7 +143,10 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
                   <div class="fc-remote-pairing">
                     <div class="fc-qr" innerHTML={svg()} />
                     <p class="fc-settings-status">
-                      {t("Scan it with your phone, or copy the link into FlupCode on another computer. It works once and expires in {time}.", { time: remaining() })}
+                      {t(
+                        "Scan it with your phone, or copy the link into FlupCode on another computer. It works once and expires in {time}.",
+                        { time: remaining() },
+                      )}
                     </p>
                     <div class="fc-modal-links">
                       <button
@@ -329,7 +336,9 @@ const ClientView: Component<{ desktop: boolean }> = (props) => {
               <p class="fc-settings-status">{t("No computers yet")}</p>
               <p class="fc-settings-status">
                 {props.desktop
-                  ? t("On the other computer, open FlupCode → Remote control → Pair a device, copy the link and paste it here.")
+                  ? t(
+                      "On the other computer, open FlupCode → Remote control → Pair a device, copy the link and paste it here.",
+                    )
                   : t(
                       "On the computer, open FlupCode → Remote control → Pair a device and scan the code with this device.",
                     )}
@@ -362,7 +371,11 @@ const ClientView: Component<{ desktop: boolean }> = (props) => {
             spellcheck={false}
             onInput={(event) => setLink(event.currentTarget.value)}
           />
-          <button class="fc-button" type="submit" disabled={!link().trim() || (!!remote.pairing() && !remote.pairing()?.error)}>
+          <button
+            class="fc-button"
+            type="submit"
+            disabled={!link().trim() || (!!remote.pairing() && !remote.pairing()?.error)}
+          >
             {t("Pair")}
           </button>
         </form>
