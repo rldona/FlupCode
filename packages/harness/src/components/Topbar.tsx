@@ -178,7 +178,23 @@ export const Topbar: Component<TopbarProps> = (props) => {
             <Icon name="terminal" size={16} />
           </button>
         </Show>
-        <Show when={props.remote ?? props.hostRemote}>
+        {/* Driving another computer: its name, always in sight, so this window is never taken for
+            the local one (ADR-0029). */}
+        <Show when={props.remote}>
+          {(pill) => (
+            <button
+              class="fc-status fc-status-remote fc-status-remote-client"
+              classList={{ "fc-status-on": pill().connected, "fc-status-off": !pill().connected }}
+              type="button"
+              title={t("Remote: {name}", { name: pill().name })}
+              onClick={pill().onOpen}
+            >
+              <Icon name="computer" size={14} />
+              <span>{pill().connected ? pill().name : t("{name} · Disconnected", { name: pill().name })}</span>
+            </button>
+          )}
+        </Show>
+        <Show when={!props.remote && props.hostRemote}>
           {(pill) => (
             <button
               class="fc-status fc-status-remote"

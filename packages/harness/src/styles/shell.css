@@ -6339,6 +6339,19 @@ button.fc-status {
   text-overflow: ellipsis;
 }
 
+.fc-status-remote-client {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+}
+
+.fc-status-remote-client span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 520px) {
   .fc-topbar .fc-status-remote {
     display: inline-flex;
