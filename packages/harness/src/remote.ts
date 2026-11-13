@@ -16,7 +16,8 @@ import {
 } from "@flupcode/remote"
 import type { ChildState } from "@flupcode/remote/supervisor"
 import { readStorage, STORAGE_KEYS, writeStorage } from "./storage"
-import { setEngineTransport, type EngineTransport } from "./transport"
+import { remoteEngineUrl, setHarnessTransport, setRemoteRoute, type EngineTransport } from "./transport"
+import type { Links } from "./remote-links"
 import { currentSubscription, disablePush, enablePush } from "./push"
 
 /** Remote control client (ADR-0010): pairs with a desktop and routes engine traffic through it. */
@@ -130,7 +131,11 @@ export function desktopRemote() {
 }
 
 export function remoteBaseUrl(hostId: string) {
-  return `https://${hostId.toLowerCase().replace(/[^a-z0-9-]/g, "-")}.remote.flupcode.invalid`
+  return remoteEngineUrl(hostLabel(hostId))
+}
+
+function hostLabel(hostId: string) {
+  return hostId.toLowerCase().replace(/[^a-z0-9-]/g, "-")
 }
 
 function deviceName() {
@@ -197,6 +202,7 @@ function saveHosts(next: RemoteHost[]) {
   setHosts(next)
   writeStorage(STORAGE_KEYS.remoteHosts, next)
   if (next.length > 0) keepStorage()
+  syncLinks()
 }
 
 /** Asks the browser not to evict saved data under storage pressure, which would drop the pairing. */
@@ -212,7 +218,45 @@ if (hosts().length > 0) keepStorage()
 function saveActive(hostId: string | undefined) {
   setActiveHostId(hostId)
   writeStorage(STORAGE_KEYS.remoteActive, hostId ?? "")
+  syncLinks()
 }
+
+/**
+ * The other paired computers, kept connected in the background (ADR-0029): only the desktop app
+ * lists every computer's sessions, so only it loads `remote-links.ts`.
+ */
+export type LinkStatus = "connecting" | "online" | "offline"
+
+let links: Links | undefined
+const [linksReady, setLinksReady] = createSignal(false)
+
+function syncLinks() {
+  links?.sync(hosts().filter((host) => host.hostId !== activeHostId()))
+}
+
+function loadLinks() {
+  if (!desktopRemote() || links) return
+  void import("./remote-links").then((module) => {
+    links ??= module.createLinks({
+      open: (host) =>
+        open({ relay: host.relay, hostId: host.hostId, mode: "device", id: host.deviceId, psk: host.deviceKey }),
+      revoked: (error) => classify(error) === "revoked",
+      deviceName,
+      wait: TUNNEL_WAIT,
+    })
+    setLinksReady(true)
+    syncLinks()
+  })
+}
+
+// Every call to a remote engine's address goes to that computer: through the window's own tunnel
+// when it drives it, through its background link otherwise.
+setRemoteRoute((label) => {
+  const host = hosts().find((entry) => hostLabel(entry.hostId) === label)
+  if (!host) return undefined
+  if (host.hostId === activeHostId()) return remoteTransport
+  return links?.transport(host.hostId)
+})
 
 class InsecureContextError extends Error {}
 
@@ -239,7 +283,7 @@ function attach(next: TunnelClient, host: RemoteHost, current: number) {
   void currentSubscription(host.relay).then((subscription) => {
     if (subscription && tunnel === next) next.sendControl({ type: "push-subscription", subscription })
   })
-  setEngineTransport(remoteTransport)
+  setHarnessTransport(remoteTransport)
   waiters.splice(0).forEach((waiter) => waiter.resolve(next))
   setErrorCode(undefined)
   setStatus("connected")
@@ -261,7 +305,7 @@ async function connectHost(hostId: string, current = ++generation) {
   const host = hosts().find((entry) => entry.hostId === hostId)
   if (!host) return
   clearTimeout(retryTimer)
-  setEngineTransport(remoteTransport)
+  setHarnessTransport(remoteTransport)
   if (status() !== "reconnecting") setStatus("connecting")
   const result = await open({
     relay: host.relay,
@@ -337,6 +381,15 @@ export const remote = {
   pairing,
   activeHost: () => hosts().find((host) => host.hostId === activeHostId()),
 
+  /** How each paired computer is reachable: the driven one from its tunnel, the others from their links. */
+  hostStatus(hostId: string): LinkStatus {
+    if (hostId !== activeHostId()) return (linksReady() && links?.status(hostId)) || "offline"
+    const current = status()
+    if (current === "connected") return "online"
+    if (current === "connecting" || current === "reconnecting") return "connecting"
+    return "offline"
+  },
+
   /** Turns notifications on for the connected computer (call from a tap). */
   async enableNotifications() {
     const host = remote.activeHost()
@@ -367,7 +420,7 @@ export const remote = {
     tunnel?.close()
     tunnel = undefined
     waiters.splice(0).forEach((waiter) => waiter.reject(new TypeError("Remote control disconnected")))
-    setEngineTransport(undefined)
+    setHarnessTransport(undefined)
     setErrorCode(undefined)
     setStatus("idle")
   },
@@ -402,12 +455,13 @@ export const remote = {
     return pair(link)
   },
 
-  /** Reconnects to the last active host on startup. */
+  /** Reconnects to the last active host on startup, and links the desktop to the other computers. */
   resume() {
+    loadLinks()
     const hostId = activeHostId()
     if (hostId && hosts().some((host) => host.hostId === hostId)) void connectHost(hostId)
   },
 }
 
 // Route engine calls to the saved host from the very first request, before `resume` connects.
-if (remote.activeHost()) setEngineTransport(remoteTransport)
+if (remote.activeHost()) setHarnessTransport(remoteTransport)

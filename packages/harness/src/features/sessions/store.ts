@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, getOwner, onCleanup, runWithOwner, untrack } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { createResource } from "../../resource"
 import { createReconciledList } from "../../reconciled"
@@ -33,6 +33,7 @@ import type { RemoteSessionItem } from "../../components/RemoteHome"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "../../split"
 import { closeTab, cycleTab, keepTabs, openTab, tabAfterClose } from "../../tabs"
 import type { AppStores } from "../../app-context"
+import type { Elsewhere } from "./elsewhere"
 
 type Client = ReturnType<typeof createClient>
 
@@ -236,7 +237,7 @@ export function createSessions(app: AppStores) {
         // A short page is the end of the list: asking again would only get less.
         if ((response.data?.length ?? 0) < SESSION_PAGE || !cursor) break
       }
-      return { data }
+      return { data, url }
     },
   )
   // Server-side session search (H-18), for the palette: it reaches sessions the page above never
@@ -254,6 +255,24 @@ export function createSessions(app: AppStores) {
       .catch(() => [] as SessionInfo[])
   // Reply suggestions run in throwaway child sessions that are never shown.
   const sessionList = () => sessions()?.data?.filter((session) => !isSuggestionSession(session))
+  // The other computers' sessions, and this one's while the window drives another (ADR-0029). Only a
+  // list that came from the engine being driven counts as its own: while the next one loads, the
+  // previous engine's list is still on screen.
+  // Only the desktop app lists other computers, so the code that does is only loaded there.
+  const [elsewhere, setElsewhere] = createSignal<Elsewhere>()
+  if (desktopRemote()) {
+    const owner = getOwner()
+    void import("./elsewhere").then((module) =>
+      runWithOwner(owner, () =>
+        setElsewhere(() =>
+          module.createElsewhere({
+            currentSessions: () => (sessions()?.url === app.connection.serverUrl() ? sessionList() : undefined),
+            localUrl: app.connection.localServerUrl,
+          }),
+        ),
+      ),
+    )
+  }
   // Every page of the list is a chance to learn where a session lives, and the next page may drop it.
   createEffect(() =>
     (sessionList() ?? []).forEach((session) => rememberDirectory(session.id, session.location?.directory)),
@@ -340,7 +359,11 @@ export function createSessions(app: AppStores) {
   }
   // Sessions the engine forked for a subagent live in the details panel, under the parent they
   // belong to; as rows in this column they read as projects of their own.
-  const viewSessions = () => sessionList()?.filter((session) => isChatLike(session) === chatView() && !session.parentID)
+  const viewSessions = () =>
+    sessionList() &&
+    [...sessionList()!, ...(elsewhere()?.sessions() ?? [])].filter(
+      (session) => isChatLike(session) === chatView() && !session.parentID,
+    )
   const changeView = (next: AppView) => {
     app.router.leaveScreen()
     if (next === view()) return
@@ -956,6 +979,8 @@ export function createSessions(app: AppStores) {
   const canGoBack = () => historyIndex() > 0
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
+  /** Opens a session wherever it lives: another engine's moves the window there first (ADR-0029). */
+  const openSession = (id: string) => (elsewhere() ? elsewhere()!.open(id, selectSession) : selectSession(id))
   const selectSession = (id: string) => {
     app.router.leaveScreen()
     if (app.settings.narrow()) app.settings.setCollapsed(true)
@@ -1486,6 +1511,11 @@ export function createSessions(app: AppStores) {
     runState,
     searchSessions,
     selectSession,
+    openSession,
+    /** The computer a listed session lives on, when it is not this one (ADR-0029). */
+    sessionComputer: (id: string) => elsewhere()?.computer(id),
+    /** Whether a listed session lives on an engine other than the one the window drives. */
+    elsewhere: (id: string) => elsewhere()?.owner(id) !== undefined,
     selected,
     selectedSession,
     sessionDirectories,

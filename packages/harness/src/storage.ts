@@ -31,6 +31,7 @@ export const STORAGE_KEYS = {
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",
+  computerSessions: "flupcode.computerSessions",
   remotePush: "flupcode.remotePush",
   promptHistory: "flupcode.promptHistory",
   view: "flupcode.view",

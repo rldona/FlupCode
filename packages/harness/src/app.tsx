@@ -91,7 +91,9 @@ export const App: Component = () => {
                 onEditTags={app.sessions.editTags}
                 onToggleProject={app.sessions.toggleProject}
                 onNewSession={app.sessions.newSession}
-                onSelectSession={app.sessions.selectSession}
+                onSelectSession={app.sessions.openSession}
+                sessionComputer={app.sessions.sessionComputer}
+                elsewhere={app.sessions.elsewhere}
                 onSplitSession={app.sessions.openSplit}
                 splitSessions={app.sessions.splitActive() ? app.sessions.splitPanes() : []}
                 onDeleteSession={app.sessions.deleteSession}

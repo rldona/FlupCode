@@ -304,6 +304,7 @@ export function createConnection(app: AppStores) {
     localNetwork,
     localNetworkAsking,
     localNetworkReady,
+    localServerUrl,
     ready,
     refetchHealth,
     reloadEngine,
