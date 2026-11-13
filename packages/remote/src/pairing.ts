@@ -25,8 +25,13 @@ export function pairingUrl(appUrl: string, link: PairingLink) {
   return url.toString()
 }
 
+/**
+ * The link in a URL fragment, or in a whole pairing URL: a desktop cannot scan the QR code, so the
+ * user pastes the link instead (ADR-0029).
+ */
 export function parsePairingHash(hash: string): PairingLink | undefined {
-  const value = new URLSearchParams(hash.replace(/^#/, "")).get(PARAM)
+  const fragment = hash.trim()
+  const value = new URLSearchParams(fragment.slice(fragment.indexOf("#") + 1)).get(PARAM)
   if (!value) return undefined
   try {
     const link = JSON.parse(text(fromBase64Url(value))) as Partial<PairingLink>

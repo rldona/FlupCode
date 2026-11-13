@@ -1013,15 +1013,15 @@ const ES: Record<string, string> = {
 
   // Remote control
   "Remote control": "Control remoto",
-  "Control this computer's sessions from your phone, on any network. Traffic is end-to-end encrypted.":
-    "Controla las sesiones de este ordenador desde el móvil, desde cualquier red. El tráfico va cifrado de extremo a extremo.",
+  "Control this computer's sessions from your phone or another computer, on any network. Traffic is end-to-end encrypted.":
+    "Controla las sesiones de este ordenador desde el móvil o desde otro ordenador, desde cualquier red. El tráfico va cifrado de extremo a extremo.",
   "Allow remote control": "Permitir control remoto",
   "This computer": "Este ordenador",
   Online: "En línea",
   "Pair a device": "Emparejar un dispositivo",
-  "Show a QR code and scan it with your phone's camera.": "Muestra un código QR y escanéalo con la cámara del móvil.",
-  "Scan with your phone. The code works once and expires in {time}.":
-    "Escanéalo con el móvil. El código sirve una vez y caduca en {time}.",
+  "Show a QR code to scan with your phone, or a link to paste on another computer.": "Muestra un código QR para escanear con el móvil, o un enlace para pegar en otro ordenador.",
+  "Scan it with your phone, or copy the link into FlupCode on another computer. It works once and expires in {time}.":
+    "Escanéalo con el móvil o copia el enlace en FlupCode en otro ordenador. Sirve una vez y caduca en {time}.",
   "Copy link": "Copiar enlace",
   "Paired devices": "Dispositivos emparejados",
   "No devices yet": "Aún no hay dispositivos",
@@ -1041,6 +1041,14 @@ const ES: Record<string, string> = {
     "En el ordenador, abre FlupCode → Control remoto → Emparejar un dispositivo y escanea el código con este dispositivo.",
   "Connected to {name}": "Conectado a {name}",
   "Paired computers": "Ordenadores emparejados",
+  "Other computers": "Otros ordenadores",
+  "Drive another computer's sessions from this window. It must have the FlupCode desktop app open with remote control turned on.":
+    "Controla las sesiones de otro ordenador desde esta ventana. Debe tener abierta la app de escritorio de FlupCode con el control remoto activado.",
+  "On the other computer, open FlupCode → Remote control → Pair a device, copy the link and paste it here.":
+    "En el otro ordenador, abre FlupCode → Control remoto → Emparejar un dispositivo, copia el enlace y pégalo aquí.",
+  "Paste a pairing link": "Pega un enlace de emparejamiento",
+  "Pairing link": "Enlace de emparejamiento",
+  "That is not a pairing link": "Eso no es un enlace de emparejamiento",
   "No computers yet": "Aún no hay ordenadores",
   "Local network (without relay)": "Red local (sin relay)",
   "Remote control needs HTTPS. Open FlupCode from its secure address.":

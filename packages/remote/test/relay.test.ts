@@ -48,6 +48,7 @@ describe("pairing links", () => {
     const url = new URL(pairingUrl("https://app.flupcode.com/", link))
     expect(url.search).toBe("")
     expect(parsePairingHash(url.hash)).toEqual(link)
+    expect(parsePairingHash(` ${url.toString()}\n`)).toEqual(link)
     expect(parsePairingHash("#other=1")).toBeUndefined()
     expect(parsePairingHash(`#remote=${btoa('{"v":1,"relay":"http://x"}')}`)).toBeUndefined()
   })

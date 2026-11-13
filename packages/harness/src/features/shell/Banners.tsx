@@ -25,7 +25,13 @@ export function Banners() {
           </div>
         )}
       </Show>
-      <ChildBanner onRecovered={() => void app.connection.refetchHealth()} onTrouble={app.connection.setChildTrouble} />
+      {/* The desktop's own engine says nothing about the computer this window drives (ADR-0029). */}
+      <Show when={!remote.activeHost()}>
+        <ChildBanner
+          onRecovered={() => void app.connection.refetchHealth()}
+          onTrouble={app.connection.setChildTrouble}
+        />
+      </Show>
       <Show
         when={
           app.settings.onboarded() &&

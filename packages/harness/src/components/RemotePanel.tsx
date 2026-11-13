@@ -85,7 +85,7 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
       {(current) => (
         <>
           <p class="fc-modal-line">
-            {t("Control this computer's sessions from your phone, on any network. Traffic is end-to-end encrypted.")}
+            {t("Control this computer's sessions from your phone or another computer, on any network. Traffic is end-to-end encrypted.")}
           </p>
           <section class="fc-settings-section">
             <div class="fc-settings-row">
@@ -123,7 +123,7 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
                 when={current().pairing}
                 fallback={
                   <div class="fc-settings-row">
-                    <span class="fc-settings-status">{t("Show a QR code and scan it with your phone's camera.")}</span>
+                    <span class="fc-settings-status">{t("Show a QR code to scan with your phone, or a link to paste on another computer.")}</span>
                     <button
                       class="fc-button fc-button-primary"
                       type="button"
@@ -139,7 +139,7 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
                   <div class="fc-remote-pairing">
                     <div class="fc-qr" innerHTML={svg()} />
                     <p class="fc-settings-status">
-                      {t("Scan with your phone. The code works once and expires in {time}.", { time: remaining() })}
+                      {t("Scan it with your phone, or copy the link into FlupCode on another computer. It works once and expires in {time}.", { time: remaining() })}
                     </p>
                     <div class="fc-modal-links">
                       <button
@@ -220,7 +220,21 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
   )
 }
 
-const ClientView: Component = () => {
+/**
+ * Driving another computer. A phone or a browser is only ever this; the desktop app shows it below
+ * its own host view, so the Mac can drive the PC while a phone drives the Mac (ADR-0029).
+ */
+const ClientView: Component<{ desktop: boolean }> = (props) => {
+  const [link, setLink] = createSignal("")
+  const pairFromLink = (event: SubmitEvent) => {
+    event.preventDefault()
+    const pairing = remote.pairFromText(link())
+    if (!pairing) {
+      toast(t("That is not a pairing link"), "error")
+      return
+    }
+    void pairing.then((paired) => paired && setLink(""))
+  }
   const statusLabel = () => {
     const status = remote.status()
     if (status === "connected") return t("Connected")
@@ -253,11 +267,23 @@ const ClientView: Component = () => {
           </section>
         )}
       </Show>
-      <p class="fc-modal-line">
-        {t(
-          "This browser is the remote control, not the controlled computer. The computer must have the FlupCode desktop app open with remote control turned on.",
-        )}
-      </p>
+      <Show
+        when={props.desktop}
+        fallback={
+          <p class="fc-modal-line">
+            {t(
+              "This browser is the remote control, not the controlled computer. The computer must have the FlupCode desktop app open with remote control turned on.",
+            )}
+          </p>
+        }
+      >
+        <h3 class="fc-settings-title">{t("Other computers")}</h3>
+        <p class="fc-modal-line">
+          {t(
+            "Drive another computer's sessions from this window. It must have the FlupCode desktop app open with remote control turned on.",
+          )}
+        </p>
+      </Show>
       <Show when={remote.activeHost()}>
         {(host) => (
           <section class="fc-settings-section">
@@ -274,7 +300,10 @@ const ClientView: Component = () => {
               </span>
             </div>
             <Show when={remote.errorCode()}>{(code) => <p class="fc-settings-status">{t(ERRORS[code()])}</p>}</Show>
-            <RemoteNotifications compact />
+            {/* Web Push needs a service worker, which the desktop window does not run. */}
+            <Show when={!props.desktop}>
+              <RemoteNotifications compact />
+            </Show>
             <div class="fc-modal-links">
               <Show when={remote.status() !== "connected"}>
                 <button class="fc-button" type="button" onClick={() => remote.retry()}>
@@ -299,9 +328,11 @@ const ClientView: Component = () => {
             <>
               <p class="fc-settings-status">{t("No computers yet")}</p>
               <p class="fc-settings-status">
-                {t(
-                  "On the computer, open FlupCode → Remote control → Pair a device and scan the code with this device.",
-                )}
+                {props.desktop
+                  ? t("On the other computer, open FlupCode → Remote control → Pair a device, copy the link and paste it here.")
+                  : t(
+                      "On the computer, open FlupCode → Remote control → Pair a device and scan the code with this device.",
+                    )}
               </p>
             </>
           }
@@ -322,6 +353,19 @@ const ClientView: Component = () => {
             )}
           </For>
         </Show>
+        <form class="fc-settings-row" onSubmit={pairFromLink}>
+          <input
+            class="fc-question-custom"
+            value={link()}
+            placeholder={t("Paste a pairing link")}
+            aria-label={t("Pairing link")}
+            spellcheck={false}
+            onInput={(event) => setLink(event.currentTarget.value)}
+          />
+          <button class="fc-button" type="submit" disabled={!link().trim() || (!!remote.pairing() && !remote.pairing()?.error)}>
+            {t("Pair")}
+          </button>
+        </form>
       </section>
     </>
   )
@@ -424,8 +468,13 @@ export const RemotePanel: Component<RemotePanelProps> = (props) => {
         </span>
         <ModalClose />
       </div>
-      <Show when={desktopRemote()} fallback={<ClientView />}>
-        {(host) => <HostView bridge={host()} />}
+      <Show when={desktopRemote()} fallback={<ClientView desktop={false} />}>
+        {(host) => (
+          <>
+            <HostView bridge={host()} />
+            <ClientView desktop />
+          </>
+        )}
       </Show>
       <LocalNetwork open={props.open} initialUrl={props.initialUrl} />
     </Modal>

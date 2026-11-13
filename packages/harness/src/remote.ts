@@ -95,9 +95,12 @@ declare global {
   }
 }
 
-/** Whether this window can open a local file: only the desktop app can, a browser cannot. */
+/**
+ * Whether this window can open a local file: only the desktop app can, a browser cannot, and not
+ * while it drives another computer, whose paths do not exist here (ADR-0029).
+ */
 export function canOpenLocalFiles() {
-  return typeof window !== "undefined" && typeof window.flupcode?.openPath === "function"
+  return typeof window !== "undefined" && typeof window.flupcode?.openPath === "function" && !remote.activeHost()
 }
 
 /** Open a path in the system's default application. Nothing happens where there is no bridge. */
@@ -118,7 +121,10 @@ export function openInEditor(path: string) {
 /** Touch-first devices (phones, tablets) get the mobile remote layout. */
 export const touchDevice = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true
 
-/** The desktop app hosts remote control; everywhere else the harness can act as a client. */
+/**
+ * The desktop app's host bridge: the desktop hosts remote control, and can also act as a client of
+ * another computer like any browser (ADR-0029).
+ */
 export function desktopRemote() {
   return typeof window !== "undefined" ? window.flupcode?.remote : undefined
 }
@@ -128,6 +134,8 @@ export function remoteBaseUrl(hostId: string) {
 }
 
 function deviceName() {
+  const platform = window.flupcode?.platform
+  if (platform) return `FlupCode (${{ darwin: "Mac", win32: "Windows", linux: "Linux" }[platform] ?? platform})`
   const agent = navigator.userAgent
   if (/iPhone/.test(agent)) return "iPhone"
   if (/iPad/.test(agent)) return "iPad"
@@ -376,9 +384,18 @@ export const remote = {
     if (pairing()?.error) setPairing(undefined)
   },
 
+  /**
+   * Pairs from a pasted pairing link: the desktop app cannot scan the other computer's QR code
+   * (ADR-0029). False when the text is not a pairing link.
+   */
+  pairFromText(text: string) {
+    const link = parsePairingHash(text)
+    if (!link) return false
+    return pair(link)
+  },
+
   /** Pairs from a `#remote=` link in the current URL, removing it from the address bar. */
   consumePairingLink() {
-    if (desktopRemote()) return undefined
     const link = parsePairingHash(window.location.hash)
     if (!link) return undefined
     history.replaceState(null, "", window.location.pathname + window.location.search)
@@ -387,11 +404,10 @@ export const remote = {
 
   /** Reconnects to the last active host on startup. */
   resume() {
-    if (desktopRemote()) return
     const hostId = activeHostId()
     if (hostId && hosts().some((host) => host.hostId === hostId)) void connectHost(hostId)
   },
 }
 
 // Route engine calls to the saved host from the very first request, before `resume` connects.
-if (!desktopRemote() && remote.activeHost()) setEngineTransport(remoteTransport)
+if (remote.activeHost()) setEngineTransport(remoteTransport)

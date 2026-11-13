@@ -20,6 +20,7 @@ import {
   type FolderEntry,
 } from "../folder"
 import { Modal, ModalClose } from "./Modal"
+import { remote } from "../remote"
 import { Icon } from "./Icon"
 
 type FolderDialogProps = {
@@ -51,7 +52,9 @@ export const FolderDialog: Component<FolderDialogProps> = (props) => {
   const [homeError, setHomeError] = createSignal(false)
   let addressInput: HTMLInputElement | undefined
 
-  const native = () => typeof window !== "undefined" && typeof window.flupcode?.chooseFolder === "function"
+  // The OS picker lists this machine's folders, not those of the computer being driven (ADR-0029).
+  const native = () =>
+    typeof window !== "undefined" && typeof window.flupcode?.chooseFolder === "function" && !remote.activeHost()
   const current = createMemo(() => (root() ? joinPath(root()!, relative()) : ""))
   const segments = createMemo(() => (current() ? segmentsOf(current()) : []))
   const recents = createMemo(() =>

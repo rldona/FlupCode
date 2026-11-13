@@ -10,6 +10,7 @@ import { skillAccess } from "../skill-access"
 import { PanelFailure } from "./PanelBoundary"
 import { ConfirmDialog } from "./ConfirmDialog"
 import { Modal, ModalClose } from "./Modal"
+import { remote } from "../remote"
 import { Icon } from "./Icon"
 
 type SkillCatalogueProps = {
@@ -220,7 +221,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
    * box to type in. In a browser there is no picker, so the box stays and the button reads it.
    */
   const nativeFolderPicker = () =>
-    typeof window !== "undefined" && typeof window.flupcode?.chooseFolder === "function"
+    typeof window !== "undefined" && typeof window.flupcode?.chooseFolder === "function" && !remote.activeHost()
   const chooseFolder = async () => {
     if (nativeFolderPicker()) {
       const picked = await window.flupcode?.chooseFolder?.()
