@@ -4,6 +4,8 @@ import { desktopRemote, remote, remoteBaseUrl, type LinkStatus } from "../../rem
 import { STORAGE_KEYS, readStorage, writeStorage } from "../../storage"
 import { isSuggestionSession } from "../../reply-suggestion"
 import type { SessionInfo } from "../../engine-types"
+import { t } from "../../i18n"
+import { toast } from "../../toast"
 
 /**
  * The sessions of the engines this window is not driving (ADR-0029).
@@ -15,7 +17,7 @@ import type { SessionInfo } from "../../engine-types"
  * still shows its sessions, as unavailable.
  */
 
-export const LOCAL_ENGINE = "local"
+const LOCAL_ENGINE = "local"
 
 export type SessionComputer = { engine: string; name: string; status: LinkStatus }
 
@@ -29,13 +31,15 @@ const MOST = 400
 /** Events that change what a row shows, or whether there is one. */
 const LIST_EVENTS = /^session\.(created|updated|deleted|moved|metadata\.updated|execution\.)/
 
+export type Elsewhere = ReturnType<typeof createElsewhere>
+
 export function createElsewhere(input: {
-  /** The engine the window drives: `LOCAL_ENGINE` or a host id. */
-  current: () => string
-  /** That engine's own list, once it has loaded: it is cached for when the window drives another. */
+  /** The engine the window drives' own list, once it has loaded: it is cached for when the window drives another. */
   currentSessions: () => SessionInfo[] | undefined
   localUrl: () => string
 }) {
+  /** The engine the window drives: this machine's, or the host id of the computer it drives. */
+  const current = () => remote.activeHost()?.hostId ?? LOCAL_ENGINE
   const [lists, setLists] = createSignal<Record<string, Cached[]>>(
     readStorage<Record<string, Cached[]>>(STORAGE_KEYS.computerSessions, {}),
   )
@@ -50,13 +54,13 @@ export function createElsewhere(input: {
     return [
       { id: LOCAL_ENGINE, url: input.localUrl() },
       ...remote.hosts().map((host) => ({ id: host.hostId, url: remoteBaseUrl(host.hostId) })),
-    ].filter((engine) => engine.id !== input.current())
+    ].filter((engine) => engine.id !== current())
   }
 
   // The current engine's list is the one the window already loads.
   createEffect(() => {
     const sessions = input.currentSessions()
-    if (sessions && desktopRemote()) store(input.current(), sessions)
+    if (sessions && desktopRemote()) store(current(), sessions)
   })
 
   createEffect(() => {
@@ -77,7 +81,7 @@ export function createElsewhere(input: {
   const owner = (sessionID: string) => {
     if (!desktopRemote()) return undefined
     return Object.entries(lists()).find(
-      ([engine, sessions]) => engine !== input.current() && sessions.some((session) => session.id === sessionID),
+      ([engine, sessions]) => engine !== current() && sessions.some((session) => session.id === sessionID),
     )?.[0]
   }
 
@@ -87,16 +91,29 @@ export function createElsewhere(input: {
       if (!desktopRemote()) return []
       const here = new Set((input.currentSessions() ?? []).map((session) => session.id))
       return Object.entries(lists())
-        .filter(([engine]) => engine !== input.current())
+        .filter(([engine]) => engine !== current())
         .flatMap(([, sessions]) => sessions as SessionInfo[])
         .filter((session) => !here.has(session.id) && !isSuggestionSession(session))
     },
     /** The engine another computer's session lives in, or nothing for the one the window drives. */
     owner,
+    /**
+     * Opens a session wherever it lives: one on another engine first moves the window to that
+     * engine, the computer's or this one's. A computer that is off cannot be driven.
+     */
+    open(sessionID: string, select: (sessionID: string) => void) {
+      const engine = owner(sessionID)
+      const host = remote.hosts().find((entry) => entry.hostId === engine)
+      if (host && remote.hostStatus(host.hostId) === "offline")
+        return toast(t("Remote control unavailable: {name} is offline", { name: host.name }), "error")
+      if (host) remote.connect(host.hostId)
+      else if (engine) remote.disconnect()
+      select(sessionID)
+    },
     /** The computer a session lives on, when that is not this one; nothing for this computer's own. */
     computer: (sessionID: string): SessionComputer | undefined => {
       if (!desktopRemote()) return undefined
-      const engine = owner(sessionID) ?? input.current()
+      const engine = owner(sessionID) ?? current()
       if (engine === LOCAL_ENGINE) return undefined
       const host = remote.hosts().find((entry) => entry.hostId === engine)
       return host ? { engine, name: host.name, status: remote.hostStatus(engine) } : undefined

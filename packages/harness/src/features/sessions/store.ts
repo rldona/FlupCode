@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, getOwner, onCleanup, runWithOwner, untrack } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { createResource } from "../../resource"
 import { createReconciledList } from "../../reconciled"
@@ -33,7 +33,7 @@ import type { RemoteSessionItem } from "../../components/RemoteHome"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "../../split"
 import { closeTab, cycleTab, keepTabs, openTab, tabAfterClose } from "../../tabs"
 import type { AppStores } from "../../app-context"
-import { createElsewhere, LOCAL_ENGINE } from "./elsewhere"
+import type { Elsewhere } from "./elsewhere"
 
 type Client = ReturnType<typeof createClient>
 
@@ -258,11 +258,21 @@ export function createSessions(app: AppStores) {
   // The other computers' sessions, and this one's while the window drives another (ADR-0029). Only a
   // list that came from the engine being driven counts as its own: while the next one loads, the
   // previous engine's list is still on screen.
-  const elsewhere = createElsewhere({
-    current: () => remote.activeHost()?.hostId ?? LOCAL_ENGINE,
-    currentSessions: () => (sessions()?.url === app.connection.serverUrl() ? sessionList() : undefined),
-    localUrl: app.connection.localServerUrl,
-  })
+  // Only the desktop app lists other computers, so the code that does is only loaded there.
+  const [elsewhere, setElsewhere] = createSignal<Elsewhere>()
+  if (desktopRemote()) {
+    const owner = getOwner()
+    void import("./elsewhere").then((module) =>
+      runWithOwner(owner, () =>
+        setElsewhere(() =>
+          module.createElsewhere({
+            currentSessions: () => (sessions()?.url === app.connection.serverUrl() ? sessionList() : undefined),
+            localUrl: app.connection.localServerUrl,
+          }),
+        ),
+      ),
+    )
+  }
   // Every page of the list is a chance to learn where a session lives, and the next page may drop it.
   createEffect(() =>
     (sessionList() ?? []).forEach((session) => rememberDirectory(session.id, session.location?.directory)),
@@ -351,7 +361,7 @@ export function createSessions(app: AppStores) {
   // belong to; as rows in this column they read as projects of their own.
   const viewSessions = () =>
     sessionList() &&
-    [...sessionList()!, ...elsewhere.sessions()].filter(
+    [...sessionList()!, ...(elsewhere()?.sessions() ?? [])].filter(
       (session) => isChatLike(session) === chatView() && !session.parentID,
     )
   const changeView = (next: AppView) => {
@@ -969,21 +979,8 @@ export function createSessions(app: AppStores) {
   const canGoBack = () => historyIndex() > 0
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
-  /**
-   * Opens a session wherever it lives: one on another engine first moves the window to that engine,
-   * the computer's or this one's (ADR-0029). A computer that is off cannot be driven.
-   */
-  const openSession = (id: string) => {
-    const engine = elsewhere.owner(id)
-    if (!engine) return selectSession(id)
-    if (engine !== LOCAL_ENGINE && remote.hostStatus(engine) === "offline") {
-      toast(t("Remote control unavailable: {name} is offline", { name: elsewhere.computer(id)?.name ?? "" }), "error")
-      return
-    }
-    if (engine === LOCAL_ENGINE) remote.disconnect()
-    else remote.connect(engine)
-    selectSession(id)
-  }
+  /** Opens a session wherever it lives: another engine's moves the window there first (ADR-0029). */
+  const openSession = (id: string) => (elsewhere() ? elsewhere()!.open(id, selectSession) : selectSession(id))
   const selectSession = (id: string) => {
     app.router.leaveScreen()
     if (app.settings.narrow()) app.settings.setCollapsed(true)
@@ -1516,9 +1513,9 @@ export function createSessions(app: AppStores) {
     selectSession,
     openSession,
     /** The computer a listed session lives on, when it is not this one (ADR-0029). */
-    sessionComputer: elsewhere.computer,
+    sessionComputer: (id: string) => elsewhere()?.computer(id),
     /** Whether a listed session lives on an engine other than the one the window drives. */
-    elsewhere: (id: string) => elsewhere.owner(id) !== undefined,
+    elsewhere: (id: string) => elsewhere()?.owner(id) !== undefined,
     selected,
     selectedSession,
     sessionDirectories,

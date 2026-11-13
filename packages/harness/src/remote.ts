@@ -17,6 +17,7 @@ import {
 import type { ChildState } from "@flupcode/remote/supervisor"
 import { readStorage, STORAGE_KEYS, writeStorage } from "./storage"
 import { remoteEngineUrl, setHarnessTransport, setRemoteRoute, type EngineTransport } from "./transport"
+import type { Links } from "./remote-links"
 import { currentSubscription, disablePush, enablePush } from "./push"
 
 /** Remote control client (ADR-0010): pairs with a desktop and routes engine traffic through it. */
@@ -221,125 +222,31 @@ function saveActive(hostId: string | undefined) {
 }
 
 /**
- * The other paired computers, kept connected in the background (ADR-0029). The window still drives
- * one engine at a time, the active host's or its own, but the desktop app lists every computer's
- * sessions, so it keeps a link to each paired computer it is not driving. A phone does not: one
- * computer at a time is what it shows, and a link per computer would cost it battery.
+ * The other paired computers, kept connected in the background (ADR-0029): only the desktop app
+ * lists every computer's sessions, so only it loads `remote-links.ts`.
  */
 export type LinkStatus = "connecting" | "online" | "offline"
 
-type Link = {
-  host: RemoteHost
-  tunnel?: TunnelClient
-  attempt: number
-  timer?: ReturnType<typeof setTimeout>
-  closed: boolean
-  waiters: { resolve: (tunnel: TunnelClient) => void; reject: (error: Error) => void }[]
-}
-
-const links = new Map<string, Link>()
-const [linkStatus, setLinkStatus] = createSignal<Record<string, LinkStatus>>({})
-
-function markLink(hostId: string, status: LinkStatus | undefined) {
-  setLinkStatus(({ [hostId]: _previous, ...rest }) => (status ? { ...rest, [hostId]: status } : rest))
-}
+let links: Links | undefined
+const [linksReady, setLinksReady] = createSignal(false)
 
 function syncLinks() {
-  const wanted = desktopRemote() ? hosts().filter((host) => host.hostId !== activeHostId()) : []
-  links.forEach((link, hostId) => {
-    if (wanted.some((host) => host.hostId === hostId)) return
-    closeLink(link)
-    links.delete(hostId)
-    markLink(hostId, undefined)
-  })
-  wanted
-    .filter((host) => !links.has(host.hostId))
-    .forEach((host) => {
-      const link: Link = { host, attempt: 0, closed: false, waiters: [] }
-      links.set(host.hostId, link)
-      void openLink(link)
+  links?.sync(hosts().filter((host) => host.hostId !== activeHostId()))
+}
+
+function loadLinks() {
+  if (!desktopRemote() || links) return
+  void import("./remote-links").then((module) => {
+    links ??= module.createLinks({
+      open: (host) =>
+        open({ relay: host.relay, hostId: host.hostId, mode: "device", id: host.deviceId, psk: host.deviceKey }),
+      revoked: (error) => classify(error) === "revoked",
+      deviceName,
+      wait: TUNNEL_WAIT,
     })
-}
-
-function closeLink(link: Link) {
-  link.closed = true
-  clearTimeout(link.timer)
-  link.tunnel?.close()
-  link.tunnel = undefined
-  link.waiters.splice(0).forEach((waiter) => waiter.reject(new TypeError("Remote connection closed")))
-}
-
-async function openLink(link: Link) {
-  if (link.closed) return
-  markLink(link.host.hostId, link.attempt === 0 ? "connecting" : (linkStatus()[link.host.hostId] ?? "connecting"))
-  const result = await open({
-    relay: link.host.relay,
-    hostId: link.host.hostId,
-    mode: "device",
-    id: link.host.deviceId,
-    psk: link.host.deviceKey,
-  }).then(
-    (next) => ({ next }),
-    (error: unknown) => ({ error }),
-  )
-  if (link.closed) {
-    if ("next" in result) result.next.close()
-    return
-  }
-  if ("error" in result) {
-    markLink(link.host.hostId, "offline")
-    // Nobody waits for a computer that is not there: the sidebar shows its sessions as unavailable.
-    link.waiters.splice(0).forEach((waiter) => waiter.reject(new TypeError("Remote computer unavailable")))
-    // A computer that removed this device will not take it back by being asked again.
-    if (classify(result.error) === "revoked") return
-    link.timer = setTimeout(() => void openLink(link), Math.min(30_000, 1000 * 2 ** link.attempt++))
-    return
-  }
-  const next = result.next
-  link.tunnel = next
-  link.attempt = 0
-  next.sendControl({ type: "device", name: deviceName() })
-  markLink(link.host.hostId, "online")
-  link.waiters.splice(0).forEach((waiter) => waiter.resolve(next))
-  next.onClose(() => {
-    if (link.tunnel !== next || link.closed) return
-    link.tunnel = undefined
-    markLink(link.host.hostId, "connecting")
-    link.timer = setTimeout(() => void openLink(link), 1000)
+    setLinksReady(true)
+    syncLinks()
   })
-}
-
-/** Resolves with the link's tunnel, waiting while it connects; at once refused while it is offline. */
-function linkTunnel(link: Link) {
-  if (link.tunnel && !link.tunnel.closed) return Promise.resolve(link.tunnel)
-  if (linkStatus()[link.host.hostId] === "offline") return Promise.reject(new TypeError("Remote computer unavailable"))
-  return new Promise<TunnelClient>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      link.waiters = link.waiters.filter((entry) => entry !== waiter)
-      reject(new TypeError("Remote connection not ready"))
-    }, TUNNEL_WAIT)
-    const waiter = {
-      resolve: (tunnel: TunnelClient) => {
-        clearTimeout(timer)
-        resolve(tunnel)
-      },
-      reject: (error: Error) => {
-        clearTimeout(timer)
-        reject(error)
-      },
-    }
-    link.waiters.push(waiter)
-  })
-}
-
-function linkTransport(link: Link): EngineTransport {
-  return {
-    fetch: async (input, init) => (await linkTunnel(link)).fetch(input, init),
-    socket: (url) => {
-      if (!link.tunnel || link.tunnel.closed) throw new Error("Remote connection not ready")
-      return link.tunnel.socket(url)
-    },
-  }
 }
 
 // Every call to a remote engine's address goes to that computer: through the window's own tunnel
@@ -348,8 +255,7 @@ setRemoteRoute((label) => {
   const host = hosts().find((entry) => hostLabel(entry.hostId) === label)
   if (!host) return undefined
   if (host.hostId === activeHostId()) return remoteTransport
-  const link = links.get(host.hostId)
-  return link ? linkTransport(link) : undefined
+  return links?.transport(host.hostId)
 })
 
 class InsecureContextError extends Error {}
@@ -477,7 +383,7 @@ export const remote = {
 
   /** How each paired computer is reachable: the driven one from its tunnel, the others from their links. */
   hostStatus(hostId: string): LinkStatus {
-    if (hostId !== activeHostId()) return linkStatus()[hostId] ?? "offline"
+    if (hostId !== activeHostId()) return (linksReady() && links?.status(hostId)) || "offline"
     const current = status()
     if (current === "connected") return "online"
     if (current === "connecting" || current === "reconnecting") return "connecting"
@@ -551,7 +457,7 @@ export const remote = {
 
   /** Reconnects to the last active host on startup, and links the desktop to the other computers. */
   resume() {
-    syncLinks()
+    loadLinks()
     const hostId = activeHostId()
     if (hostId && hosts().some((host) => host.hostId === hostId)) void connectHost(hostId)
   },

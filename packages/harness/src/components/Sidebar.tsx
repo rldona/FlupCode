@@ -317,22 +317,14 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       icon: "copy" as const,
       onSelect: () => props.onCopyPath(session.location?.directory ?? ""),
     }
-    if (props.elsewhere?.(session.id)) {
-      setMenu({
-        x: event.clientX,
-        y: event.clientY,
-        items: [
-          { label: t("Open"), icon: "open", onSelect: () => props.onSelectSession(session.id) },
-          ...(props.view === "code" ? [copyPath] : []),
-        ],
-      })
-      return
-    }
+    const open = { label: t("Open"), icon: "open" as const, onSelect: () => props.onSelectSession(session.id) }
+    // Another engine's session only opens from here: the rest would reach the wrong engine.
+    const elsewhere = props.elsewhere?.(session.id)
     setMenu({
       x: event.clientX,
       y: event.clientY,
-      items: [
-        { label: t("Open"), icon: "open", onSelect: () => props.onSelectSession(session.id) },
+      items: ([
+        open,
         ...(session.id === props.selectedSession || props.splitSessions.includes(session.id)
           ? []
           : [{ label: t("Split view"), icon: "split" as const, onSelect: () => props.onSplitSession(session.id) }]),
@@ -345,25 +337,18 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         { label: t("Rename"), icon: "pencil", onSelect: () => props.onRenameSession(session.id) },
         ...(props.view === "code" ? [copyPath] : []),
         { label: t("Delete"), icon: "close", danger: true, onSelect: () => props.onDeleteSession(session.id) },
-      ],
+      ] satisfies MenuItem[]
+      ).filter((item) => !elsewhere || item === open || item === copyPath),
     })
   }
 
   const openProjectMenu = (event: MenuPoint, group: ProjectGroup) => {
     event.preventDefault()
     event.stopPropagation()
-    if (elsewhereGroup(group)) {
-      setMenu({
-        x: event.clientX,
-        y: event.clientY,
-        items: [{ label: t("Copy path"), icon: "copy", onSelect: () => props.onCopyPath(group.directory ?? "") }],
-      })
-      return
-    }
     setMenu({
       x: event.clientX,
       y: event.clientY,
-      items: [
+      items: ([
         { label: t("New session"), icon: "plus", onSelect: () => props.onNewSession(group.directory) },
         { label: t("Copy path"), icon: "copy", onSelect: () => props.onCopyPath(group.directory ?? "") },
         {
@@ -372,7 +357,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           danger: true,
           onSelect: () => props.onDeleteProject(group.id),
         },
-      ],
+        // A project only another engine has: starting or deleting from here would reach the wrong one.
+      ] satisfies MenuItem[]
+      ).filter((item) => !elsewhereGroup(group) || item.icon === "copy"),
     })
   }
 
